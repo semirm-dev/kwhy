@@ -246,12 +246,21 @@ func TestTraceDirect(t *testing.T) {
 	}
 }
 
+// Trace skips empty strings (image.tag: ""); TraceLeaf marks one on demand.
 func TestTraceComposed(t *testing.T) {
-	idx, v, _ := trace(t, mini, prod)
+	idx, v, c := trace(t, mini, prod)
 
 	f := field(t, idx, "deploy/api", ".spec.template.spec.containers[name=api].image")
-	if want := []value.Hit{{Leaf: lookup(t, v, "image", "repository").ID}, {Leaf: lookup(t, v, "image", "tag").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
+	repo, tag := lookup(t, v, "image", "repository").ID, lookup(t, v, "image", "tag").ID
+	if want := []value.Hit{{Leaf: repo}}; !reflect.DeepEqual(idx.Hits[f], want) {
 		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
+	}
+
+	if err := value.TraceLeaf(t.Context(), idx, c, v, render.Options{}, tag); err != nil {
+		t.Fatal(err)
+	}
+	if want := []value.Hit{{Leaf: repo}, {Leaf: tag}}; !reflect.DeepEqual(idx.Hits[f], want) {
+		t.Fatalf("after TraceLeaf got %+v, want %+v", idx.Hits[f], want)
 	}
 }
 

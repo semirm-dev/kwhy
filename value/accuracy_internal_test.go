@@ -85,7 +85,7 @@ func TestAccuracy(t *testing.T) {
 					predicted[f] = true
 				}
 				for f := range moved {
-					if predicted[f] || len(idx.Hits[f]) > 0 {
+					if predicted[f] {
 						continue
 					}
 					a, ok := explained[f]

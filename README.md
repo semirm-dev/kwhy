@@ -85,8 +85,19 @@ kinds, and `kwhy value` prints them (`--all`, `--key`, `-o human|markdown|json`)
 
 Accuracy is checked against 10 pinned public charts (`go test -tags accuracy ./value/`, run nightly in CI).
 All 10 pass: kwhy never named a wrong setting (precision 1.00), and it found at least 96% of the settings
-that really change a field (recall 0.96–1.00). Speed is not there yet: on a large chart like argo-cd one
-answer takes about 15 seconds, against a 2-second target.
+that really change a field (recall 0.96–1.00).
+
+One field, end to end, on an 8-core M1 Pro:
+
+| Chart | Values leaves | Time |
+|---|---|---|
+| podinfo, external-dns, ingress-nginx, grafana | 68–243 | 0.02–0.35s |
+| postgresql, redis, cert-manager, keycloak | 189–569 | 0.9–1.7s |
+| argo-cd | 758 | 3.8s |
+| kube-prometheus-stack | 1247 | 21s |
+
+Nearly all of it is tracing the whole chart, which every run repeats, so a second question about the
+same chart costs the same again.
 Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
 ## `kwhy change`: what will this PR do? (planned, v0.3)

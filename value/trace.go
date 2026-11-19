@@ -29,12 +29,14 @@ type Index struct {
 
 	coalesced map[string]any  // the values Helm rendered the baseline with
 	breakers  [2]map[int]bool // per mode (nudge, zero): Leaf.ID → perturbing it alone that way fails the render; nil until Explain needs them
+	nudged    []render.Doc    // render with every empty-string leaf nudged; nil until Explain needs it, or if it failed
+	nudgeFail bool
 }
 
 // Trace renders with the values replaced by unique markers, chunk by chunk, and records which
-// leaves show up in which fields. Strings (empty ones too, for `default x .Values.y`) and non-zero
-// numbers are marked; bools and zeros steer control flow and are left to Explain. chunk is how
-// many leaves one render marks (ChunkSize unless tuning).
+// leaves show up in which fields. Non-empty strings and non-zero numbers are marked; bools, zeros
+// and empty strings steer control flow (each `if` they flip would need its own render) and are
+// left to Explain and TraceLeaf. chunk is how many leaves one render marks (ChunkSize unless tuning).
 func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunk int) (*Index, error) {
 	docs, err := c.Render(ctx, v.User, o)
 	if err != nil {
@@ -62,7 +64,7 @@ func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, ch
 	base := markerBase(v.Leaves)
 	var marked []Leaf
 	for _, l := range v.Leaves {
-		if _, ok := l.Value.(string); ok {
+		if s, ok := l.Value.(string); ok && s != "" {
 			marked = append(marked, l)
 		} else if n, ok := whole(l.Value); ok && n != 0 && base+len(v.Leaves) < 1e6 {
 			marked = append(marked, l)
@@ -85,6 +87,13 @@ func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, ch
 	}
 
 	return idx, nil
+}
+
+// TraceLeaf marks one leaf alone and adds its hits to idx, for leaves Trace skips (`--key` on an
+// empty string).
+func TraceLeaf(ctx context.Context, idx *Index, c *render.Chart, v *Values, o render.Options, leaf int) error {
+	t := &tracer{c: c, o: o, user: v.User, idx: idx, base: markerBase(v.Leaves)}
+	return t.mark(ctx, []Leaf{v.Leaves[leaf]})
 }
 
 // Hit says a leaf's marker shows up in a rendered field.

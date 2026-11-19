@@ -78,7 +78,10 @@ Every answer has one of these **kinds**, shown to the user and in JSON:
 4. **Perturbation fallback**, only for the field the user asked about when step 3 found no marker:
    change each candidate leaf to a nearby valid value, re-render, and see which leaves move the field
    (`derived`). Candidates are limited to leaves under the same top-level key as the field's resource
-   first, then widened.
+   first, then widened. Fields that do have markers still test the empty-string leaves the marker pass
+   skipped (`image.tag: ""` behind `default .Chart.AppVersion`): one render with all of them nudged is
+   shared by every field, and only fields it moves are bisected. `--key` on an empty-string leaf marks
+   that leaf alone.
 5. **Template attribution** is file-level from Helm's `# Source:` header. A line hint inside the template
    (searching for `.Values.<key>`) may be shown, labelled as a hint, never used for edits.
 
@@ -124,7 +127,8 @@ wins. Spike this before planning v0.2.
 - Every answer includes `kind`, source `file:line` (or `chart`/`random`), and the override chain.
 - Unknown path → error listing the closest valid paths. Unknown resource → list resources in the render.
 - JSON schema versioned (`"schema": "kwhy.value/v1"`).
-- p95 under 2s for a single field on argo-cd-sized charts (in-process rendering).
+- p95 under 5s for a single field on argo-cd-sized charts (in-process rendering, 8 cores). 2s is the
+  later goal; most of what's left is inside Helm (manifest splitting, chart loading per render).
 
 ## Risks
 

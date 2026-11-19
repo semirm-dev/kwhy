@@ -153,6 +153,11 @@ func valueCmd() *cobra.Command {
 				if i < 0 {
 					return fmt.Errorf("unknown values key %s", key)
 				}
+				if v.Leaves[i].Value == "" {
+					if err := value.TraceLeaf(ctx, idx, c, v, o, i); err != nil {
+						return err
+					}
+				}
 
 				for _, f := range value.Affects(idx, i) {
 					if doc < 0 || f.Doc == doc {

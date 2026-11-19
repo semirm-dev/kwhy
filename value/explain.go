@@ -227,7 +227,17 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 			a.Leaves = append(a.Leaves, v.Leaves[h.Leaf])
 		}
 
-		return a, nil
+		found, err := emptyLeaves(ctx, idx, c, v, o, f)
+		for _, r := range found {
+			if !slices.ContainsFunc(hits, func(h Hit) bool { return h.Leaf == r.leaf.ID }) {
+				a.Leaves = append(a.Leaves, r.leaf)
+				if a.Kind == Direct { // the empty leaf's fallback picks the field
+					a.Kind = Derived
+				}
+			}
+		}
+
+		return a, err
 	}
 
 	var candidates, bools []Leaf
@@ -270,6 +280,34 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 	}
 
 	return a, nil
+}
+
+// emptyLeaves finds the empty-string leaves that move f, which Trace doesn't mark. One render nudging
+// them all is shared by every field, so a field they don't move costs no render of its own.
+func emptyLeaves(ctx context.Context, idx *Index, c *render.Chart, v *Values, o render.Options, f Field) ([]found, error) {
+	var empty []Leaf
+	for _, l := range v.Leaves {
+		if l.Value == "" {
+			empty = append(empty, l)
+		}
+	}
+
+	p := perturber{c: c, o: o, idx: idx, user: v.User, field: f}
+	if idx.nudged == nil && !idx.nudgeFail {
+		docs, err := p.render(ctx, empty, false)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		idx.nudged, idx.nudgeFail = docs, err != nil
+	}
+
+	val, ok := p.lookup(idx.nudged)
+	if !idx.nudgeFail && ok && val == idx.Fields[f] {
+		return nil, nil
+	}
+
+	found, _, err := p.find(ctx, empty, !idx.nudgeFail)
+	return found, err
 }
 
 // ExplainAll explains every field of document doc, sorted by path.
