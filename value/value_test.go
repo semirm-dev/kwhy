@@ -250,7 +250,7 @@ func TestTraceComposed(t *testing.T) {
 	idx, v, _ := trace(t, mini, prod)
 
 	f := field(t, idx, "deploy/api", ".spec.template.spec.containers[name=api].image")
-	if want := []value.Hit{{Leaf: lookup(t, v, "image", "repository").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
+	if want := []value.Hit{{Leaf: lookup(t, v, "image", "repository").ID}, {Leaf: lookup(t, v, "image", "tag").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
 		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
 	}
 }
@@ -343,7 +343,7 @@ func TestExplainKinds(t *testing.T) {
 		leaves    [][]any
 	}{
 		{"deploy/api", ".spec.replicas", value.Direct, [][]any{{"replicaCount"}}},
-		{"deploy/api", ".spec.template.spec.containers[0].image", value.Composed, [][]any{{"image", "repository"}}},
+		{"deploy/api", ".spec.template.spec.containers[0].image", value.Composed, [][]any{{"image", "repository"}, {"image", "tag"}}},
 		{"secret/auth", ".data.user", value.Encoded, [][]any{{"auth", "user"}}},
 		{"secret/auth", ".data.password", value.Random, nil},
 		{"deploy/api", `.spec.template.metadata.annotations["checksum/config"]`, value.Hashed, nil},
@@ -454,6 +454,30 @@ func TestExplainSkipsBreakers(t *testing.T) {
 		if a.Kind != value.Derived || len(a.Leaves) != 1 || a.Leaves[0].ID != lookup(t, v, "replicaCount").ID {
 			t.Fatalf("got %s %+v, want derived from replicaCount", a.Kind, a.Leaves)
 		}
+	}
+}
+
+// A leaf whose nudge fails the render but whose zeroing doesn't (redis's global.defaultFips) is
+// still found through the zeroed render.
+func TestExplainBreakerPerMode(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mini")
+	if err := os.CopyFS(dir, os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+	tpl := "{{- if not (has .Values.fips (list \"on\" \"\")) }}{{ fail \"bad fips\" }}{{- end }}\n" +
+		"apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: fips\ndata:\n  mode: {{ if .Values.fips }}strict{{ else }}off{{ end }}\n"
+	if err := os.WriteFile(filepath.Join(dir, "templates", "fips.yaml"), []byte(tpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := writeFiles(t, [2]string{"fips.yaml", "fips: \"on\"\n"})
+
+	idx, v, c := trace(t, dir, files[0])
+	a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "cm/fips", ".data.mode"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Kind != value.Derived || len(a.Leaves) != 1 || a.Leaves[0].ID != lookup(t, v, "fips").ID {
+		t.Fatalf("got %s %+v, want derived from fips", a.Kind, a.Leaves)
 	}
 }
 

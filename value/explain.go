@@ -43,9 +43,8 @@ type perturber struct {
 }
 
 // find bisects set down to the leaves whose perturbation moves the field. A leaf whose own
-// perturbation fails to render is skipped.
-// known means set is already known to move the field, so only its halves need testing. moved
-// reports whether set moves the field.
+// perturbation fails to render is skipped. known means set is already known to move the field, so
+// only its halves need testing; moved reports whether set moves the field.
 func (p *perturber) find(ctx context.Context, set []Leaf, known bool) (out []found, moved bool, err error) {
 	if len(set) == 0 {
 		return nil, false, nil
@@ -108,34 +107,41 @@ func (p *perturber) test(ctx context.Context, set []Leaf) (moves, removed, faile
 	return moves, removed, failed, nil
 }
 
+// render renders with every leaf of set perturbed one way, leaving out that way's breakers.
 func (p *perturber) render(ctx context.Context, set []Leaf, zero bool) ([]render.Doc, error) {
 	sparse := map[string]any{}
 	for _, l := range set {
-		setSparse(sparse, p.idx.coalesced, l.Path, perturb(l.Value, zero))
+		if !p.idx.breakers[mode(zero)][l.ID] {
+			setSparse(sparse, p.idx.coalesced, l.Path, perturb(l.Value, zero))
+		}
+	}
+	if len(sparse) == 0 {
+		return p.idx.Docs, nil
 	}
 
 	return p.c.Render(ctx, merge(deepCopy(p.user), sparse).(map[string]any), p.o)
 }
 
-// breakers finds the leaves whose own perturbation fails to render, by splitting sets that fail.
-// find skips such leaves anyway; finding them once spares every field the same descent.
-func (p *perturber) breakers(ctx context.Context, set []Leaf, out map[int]bool) error {
+func mode(zero bool) int {
+	if zero {
+		return 1
+	}
+	return 0
+}
+
+// breakers finds the leaves whose own perturbation one way fails to render, by splitting sets that
+// fail. Leaving them out of that way spares every field the same descent; the other way still
+// tests them.
+func (p *perturber) breakers(ctx context.Context, set []Leaf, zero bool, out map[int]bool) error {
 	if len(set) == 0 {
 		return nil
 	}
 
-	failed := false
-	for _, zero := range []bool{false, true} {
-		_, err := p.render(ctx, set, zero)
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err != nil {
-			failed = true
-			break
-		}
+	_, err := p.render(ctx, set, zero)
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
-	if !failed {
+	if err == nil {
 		return nil
 	}
 
@@ -144,11 +150,11 @@ func (p *perturber) breakers(ctx context.Context, set []Leaf, out map[int]bool) 
 		return nil
 	}
 
-	if err := p.breakers(ctx, set[:len(set)/2], out); err != nil {
+	if err := p.breakers(ctx, set[:len(set)/2], zero, out); err != nil {
 		return err
 	}
 
-	return p.breakers(ctx, set[len(set)/2:], out)
+	return p.breakers(ctx, set[len(set)/2:], zero, out)
 }
 
 // lookup finds the field in docs by its document's key, since document indexes shift when
@@ -209,6 +215,9 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 		a.Kind = Composed
 		if len(hits) == 1 && hits[0].Exact && !hits[0].Encoded {
 			a.Kind = Direct
+			if v.Leaves[hits[0].Leaf].Value == "" { // the field shows the template's fallback, not the leaf
+				a.Kind = Derived
+			}
 		}
 
 		for _, h := range hits {
@@ -232,15 +241,18 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 
 	p := perturber{c: c, o: o, idx: idx, user: v.User, field: f}
 	all := append(candidates, bools...)
-	if idx.breakers == nil {
-		breakers := map[int]bool{}
-		if err := p.breakers(ctx, all, breakers); err != nil {
-			return Answer{}, err
+	if idx.breakers[0] == nil {
+		var breakers [2]map[int]bool
+		for _, zero := range []bool{false, true} {
+			breakers[mode(zero)] = map[int]bool{}
+			if err := p.breakers(ctx, all, zero, breakers[mode(zero)]); err != nil {
+				return Answer{}, err
+			}
 		}
 		idx.breakers = breakers
 	}
 
-	found, _, err := p.find(ctx, slices.DeleteFunc(all, func(l Leaf) bool { return idx.breakers[l.ID] }), false)
+	found, _, err := p.find(ctx, all, false)
 	if err != nil {
 		return Answer{}, err
 	}

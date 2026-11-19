@@ -4,7 +4,7 @@ Deployment/rel-api .spec.replicas
    template    mini/templates/deployment.yaml
 
 Deployment/rel-api .spec.template.spec.containers[0].image
-ghcr.io/acme/api:1.2.3  composed  ← image.repository (mini/values.yaml:3)
+ghcr.io/acme/api:1.2.3  composed  ← image.repository (mini/values.yaml:3), image.tag (mini/values.yaml:4)
                         template  mini/templates/deployment.yaml
 
 Secret/rel-auth .data.user

@@ -82,7 +82,11 @@ subchart defaults mount under their name or alias, and YAML anchors point at the
 
 On top of that, marker tracing matches rendered fields to these leaves, every answer gets one of the eight
 kinds, and `kwhy value` prints them (`--all`, `--key`, `-o human|markdown|json`) for local charts.
-Next up: the accuracy and latency gate on 10 public charts, then CI.
+
+Accuracy is checked against 10 pinned public charts (`go test -tags accuracy ./value/`, run nightly in CI).
+kwhy has never named a wrong setting on them (precision 1.00). Recall is at or above the 0.95 target on 5
+of the 9 charts that finish in time; argo-cd doesn't finish yet. The main gap is empty or true/false
+settings that feed a field another setting already explains, such as `image.sha: ""`.
 Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
 ## `kwhy change`: what will this PR do? (planned, v0.3)

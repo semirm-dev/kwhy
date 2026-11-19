@@ -23,13 +23,13 @@ type Index struct {
 	Random     map[Field]bool // differs between two baseline renders
 	Unmarkable map[int]string // Leaf.ID → "render error" | "changes structure"
 
-	coalesced map[string]any // the values Helm rendered the baseline with
-	breakers  map[int]bool   // Leaf.ID → perturbing it alone fails the render; nil until Explain needs it
+	coalesced map[string]any  // the values Helm rendered the baseline with
+	breakers  [2]map[int]bool // per mode (nudge, zero): Leaf.ID → perturbing it alone that way fails the render; nil until Explain needs them
 }
 
 // Trace renders with the values replaced by unique markers, chunk by chunk, and records which
-// leaves show up in which fields. Only non-empty strings and non-zero numbers are marked; bools
-// and empty values steer control flow and are left to Explain.
+// leaves show up in which fields. Strings (empty ones too, for `default x .Values.y`) and non-zero
+// numbers are marked; bools and zeros steer control flow and are left to Explain.
 func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options) (*Index, error) {
 	docs, err := c.Render(ctx, v.User, o)
 	if err != nil {
@@ -57,7 +57,7 @@ func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options) (*
 	base := markerBase(v.Leaves)
 	var marked []Leaf
 	for _, l := range v.Leaves {
-		if s, ok := l.Value.(string); ok && s != "" {
+		if _, ok := l.Value.(string); ok {
 			marked = append(marked, l)
 		} else if n, ok := whole(l.Value); ok && n != 0 && base+len(v.Leaves) < 1e6 {
 			marked = append(marked, l)

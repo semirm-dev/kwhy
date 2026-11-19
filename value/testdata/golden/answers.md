@@ -1,7 +1,7 @@
 | Field | Value | Kind | Source | Template |
 |---|---|---|---|---|
 | `Deployment/rel-api .spec.replicas` | `3` | direct | `replicaCount` ../testdata/values-prod.yaml:1, overrides mini/values.yaml:1 | mini/templates/deployment.yaml |
-| `Deployment/rel-api .spec.template.spec.containers[0].image` | `ghcr.io/acme/api:1.2.3` | composed | `image.repository` mini/values.yaml:3 | mini/templates/deployment.yaml |
+| `Deployment/rel-api .spec.template.spec.containers[0].image` | `ghcr.io/acme/api:1.2.3` | composed | `image.repository` mini/values.yaml:3; `image.tag` mini/values.yaml:4 | mini/templates/deployment.yaml |
 | `Secret/rel-auth .data.user` | `YWRtaW4=` | encoded | `auth.user` mini/values.yaml:9 | mini/templates/secret.yaml |
 | `Secret/rel-auth .data.password` | `<random>` | random |  | mini/templates/secret.yaml |
 | `Deployment/rel-api .spec.template.metadata.annotations.checksum/config` | `714c1f1cc84f6dde8e56ce65840dd1d147273d5088bef70b7f2c829bb619c1a9` | hashed |  | mini/templates/deployment.yaml |

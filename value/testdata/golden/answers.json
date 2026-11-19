@@ -51,6 +51,20 @@
               "value": "ghcr.io/acme/api"
             }
           ]
+        },
+        {
+          "path": [
+            "image",
+            "tag"
+          ],
+          "value": "",
+          "chain": [
+            {
+              "file": "mini/values.yaml",
+              "line": 4,
+              "value": ""
+            }
+          ]
         }
       ],
       "template": "mini/templates/deployment.yaml"
