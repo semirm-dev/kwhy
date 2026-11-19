@@ -112,10 +112,20 @@ builds), to be parallelised. The rules it took (document identity, name-keyed li
 resources, components as routes, line lookup per entry type, `target:`-aware override chains) are in
 the spike README.
 
-**Remote bases** (`https://github.com/...?ref=`) need git and network. v0.2 stays offline: an overlay
-with remote bases fails with an error naming each one. Fetching them comes later (decided 2026-11-19):
-clone each once into a cache, map the clones into the in-memory copy, opt-in since it breaks "offline"
-(see the spike README). `helmCharts:` in a kustomization is untested.
+**Supported in v0.2:** local overlay stacks (overlays on bases in the same repo, nested, with
+components); strategic-merge and JSON6902 patches, from files or inline; `images`, `replicas`,
+`namespace`, `namePrefix`/`nameSuffix`, `commonLabels`/`commonAnnotations`/`labels`,
+`configMapGenerator`/`secretGenerator` and their literals. Same command style and `kwhy.value/v1`
+output as Helm: `kwhy value <kind>/<name> <path> --kustomize <overlay dir>`, `--all`.
+
+**Not supported in v0.2** (for the first three kwhy stops with a message naming what it found, never a partial answer):
+
+| Missing | Why | Later? |
+|---|---|---|
+| Remote bases (`https://github.com/...?ref=`) | need git and network; kwhy is offline | yes: clone each once into a cache, map the clones into the in-memory copy, opt-in since it breaks "offline" (spike README) |
+| Helm inside Kustomize (`helmCharts:`) | untested; would need kwhy's Helm tracing inside the Kustomize build to name values settings | maybe; ~30 min spike first |
+| Plugins and KRM functions (exec or container generators/transformers) | kwhy would have to run code from the repo | no, on purpose |
+| Override chains through JSON6902 ops that address list items by index | which item an op hit depends on earlier patches | the winning line is shown; uncertain "overrides" lines are left out. Exact chains would cost extra builds (remove the winner, rebuild) |
 
 ## Removed: `--key` (2026-11-19)
 
