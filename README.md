@@ -60,8 +60,8 @@ $ kwhy value deploy/api <path> ... -o markdown    # for PR comments; -o json for
 ### How it works
 
 kwhy doesn't read templates. It renders the chart with Helm itself, tags or changes settings on purpose, and
-watches which lines of output change. [**Inside `kwhy value`**](https://claude.ai/artifact/DUEg6FMnDfw65yfdUWJj4v)
-walks through every step with diagrams, explained in plain words and mapped to the code behind it.
+watches which lines of output change. The [illustrated walkthrough](https://claude.ai/artifact/DUEg6FMnDfw65yfdUWJj4v)
+covers every step with diagrams, explained in plain words and mapped to the code behind it.
 
 ### What works today
 
