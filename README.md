@@ -122,6 +122,7 @@ Single static binary, offline by default, no telemetry. Release binaries, Homebr
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |
 | `-o, --output` | `human` (default), `markdown` or `json` |
 | `--all`, `--key PATH` | every field of the resource, or reverse lookup from a values key |
+| `--chunk-size N` | values leaves marked per tracing render (default 10; tuning only) |
 | `--repository-config`, `--repository-cache`, `--registry-config`, `--content-cache` | Helm's paths, same defaults as `helm` |
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.

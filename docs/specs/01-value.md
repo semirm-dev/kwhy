@@ -65,8 +65,8 @@ Every answer has one of these **kinds**, shown to the user and in JSON:
    `yaml.Node` positions for every leaf so the answer has `file:line`.
 2. **Render baseline twice** (in-process Helm). Fields that differ between the two renders are
    non-deterministic (`randAlphaNum` passwords, generated names) and are reported as `random`, never traced.
-3. **Marker pass.** Replace every *truthy* string and number leaf with a unique marker, in chunks of ~40
-   leaves per render:
+3. **Marker pass.** Replace every *truthy* string and number leaf with a unique marker, in chunks of 10
+   leaves per render (`--chunk-size`; 5–10 measured fastest):
    - strings → `zq<id>qz`; numbers → `900000+id`. **Numbers must stay below 1e6**: Helm handles numbers
      as float64 and prints ≥1e6 in scientific notation, which was the main recall bug in the spike.
    - Never mark falsy values (`""`, `0`) or bools: templates use them in `default` and `if`, so marking
