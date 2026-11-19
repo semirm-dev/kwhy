@@ -1,4 +1,4 @@
-package render
+package render_test
 
 import (
 	"os"
@@ -8,12 +8,14 @@ import (
 	"testing"
 
 	"helm.sh/helm/v4/pkg/cli"
+
+	"github.com/semirm-dev/kwhy/render"
 )
 
 const mini = "../testdata/charts/mini"
 
 func TestRenderMini(t *testing.T) {
-	docs, err := load(t, mini).Render(t.Context(), nil, Options{})
+	docs, err := load(t, mini).Render(t.Context(), nil, render.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +35,7 @@ func TestRenderMini(t *testing.T) {
 }
 
 func TestRenderUserValues(t *testing.T) {
-	docs, err := load(t, mini).Render(t.Context(), map[string]any{"ingress": map[string]any{"enabled": true}}, Options{})
+	docs, err := load(t, mini).Render(t.Context(), map[string]any{"ingress": map[string]any{"enabled": true}}, render.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +61,7 @@ spec:
 `
 	dir := copyMini(t, map[string]string{"templates/hook.yaml": hook})
 
-	docs, err := load(t, dir).Render(t.Context(), nil, Options{Release: "x", Namespace: "ns"})
+	docs, err := load(t, dir).Render(t.Context(), nil, render.Options{Release: "x", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +74,7 @@ spec:
 
 func TestLoadChartOCIHasRegistryClient(t *testing.T) {
 	// Nothing listens on port 1, so a connection error is expected; no network needed.
-	_, err := LoadChart("oci://127.0.0.1:1/charts/x", "1.0.0", cli.New())
+	_, err := render.LoadChart("oci://127.0.0.1:1/charts/x", "1.0.0", cli.New())
 	if err == nil {
 		t.Fatal("want an error from an unreachable registry")
 	}
@@ -96,7 +98,7 @@ func TestCoalesceSubchart(t *testing.T) {
 func TestRenderRepeatableAfterDisabledSubchart(t *testing.T) {
 	c := load(t, copyMini(t, withDep("    condition: sub.enabled\n")))
 
-	off, err := c.Render(t.Context(), map[string]any{"sub": map[string]any{"enabled": false}}, Options{})
+	off, err := c.Render(t.Context(), map[string]any{"sub": map[string]any{"enabled": false}}, render.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +107,7 @@ func TestRenderRepeatableAfterDisabledSubchart(t *testing.T) {
 		t.Fatalf("sub disabled: got %d docs, want 4", len(off))
 	}
 
-	on, err := c.Render(t.Context(), nil, Options{})
+	on, err := c.Render(t.Context(), nil, render.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,9 +163,9 @@ func TestValuesFiles(t *testing.T) {
 	}
 }
 
-func load(t *testing.T, ref string) *Chart {
+func load(t *testing.T, ref string) *render.Chart {
 	t.Helper()
-	c, err := LoadChart(ref, "", cli.New())
+	c, err := render.LoadChart(ref, "", cli.New())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +173,7 @@ func load(t *testing.T, ref string) *Chart {
 	return c
 }
 
-func find(docs []Doc, kind string) *Doc {
+func find(docs []render.Doc, kind string) *render.Doc {
 	for i := range docs {
 		if docs[i].Kind == kind {
 			return &docs[i]

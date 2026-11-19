@@ -1,4 +1,4 @@
-package value
+package value_test
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"helm.sh/helm/v4/pkg/cli"
 
 	"github.com/semirm-dev/kwhy/render"
+	"github.com/semirm-dev/kwhy/value"
 )
 
 const (
@@ -28,7 +29,7 @@ var update = flag.Bool("update", false, "rewrite golden files")
 func TestChainOverride(t *testing.T) {
 	l := lookup(t, loadValues(t, []string{prod}, nil), "replicaCount")
 
-	want := []Source{{prod, 1, float64(3)}, {"mini/values.yaml", 1, float64(1)}}
+	want := []value.Source{{prod, 1, float64(3)}, {"mini/values.yaml", 1, float64(1)}}
 	if l.Value != float64(3) || !reflect.DeepEqual(l.Chain, want) {
 		t.Fatalf("leaf = %+v, want chain %+v", l, want)
 	}
@@ -37,7 +38,7 @@ func TestChainOverride(t *testing.T) {
 func TestSubchartDefaultChain(t *testing.T) {
 	l := lookup(t, loadValues(t, []string{prod}, nil), "sub", "greeting")
 
-	want := []Source{{prod, 8, "hi"}, {"mini/charts/sub/values.yaml", 1, "hello"}}
+	want := []value.Source{{prod, 8, "hi"}, {"mini/charts/sub/values.yaml", 1, "hello"}}
 	if !reflect.DeepEqual(l.Chain, want) {
 		t.Fatalf("chain = %+v, want %+v", l.Chain, want)
 	}
@@ -59,7 +60,7 @@ func TestListsReplace(t *testing.T) {
 	v := loadValues(t, files, nil)
 
 	l := lookup(t, v, "ports", 0, "p")
-	if want := []Source{{files[1], 2, float64(3)}}; !reflect.DeepEqual(l.Chain, want) {
+	if want := []value.Source{{files[1], 2, float64(3)}}; !reflect.DeepEqual(l.Chain, want) {
 		t.Fatalf("chain = %+v, want %+v (lists replace, never override item by item)", l.Chain, want)
 	}
 
@@ -71,7 +72,7 @@ func TestListsReplace(t *testing.T) {
 func TestAnchors(t *testing.T) {
 	l := lookup(t, loadValues(t, []string{anchors}, nil), "resources", "requests", "memory")
 
-	if l.Value != "4Gi" || l.Chain[0] != (Source{anchors, 2, "4Gi"}) {
+	if l.Value != "4Gi" || l.Chain[0] != (value.Source{anchors, 2, "4Gi"}) {
 		t.Fatalf("leaf = %+v, want winner at the anchor line 2", l)
 	}
 }
@@ -80,11 +81,11 @@ func TestMergeKeys(t *testing.T) {
 	files := writeFiles(t, [2]string{"merge.yaml", "defaults: &d\n  size: 1Gi\n  tier: low\ndb:\n  <<: *d\n  tier: high\n"})
 	v := loadValues(t, files, nil)
 
-	if got := lookup(t, v, "db", "size").Chain[0]; got != (Source{files[0], 2, "1Gi"}) {
+	if got := lookup(t, v, "db", "size").Chain[0]; got != (value.Source{files[0], 2, "1Gi"}) {
 		t.Fatalf("merged size = %+v, want line 2", got)
 	}
 
-	if got := lookup(t, v, "db", "tier").Chain[0]; got != (Source{files[0], 6, "high"}) {
+	if got := lookup(t, v, "db", "tier").Chain[0]; got != (value.Source{files[0], 6, "high"}) {
 		t.Fatalf("explicit key over merge = %+v, want line 6", got)
 	}
 }
@@ -102,7 +103,7 @@ func TestSetFlags(t *testing.T) {
 		{[]any{"list", 0, "x"}, 2},
 	} {
 		if got := lookup(t, v, tt.path...).Chain[0]; got.File != "--set "+sets[tt.line] || got.Line != tt.line {
-			t.Errorf("%s winner = %+v, want --set flag %d", PathString(tt.path), got, tt.line)
+			t.Errorf("%s winner = %+v, want --set flag %d", value.PathString(tt.path), got, tt.line)
 		}
 	}
 }
@@ -116,15 +117,15 @@ func TestWinnerMatchesHelm(t *testing.T) {
 
 	for i, l := range v.Leaves {
 		if l.ID != i {
-			t.Errorf("%s: ID %d, want %d", PathString(l.Path), l.ID, i)
+			t.Errorf("%s: ID %d, want %d", value.PathString(l.Path), l.ID, i)
 		}
 
 		if len(l.Chain) == 0 || !reflect.DeepEqual(l.Chain[0].Value, l.Value) {
-			t.Errorf("%s: value %#v, chain %+v", PathString(l.Path), l.Value, l.Chain)
+			t.Errorf("%s: value %#v, chain %+v", value.PathString(l.Path), l.Value, l.Chain)
 		}
 
-		if strings.HasPrefix(PathString(l.Path), "sub.global.") {
-			t.Errorf("%s: subchart copy of a global is not a leaf", PathString(l.Path))
+		if strings.HasPrefix(value.PathString(l.Path), "sub.global.") {
+			t.Errorf("%s: subchart copy of a global is not a leaf", value.PathString(l.Path))
 		}
 	}
 }
@@ -139,8 +140,8 @@ func TestPathString(t *testing.T) {
 		{[]any{"a.b", "c"}, `a\.b.c`},
 	}
 	for _, tt := range tests {
-		if got := PathString(tt.path); got != tt.want {
-			t.Errorf("PathString(%v) = %q, want %q", tt.path, got, tt.want)
+		if got := value.PathString(tt.path); got != tt.want {
+			t.Errorf("value.PathString(%v) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
 }
@@ -151,8 +152,8 @@ func TestFlatten(t *testing.T) {
 		"metadata": map[string]any{"annotations": map[string]any{"app.kubernetes.io/name": "x"}},
 	}}}
 
-	got := Flatten(docs)
-	want := map[Field]any{
+	got := value.Flatten(docs)
+	want := map[value.Field]any{
 		{0, ".spec.replicas"}:                                  3,
 		{0, ".spec.ports[0].port"}:                             80,
 		{0, `.metadata.annotations["app.kubernetes.io/name"]`}: "x",
@@ -165,7 +166,7 @@ func TestFlatten(t *testing.T) {
 func TestResolveByName(t *testing.T) {
 	d := selectDoc(t, renderMini(t), "deploy/api")
 
-	got, err := ResolvePath(d.Object, ".spec.template.spec.containers[name=api].image")
+	got, err := value.ResolvePath(d.Object, ".spec.template.spec.containers[name=api].image")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +178,7 @@ func TestResolveByName(t *testing.T) {
 func TestResolveQuotedKey(t *testing.T) {
 	d := selectDoc(t, renderMini(t), "deploy/api")
 
-	got, err := ResolvePath(d.Object, `.spec.template.metadata.annotations["checksum/config"]`)
+	got, err := value.ResolvePath(d.Object, `.spec.template.metadata.annotations["checksum/config"]`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,15 +190,15 @@ func TestResolveQuotedKey(t *testing.T) {
 func TestResolveUnknown(t *testing.T) {
 	d := selectDoc(t, renderMini(t), "deploy/api")
 
-	if _, err := ResolvePath(d.Object, ".spec.replica"); err == nil {
+	if _, err := value.ResolvePath(d.Object, ".spec.replica"); err == nil {
 		t.Fatal("want error")
 	}
 
 	var valid []string
-	for f := range Flatten([]render.Doc{d}) {
+	for f := range value.Flatten([]render.Doc{d}) {
 		valid = append(valid, f.Path)
 	}
-	if got := Suggest(valid, ".spec.replica", 3); len(got) == 0 || got[0] != ".spec.replicas" {
+	if got := value.Suggest(valid, ".spec.replica", 3); len(got) == 0 || got[0] != ".spec.replicas" {
 		t.Fatalf("got %v", got)
 	}
 }
@@ -218,19 +219,19 @@ func TestSelectAmbiguousNamespace(t *testing.T) {
 		{Kind: "Deployment", Name: "x", Namespace: "b"},
 	}
 
-	_, err := SelectDoc(docs, "deploy/x", "")
+	_, err := value.SelectDoc(docs, "deploy/x", "")
 	if err == nil || err.Error() != "deployment/x exists in namespaces a, b: use --namespace" {
 		t.Fatalf("got %v", err)
 	}
 
-	i, err := SelectDoc(docs, "deploy/x", "b")
+	i, err := value.SelectDoc(docs, "deploy/x", "b")
 	if err != nil || i != 1 {
 		t.Fatalf("got %d, %v", i, err)
 	}
 }
 
 func TestSelectUnknownListsResources(t *testing.T) {
-	_, err := SelectDoc(renderMini(t), "deploy/nope", "")
+	_, err := value.SelectDoc(renderMini(t), "deploy/nope", "")
 	if err == nil || !strings.Contains(err.Error(), "resources: ConfigMap/rel-config, ConfigMap/rel-sub, Deployment/rel-api, Secret/rel-auth, Service/rel-api") {
 		t.Fatalf("got %v", err)
 	}
@@ -240,7 +241,7 @@ func TestTraceDirect(t *testing.T) {
 	idx, v, _ := trace(t, mini, prod)
 
 	f := field(t, idx, "deploy/api", ".spec.replicas")
-	if want := []Hit{{Leaf: lookup(t, v, "replicaCount").ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+	if want := []value.Hit{{Leaf: lookup(t, v, "replicaCount").ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
 		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
 	}
 }
@@ -249,7 +250,7 @@ func TestTraceComposed(t *testing.T) {
 	idx, v, _ := trace(t, mini, prod)
 
 	f := field(t, idx, "deploy/api", ".spec.template.spec.containers[name=api].image")
-	if want := []Hit{{Leaf: lookup(t, v, "image", "repository").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
+	if want := []value.Hit{{Leaf: lookup(t, v, "image", "repository").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
 		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
 	}
 }
@@ -258,7 +259,7 @@ func TestTraceEncoded(t *testing.T) {
 	idx, v, _ := trace(t, mini, prod)
 
 	f := field(t, idx, "secret/auth", ".data.user")
-	if want := []Hit{{Leaf: lookup(t, v, "auth", "user").ID, Encoded: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+	if want := []value.Hit{{Leaf: lookup(t, v, "auth", "user").ID, Encoded: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
 		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
 	}
 }
@@ -281,7 +282,7 @@ func TestTraceLargeNumber(t *testing.T) {
 	if idx.Fields[f] != "--max-body=2e+06" {
 		t.Fatalf("baseline %v", idx.Fields[f])
 	}
-	if want := []Hit{{Leaf: lookup(t, v, "maxBodyBytes").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
+	if want := []value.Hit{{Leaf: lookup(t, v, "maxBodyBytes").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
 		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
 	}
 }
@@ -291,7 +292,7 @@ func TestTraceSubchartAndGlobal(t *testing.T) {
 
 	for path, leaf := range map[string][]any{".data.greeting": {"sub", "greeting"}, ".data.env": {"global", "env"}} {
 		f := field(t, idx, "cm/sub", path)
-		if want := []Hit{{Leaf: lookup(t, v, leaf...).ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+		if want := []value.Hit{{Leaf: lookup(t, v, leaf...).ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
 			t.Errorf("%s: got %+v, want %+v", path, idx.Hits[f], want)
 		}
 	}
@@ -318,22 +319,17 @@ func TestTraceStructuralLeafIsolated(t *testing.T) {
 	}
 
 	f := field(t, idx, "deploy/api", ".spec.replicas")
-	if want := []Hit{{Leaf: lookup(t, v, "replicaCount").ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+	if want := []value.Hit{{Leaf: lookup(t, v, "replicaCount").ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
 		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
 	}
 }
 
 func TestMarkerCollisionShift(t *testing.T) {
-	leaves := []Leaf{{Value: "x"}, {Value: float64(1)}, {Value: float64(900001)}}
-	if got := markerBase(leaves); got != 901000 {
-		t.Fatalf("base %d", got)
-	}
-
 	files := writeFiles(t, [2]string{"big.yaml", "replicaCount: 900003\n"})
 	idx, v, _ := trace(t, mini, files[0])
 
 	f := field(t, idx, "deploy/api", ".spec.replicas")
-	if want := []Hit{{Leaf: lookup(t, v, "replicaCount").ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+	if want := []value.Hit{{Leaf: lookup(t, v, "replicaCount").ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
 		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
 	}
 }
@@ -343,23 +339,23 @@ func TestExplainKinds(t *testing.T) {
 
 	tests := []struct {
 		sel, path string
-		kind      Kind
+		kind      value.Kind
 		leaves    [][]any
 	}{
-		{"deploy/api", ".spec.replicas", Direct, [][]any{{"replicaCount"}}},
-		{"deploy/api", ".spec.template.spec.containers[0].image", Composed, [][]any{{"image", "repository"}}},
-		{"secret/auth", ".data.user", Encoded, [][]any{{"auth", "user"}}},
-		{"secret/auth", ".data.password", Random, nil},
-		{"deploy/api", `.spec.template.metadata.annotations["checksum/config"]`, Hashed, nil},
-		{"deploy/api", ".spec.template.spec.containers[0].env[0].value", Derived, [][]any{{"replicaCount"}}},
-		{"ingress/api", ".spec.ingressClassName", Structural, [][]any{{"ingress", "enabled"}}},
-		{"deploy/api", ".spec.template.spec.containers[0].ports[0].containerPort", Chart, nil},
+		{"deploy/api", ".spec.replicas", value.Direct, [][]any{{"replicaCount"}}},
+		{"deploy/api", ".spec.template.spec.containers[0].image", value.Composed, [][]any{{"image", "repository"}}},
+		{"secret/auth", ".data.user", value.Encoded, [][]any{{"auth", "user"}}},
+		{"secret/auth", ".data.password", value.Random, nil},
+		{"deploy/api", `.spec.template.metadata.annotations["checksum/config"]`, value.Hashed, nil},
+		{"deploy/api", ".spec.template.spec.containers[0].env[0].value", value.Derived, [][]any{{"replicaCount"}}},
+		{"ingress/api", ".spec.ingressClassName", value.Structural, [][]any{{"ingress", "enabled"}}},
+		{"deploy/api", ".spec.template.spec.containers[0].ports[0].containerPort", value.Chart, nil},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.kind), func(t *testing.T) {
 			f := field(t, idx, tt.sel, tt.path)
 
-			a, err := Explain(t.Context(), idx, c, v, render.Options{}, f)
+			a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, f)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -377,8 +373,8 @@ func TestExplainKinds(t *testing.T) {
 		})
 	}
 
-	a, _ := Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "deploy/api", ".spec.replicas"))
-	if want := (Source{File: prod, Line: 1, Value: float64(3)}); a.Leaves[0].Chain[0] != want {
+	a, _ := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "deploy/api", ".spec.replicas"))
+	if want := (value.Source{File: prod, Line: 1, Value: float64(3)}); a.Leaves[0].Chain[0] != want {
 		t.Fatalf("chain %+v", a.Leaves[0].Chain)
 	}
 }
@@ -386,8 +382,8 @@ func TestExplainKinds(t *testing.T) {
 func TestExplainAll(t *testing.T) {
 	idx, v, c := trace(t, mini, prod)
 
-	i, _ := SelectDoc(idx.Docs, "cm/config", "")
-	as, err := ExplainAll(t.Context(), idx, c, v, render.Options{}, i)
+	i, _ := value.SelectDoc(idx.Docs, "cm/config", "")
+	as, err := value.ExplainAll(t.Context(), idx, c, v, render.Options{}, i)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +401,7 @@ func TestExplainAll(t *testing.T) {
 func TestAffectsReverse(t *testing.T) {
 	idx, v, _ := trace(t, mini, prod)
 
-	if got := Affects(idx, lookup(t, v, "replicaCount").ID); !slices.Contains(got, field(t, idx, "deploy/api", ".spec.replicas")) {
+	if got := value.Affects(idx, lookup(t, v, "replicaCount").ID); !slices.Contains(got, field(t, idx, "deploy/api", ".spec.replicas")) {
 		t.Fatalf("got %v", got)
 	}
 }
@@ -413,9 +409,9 @@ func TestAffectsReverse(t *testing.T) {
 func TestWriters(t *testing.T) {
 	as := kindAnswers(t)
 
-	for name, write := range map[string]func(io.Writer, []Answer) error{
-		"answers.txt": WriteHuman, "answers.md": WriteMarkdown, "answers.json": WriteJSON,
-		"one.txt": func(w io.Writer, as []Answer) error { return WriteHuman(w, as[:1]) },
+	for name, write := range map[string]func(io.Writer, []value.Answer) error{
+		"answers.txt": value.WriteHuman, "answers.md": value.WriteMarkdown, "answers.json": value.WriteJSON,
+		"one.txt": func(w io.Writer, as []value.Answer) error { return value.WriteHuman(w, as[:1]) },
 	} {
 		var b bytes.Buffer
 		if err := write(&b, as); err != nil {
@@ -441,7 +437,7 @@ func TestWriters(t *testing.T) {
 
 func TestJSONSchemaField(t *testing.T) {
 	var b bytes.Buffer
-	if err := WriteJSON(&b, kindAnswers(t)); err != nil {
+	if err := value.WriteJSON(&b, kindAnswers(t)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -472,7 +468,7 @@ func TestJSONSchemaField(t *testing.T) {
 	}
 }
 
-func loadValues(t *testing.T, files, sets []string) *Values {
+func loadValues(t *testing.T, files, sets []string) *value.Values {
 	t.Helper()
 
 	c, err := render.LoadChart(mini, "", cli.New())
@@ -480,7 +476,7 @@ func loadValues(t *testing.T, files, sets []string) *Values {
 		t.Fatal(err)
 	}
 
-	v, err := LoadValues(c, files, sets)
+	v, err := value.LoadValues(c, files, sets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,12 +484,12 @@ func loadValues(t *testing.T, files, sets []string) *Values {
 	return v
 }
 
-func lookup(t *testing.T, v *Values, path ...any) Leaf {
+func lookup(t *testing.T, v *value.Values, path ...any) value.Leaf {
 	t.Helper()
 
 	l, ok := v.Lookup(path)
 	if !ok {
-		t.Fatalf("no leaf %s", PathString(path))
+		t.Fatalf("no leaf %s", value.PathString(path))
 	}
 
 	return l
@@ -535,7 +531,7 @@ func renderMini(t *testing.T) []render.Doc {
 func selectDoc(t *testing.T, docs []render.Doc, sel string) render.Doc {
 	t.Helper()
 
-	i, err := SelectDoc(docs, sel, "")
+	i, err := value.SelectDoc(docs, sel, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +539,7 @@ func selectDoc(t *testing.T, docs []render.Doc, sel string) render.Doc {
 	return docs[i]
 }
 
-func trace(t *testing.T, chart string, files ...string) (*Index, *Values, *render.Chart) {
+func trace(t *testing.T, chart string, files ...string) (*value.Index, *value.Values, *render.Chart) {
 	t.Helper()
 
 	c, err := render.LoadChart(chart, "", cli.New())
@@ -551,12 +547,12 @@ func trace(t *testing.T, chart string, files ...string) (*Index, *Values, *rende
 		t.Fatal(err)
 	}
 
-	v, err := LoadValues(c, files, nil)
+	v, err := value.LoadValues(c, files, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	idx, err := Trace(t.Context(), c, v, render.Options{})
+	idx, err := value.Trace(t.Context(), c, v, render.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,28 +560,28 @@ func trace(t *testing.T, chart string, files ...string) (*Index, *Values, *rende
 	return idx, v, c
 }
 
-func field(t *testing.T, idx *Index, sel, path string) Field {
+func field(t *testing.T, idx *value.Index, sel, path string) value.Field {
 	t.Helper()
 
-	i, err := SelectDoc(idx.Docs, sel, "")
+	i, err := value.SelectDoc(idx.Docs, sel, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	p, err := ResolvePath(idx.Docs[i].Object, path)
+	p, err := value.ResolvePath(idx.Docs[i].Object, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return Field{Doc: i, Path: p}
+	return value.Field{Doc: i, Path: p}
 }
 
 // kindAnswers explains one field of every kind, in the order of TestExplainKinds.
-func kindAnswers(t *testing.T) []Answer {
+func kindAnswers(t *testing.T) []value.Answer {
 	t.Helper()
 
 	idx, v, c := trace(t, mini, prod)
-	var as []Answer
+	var as []value.Answer
 	for _, fp := range [][2]string{
 		{"deploy/api", ".spec.replicas"},
 		{"deploy/api", ".spec.template.spec.containers[0].image"},
@@ -596,7 +592,7 @@ func kindAnswers(t *testing.T) []Answer {
 		{"ingress/api", ".spec.ingressClassName"},
 		{"deploy/api", ".spec.template.spec.containers[0].ports[0].containerPort"},
 	} {
-		a, err := Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, fp[0], fp[1]))
+		a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, fp[0], fp[1]))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -742,11 +742,13 @@ func WriteMarkdown(w io.Writer, as []Answer) error {
 	for _, a := range as {
 		var from []string
 		for _, l := range a.Leaves {
-			s := fmt.Sprintf("`%s` %s", PathString(l.Path), source(l.Chain[0]))
+			var s strings.Builder
+			fmt.Fprintf(&s, "`%s` %s", PathString(l.Path), source(l.Chain[0]))
 			for _, o := range l.Chain[1:] {
-				s += ", overrides " + source(o)
+				s.WriteString(", overrides ")
+				s.WriteString(source(o))
 			}
-			from = append(from, s)
+			from = append(from, s.String())
 		}
 
 		fmt.Fprintf(&b, "| `%s %s` | `%v` | %s | %s | %s |\n", a.Resource, a.Field.Path, a.Value, a.Kind,
@@ -1144,7 +1146,8 @@ func fieldPath(path []any) string {
 			if p == "" || strings.ContainsAny(p, `.[]"`) {
 				fmt.Fprintf(&b, "[%q]", p)
 			} else {
-				b.WriteString("." + p)
+				b.WriteByte('.')
+				b.WriteString(p)
 			}
 		}
 	}
