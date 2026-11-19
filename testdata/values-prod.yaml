@@ -1,0 +1,10 @@
+replicaCount: 3 # prod
+resources:
+  requests:
+    memory: 2Gi
+ingress:
+  enabled: true
+sub:
+  greeting: hi
+global:
+  env: prod

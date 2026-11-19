@@ -1,0 +1,5 @@
+sizes:
+  big: &big 4Gi
+resources:
+  requests:
+    memory: *big
