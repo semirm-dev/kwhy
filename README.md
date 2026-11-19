@@ -26,7 +26,7 @@ A rendered field can come from chart defaults, several `-f` files, `--set` flags
 When a field isn't a plain copy of one value, the answer says so instead of guessing:
 
 ```console
-$ kwhy value deploy/api '.spec.template.spec.containers[name=api].env[name=LEADER_ELECTION].value' ...
+$ kwhy value chart <chart> deploy/api '.spec.template.spec.containers[name=api].env[name=LEADER_ELECTION].value' ...
 
 true  derived  ← replicaCount (values-prod.yaml:1)
       template  mini/templates/deployment.yaml
@@ -48,8 +48,8 @@ Every answer has one of these kinds, in the human output and in `-o json` (`"sch
 Other forms:
 
 ```console
-$ kwhy value deploy/api --all ...                 # every field of the resource with its source
-$ kwhy value deploy/api <path> ... -o markdown    # for PR comments; -o json for CI and agents
+$ kwhy value chart <chart> deploy/api --all ...                 # every field of the resource with its source
+$ kwhy value chart <chart> deploy/api <path> ... -o markdown    # for PR comments; -o json for CI and agents
 ```
 
 ### How it works
@@ -117,11 +117,11 @@ go install github.com/semirm-dev/kwhy/cmd/kwhy@latest
 Single static binary, offline by default, no telemetry. Release binaries, Homebrew (v0.2) and Krew as
 `kubectl kwhy` (v0.4) come later.
 
-## Flags (`kwhy value`)
+## Flags (`kwhy value chart`)
 
 | Flag | Meaning |
 |---|---|
-| `--chart REF` | chart directory, `.tgz`, `oci://` reference or `repo/chart` (required) |
+| `<chart>` (first argument) | chart directory, `.tgz`, `oci://` reference or `repo/chart` |
 | `--version V` | chart version, for repo and OCI charts |
 | `-f, --values FILE` | values file, repeatable, later wins |
 | `--set K=V` | set a value, repeatable, wins over files |

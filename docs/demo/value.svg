@@ -1,27 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="808" height="206" viewBox="0 0 808 206" role="img" aria-label="kwhy value terminal demo">
+<svg xmlns="http://www.w3.org/2000/svg" width="808" height="226" viewBox="0 0 808 226" role="img" aria-label="kwhy value terminal demo">
 <style>
 text{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",monospace;fill:#d6deea;white-space:pre}
 .p,.g{fill:#7fd4a0}.d{fill:#7d8aa0}.r{fill:#ff8f87}.y{fill:#f2c86b}.b{fill:#8fb2ff}.c{fill:#7fd3e0}.s{fill:#fff;font-weight:600}
 .t{font-size:12px;fill:#7d8aa0}
-.k0{animation:k0 19.68s infinite}@keyframes k0{0%,3.05%{transform:translateX(0);animation-timing-function:steps(97,end)}20.30%,99.9%{transform:translateX(759px)}100%{transform:translateX(0)}}.k0p{animation:k0p 19.68s infinite}@keyframes k0p{0%,1.52%{opacity:0}1.58%,99.9%{opacity:1}100%{opacity:0}}.k1{animation:k1 19.68s infinite}@keyframes k1{0%,22.59%{transform:translateX(0);animation-timing-function:steps(64,end)}33.98%,99.9%{transform:translateX(501px)}100%{transform:translateX(0)}}.k1p{animation:k1p 19.68s infinite}@keyframes k1p{0%,22.59%{opacity:0}22.64%,99.9%{opacity:1}100%{opacity:0}}.o3{animation:o3 19.68s infinite}@keyframes o3{0%,36.57%{opacity:0}36.62%,99.9%{opacity:1}100%{opacity:0}}.o4{animation:o4 19.68s infinite}@keyframes o4{0%,37.18%{opacity:0}37.23%,99.9%{opacity:1}100%{opacity:0}}.o5{animation:o5 19.68s infinite}@keyframes o5{0%,37.79%{opacity:0}37.84%,99.9%{opacity:1}100%{opacity:0}}.o6{animation:o6 19.68s infinite}@keyframes o6{0%,38.40%{opacity:0}38.45%,99.9%{opacity:1}100%{opacity:0}}
+.k0{animation:k0 19.68s infinite}@keyframes k0{0%,3.05%{transform:translateX(0);animation-timing-function:steps(52,end)}9.00%,99.9%{transform:translateX(405.6px)}100%{transform:translateX(0)}}.k0p{animation:k0p 19.68s infinite}@keyframes k0p{0%,1.52%{opacity:0}1.58%,99.9%{opacity:1}100%{opacity:0}}.k1{animation:k1 19.68s infinite}@keyframes k1{0%,10.50%{transform:translateX(0);animation-timing-function:steps(74,end)}19.00%,99.9%{transform:translateX(577.2px)}100%{transform:translateX(0)}}.k1p{animation:k1p 19.68s infinite}@keyframes k1p{0%,10.5%{opacity:0}10.56%,99.9%{opacity:1}100%{opacity:0}}.k2{animation:k2 19.68s infinite}@keyframes k2{0%,20.50%{transform:translateX(0);animation-timing-function:steps(38,end)}28.00%,99.9%{transform:translateX(296.4px)}100%{transform:translateX(0)}}.k2p{animation:k2p 19.68s infinite}@keyframes k2p{0%,20.5%{opacity:0}20.56%,99.9%{opacity:1}100%{opacity:0}}.o3{animation:o3 19.68s infinite}@keyframes o3{0%,36.57%{opacity:0}36.62%,99.9%{opacity:1}100%{opacity:0}}.o4{animation:o4 19.68s infinite}@keyframes o4{0%,37.18%{opacity:0}37.23%,99.9%{opacity:1}100%{opacity:0}}.o5{animation:o5 19.68s infinite}@keyframes o5{0%,37.79%{opacity:0}37.84%,99.9%{opacity:1}100%{opacity:0}}.o6{animation:o6 19.68s infinite}@keyframes o6{0%,38.40%{opacity:0}38.45%,99.9%{opacity:1}100%{opacity:0}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}[class^=k]:not([class$=p]){display:none}}
 </style>
-<rect width="808" height="206" rx="10" fill="#121a26"/>
+<rect width="808" height="226" rx="10" fill="#121a26"/>
 <circle cx="18" cy="17" r="5" fill="#ffffff26"/><circle cx="34" cy="17" r="5" fill="#ffffff26"/><circle cx="50" cy="17" r="5" fill="#ffffff26"/>
 <text class="t" x="404.0" y="21" text-anchor="middle">kwhy value</text>
 <line x1="0" y1="34" x2="808" y2="34" stroke="#ffffff14"/>
 <g xml:space="preserve">
 <g class="k0p">
-<text x="18" y="65"><tspan class="p">$</tspan> kwhy value deploy/checkout &#x27;.spec.template.spec.containers[name=api].resources.requests.memory&#x27; \</text>
+<text x="18" y="65"><tspan class="p">$</tspan> kwhy value chart ./charts/checkout deploy/checkout \</text>
 <rect class="k0" x="33.6" y="52" width="808" height="20" fill="#121a26"/>
 </g>
 <g class="k1p">
-<text x="18" y="85">      --chart ./charts/checkout -f values.yaml -f values-prod.yaml</text>
+<text x="18" y="85">      &#x27;.spec.template.spec.containers[name=api].resources.requests.memory&#x27; \</text>
 <rect class="k1" x="33.6" y="72" width="808" height="20" fill="#121a26"/>
 </g>
-<text class="o3" x="18" y="125"><tspan x="18.0" class="s">2Gi</tspan><tspan x="41.4">  </tspan><tspan x="57.0" class="b">values-prod.yaml:31</tspan><tspan x="205.2">   checkout.resources.memory</tspan></text>
-<text class="o4" x="18" y="145"><tspan x="18.0" class="d">     ├─ overrides</tspan><tspan x="150.6">  values.yaml:12              </tspan><tspan x="384.6" class="d">= 1Gi</tspan></text>
-<text class="o5" x="18" y="165"><tspan x="18.0" class="d">     └─ default  </tspan><tspan x="150.6">  charts/svc/values.yaml:40   </tspan><tspan x="384.6" class="d">= 512Mi</tspan></text>
-<text class="o6" x="18" y="185"><tspan x="18.0" class="d">     template</tspan><tspan x="119.4">      charts/svc/templates/deployment.yaml</tspan></text>
+<g class="k2p">
+<text x="18" y="105">      -f values.yaml -f values-prod.yaml</text>
+<rect class="k2" x="33.6" y="92" width="808" height="20" fill="#121a26"/>
+</g>
+<text class="o3" x="18" y="145"><tspan x="18.0" class="s">2Gi</tspan><tspan x="41.4">  </tspan><tspan x="57.0" class="b">values-prod.yaml:31</tspan><tspan x="205.2">   checkout.resources.memory</tspan></text>
+<text class="o4" x="18" y="165"><tspan x="18.0" class="d">     ├─ overrides</tspan><tspan x="150.6">  values.yaml:12              </tspan><tspan x="384.6" class="d">= 1Gi</tspan></text>
+<text class="o5" x="18" y="185"><tspan x="18.0" class="d">     └─ default  </tspan><tspan x="150.6">  charts/svc/values.yaml:40   </tspan><tspan x="384.6" class="d">= 512Mi</tspan></text>
+<text class="o6" x="18" y="205"><tspan x="18.0" class="d">     template</tspan><tspan x="119.4">      charts/svc/templates/deployment.yaml</tspan></text>
 </g>
 </svg>

@@ -23,9 +23,9 @@ annotations are per resource.
 
 **v0.1 (read-only, Helm):**
 ```
-kwhy value <kind>/<name> <path> --chart <dir|oci://|repo/chart> [-f values.yaml ...] [--set k=v ...]
+kwhy value chart <dir|oci://|repo/chart> <kind>/<name> <path> [-f values.yaml ...] [--set k=v ...]
            [--namespace ns] [--release name] [--version x.y.z] [--output human|markdown|json]
-kwhy value <kind>/<name> --all          # every field of the resource with its source
+kwhy value chart <chart> <kind>/<name> --all        # every field of the resource with its source
 ```
 `<path>` uses a jq-like syntax: `.spec.template.spec.containers[name=api].resources.requests.memory`
 (`[name=x]` selects list items by name, since indexes shift between renders).

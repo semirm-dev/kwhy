@@ -25,12 +25,14 @@ func TestRunExitCodes(t *testing.T) {
 		{"help", []string{"help"}, 0},
 		{"help flag", []string{"value", "--help"}, 0},
 		{"unknown flag", []string{"value", "--nope"}, 2},
-		{"value missing chart", []string{"value", "deploy/api", ".spec.replicas"}, 2},
-		{"value missing path", []string{"value", "deploy/api", "--chart", "c"}, 2},
-		{"value path and all", []string{"value", "deploy/api", ".spec.replicas", "--all", "--chart", "c"}, 2},
-		{"value bad output", []string{"value", "deploy/api", "--all", "--chart", "c", "-o", "yaml"}, 2},
-		{"value bad chunk size", []string{"value", "deploy/api", "--all", "--chart", "c", "--chunk-size", "0"}, 2},
-		{"value flags after args", []string{"value", "deploy/api", ".spec.replicas", "--chart", "c", "-f", "a.yaml", "-f", "b.yaml"}, 1},
+		{"value no subcommand", []string{"value"}, 2},
+		{"value chart missing resource", []string{"value", "chart", "c"}, 2},
+		{"value chart old flag", []string{"value", "chart", "c", "deploy/api", "--all", "--chart", "c"}, 2},
+		{"value chart missing path", []string{"value", "chart", "c", "deploy/api"}, 2},
+		{"value chart path and all", []string{"value", "chart", "c", "deploy/api", ".spec.replicas", "--all"}, 2},
+		{"value chart bad output", []string{"value", "chart", "c", "deploy/api", "--all", "-o", "yaml"}, 2},
+		{"value chart bad chunk size", []string{"value", "chart", "c", "deploy/api", "--all", "--chunk-size", "0"}, 2},
+		{"value chart flags after args", []string{"value", "chart", "c", "deploy/api", ".spec.replicas", "-f", "a.yaml", "-f", "b.yaml"}, 1},
 		{"change", []string{"change"}, 1},
 	}
 	for _, tt := range tests {
@@ -44,7 +46,7 @@ func TestRunExitCodes(t *testing.T) {
 
 func TestRunHappyPath(t *testing.T) {
 	var out, errb bytes.Buffer
-	code := run([]string{"value", "deploy/api", ".spec.replicas", "--chart", mini, "-f", prod}, &out, &errb)
+	code := run([]string{"value", "chart", mini, "deploy/api", ".spec.replicas", "-f", prod}, &out, &errb)
 
 	if code != 0 || !strings.HasPrefix(out.String(), "3  "+prod+":1") {
 		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
@@ -69,7 +71,7 @@ func TestRunBaselineRenderFails(t *testing.T) {
 	}
 
 	var errb bytes.Buffer
-	code := run([]string{"value", "cm/x", ".data.host", "--chart", dir}, io.Discard, &errb)
+	code := run([]string{"value", "chart", dir, "cm/x", ".data.host"}, io.Discard, &errb)
 
 	if code != 1 || !strings.Contains(errb.String(), "render chart:") || !strings.Contains(errb.String(), "db.host is required") {
 		t.Fatalf("code %d, stderr %q", code, errb.String())
@@ -78,7 +80,7 @@ func TestRunBaselineRenderFails(t *testing.T) {
 
 func TestRunUnknownPath(t *testing.T) {
 	var errb bytes.Buffer
-	code := run([]string{"value", "deploy/api", ".spec.replica", "--chart", mini}, io.Discard, &errb)
+	code := run([]string{"value", "chart", mini, "deploy/api", ".spec.replica"}, io.Discard, &errb)
 
 	if code != 1 || !strings.Contains(errb.String(), "did you mean .spec.replicas") {
 		t.Fatalf("code %d, stderr %q", code, errb.String())

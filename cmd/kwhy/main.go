@@ -70,30 +70,78 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func valueCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "value",
+		Short: "Where a rendered value comes from",
+		Args:  cobra.ArbitraryArgs, // so unknown subcommands reach RunE and exit 2
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return usageError{fmt.Errorf("unknown value command %q", args[0])}
+			}
+
+			cmd.SetOut(cmd.ErrOrStderr())
+			_ = cmd.Help()
+
+			return usageError{errors.New("missing value command: chart or kustomize")}
+		},
+	}
+	cmd.AddCommand(valueChartCmd())
+
+	return cmd
+}
+
+// usageArgs is cobra.RangeArgs with a wrong count exiting 2.
+func usageArgs(min, max int) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := cobra.RangeArgs(min, max)(cmd, args); err != nil {
+			return usageError{err}
+		}
+
+		return nil
+	}
+}
+
+// onePathOrAll enforces that exactly one of <path> or --all is given.
+func onePathOrAll(hasPath, all bool) error {
+	if hasPath == all {
+		return usageError{errors.New("give exactly one of <path> or --all")}
+	}
+
+	return nil
+}
+
+// pathError adds the closest valid paths of doc to a path resolution error.
+func pathError(err error, docs []render.Doc, doc int, path string) error {
+	var valid []string
+	for f := range value.Flatten(docs) {
+		if f.Doc == doc {
+			valid = append(valid, f.Path)
+		}
+	}
+
+	return fmt.Errorf("%w; did you mean %s", err, strings.Join(value.Suggest(valid, path, 3), ", "))
+}
+
+func valueChartCmd() *cobra.Command {
 	var (
-		chartRef, version, release, namespace, output string
-		files, sets                                   []string
-		all                                           bool
-		chunk                                         int
+		version, release, namespace, output string
+		files, sets                         []string
+		all                                 bool
+		chunk                               int
 	)
 
 	helm := cli.New()
 	cmd := &cobra.Command{
-		Use:   "value <kind>/<name> [<path>]",
-		Short: "Where a rendered value comes from",
-		Example: `  kwhy value deploy/api '.spec.template.spec.containers[name=api].resources.requests.memory' \
-    --chart ./charts/api -f values-prod.yaml`,
+		Use:   "chart <chart> <kind>/<name> [<path>]",
+		Short: "Where a rendered value comes from, for a Helm chart",
+		Example: `  kwhy value chart ./charts/api deploy/api '.spec.template.spec.containers[name=api].resources.requests.memory' \
+    -f values-prod.yaml`,
+		Args: usageArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 2 || len(args) == 0 {
-				return usageError{errors.New("value takes <kind>/<name> and an optional <path>")}
-			}
+			chartRef, args := args[0], args[1:]
 
-			if chartRef == "" {
-				return usageError{errors.New("--chart is required")}
-			}
-
-			if (len(args) == 2) == all {
-				return usageError{errors.New("give exactly one of <path> or --all")}
+			if err := onePathOrAll(len(args) == 2, all); err != nil {
+				return err
 			}
 
 			if chunk < 1 {
@@ -140,14 +188,7 @@ func valueCmd() *cobra.Command {
 			if !all {
 				p, err := value.ResolvePath(docs[doc].Object, args[1])
 				if err != nil {
-					var valid []string
-					for f := range value.Flatten(docs) {
-						if f.Doc == doc {
-							valid = append(valid, f.Path)
-						}
-					}
-
-					return fmt.Errorf("%w; did you mean %s", err, strings.Join(value.Suggest(valid, args[1], 3), ", "))
+					return pathError(err, docs, doc, args[1])
 				}
 
 				fields = append(fields, value.Field{Doc: doc, Path: p})
@@ -181,7 +222,6 @@ func valueCmd() *cobra.Command {
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&chartRef, "chart", "", "chart directory, .tgz, oci:// reference or repo/chart")
 	f.StringVar(&version, "version", "", "chart version (for repo and oci charts)")
 	f.StringArrayVarP(&files, "values", "f", nil, "values file (repeatable, later wins)")
 	f.StringArrayVar(&sets, "set", nil, "set a value: key=value (repeatable, wins over files)")
