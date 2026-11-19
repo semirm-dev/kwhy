@@ -16,6 +16,7 @@ func load(t *testing.T, ref string) *Chart {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	return c
 }
 
@@ -25,6 +26,7 @@ func find(docs []Doc, kind string) *Doc {
 			return &docs[i]
 		}
 	}
+
 	return nil
 }
 
@@ -33,13 +35,16 @@ func TestRenderMini(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if len(docs) != 5 {
 		t.Fatalf("got %d docs, want 5: %+v", len(docs), docs)
 	}
+
 	d := find(docs, "Deployment")
 	if d == nil || d.Name != "rel-api" || d.Namespace != "default" || d.Source != "mini/templates/deployment.yaml" {
 		t.Fatalf("deployment = %+v", d)
 	}
+
 	if d.Object["spec"].(map[string]any)["replicas"] != 1 {
 		t.Fatalf("replicas = %v", d.Object["spec"])
 	}
@@ -50,6 +55,7 @@ func TestRenderUserValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	ing := find(docs, "Ingress")
 	if ing == nil || ing.Object["spec"].(map[string]any)["ingressClassName"] != "nginx" {
 		t.Fatalf("ingress = %+v", ing)
@@ -61,6 +67,7 @@ func TestRenderHooksIncluded(t *testing.T) {
 	if err := os.CopyFS(dir, os.DirFS(mini)); err != nil {
 		t.Fatal(err)
 	}
+
 	hook := `apiVersion: batch/v1
 kind: Job
 metadata:
@@ -73,13 +80,16 @@ spec:
       restartPolicy: Never
       containers: [{name: m, image: busybox}]
 `
+
 	if err := os.WriteFile(filepath.Join(dir, "templates", "hook.yaml"), []byte(hook), 0o644); err != nil {
 		t.Fatal(err)
 	}
+
 	docs, err := load(t, dir).Render(t.Context(), nil, Options{Release: "x", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	j := find(docs, "Job")
 	if j == nil || j.Source != "mini/templates/hook.yaml" || j.Namespace != "ns" {
 		t.Fatalf("hook = %+v", j)
@@ -91,6 +101,7 @@ func TestCoalesceSubchart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if v["sub"].(map[string]any)["greeting"] != "hello" {
 		t.Fatalf("sub = %v", v["sub"])
 	}

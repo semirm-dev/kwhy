@@ -31,11 +31,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 			if len(args) > 0 {
 				return usageError{fmt.Errorf("unknown command %q", args[0])}
 			}
+
 			cmd.SetOut(stderr)
 			_ = cmd.Help()
+
 			return usageError{errors.New("missing command")}
 		},
 	}
+
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -47,10 +50,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err == nil {
 		return 0
 	}
+
 	fmt.Fprintln(stderr, "kwhy:", err)
 	if errors.As(err, &usageError{}) {
 		return 2
 	}
+
 	return 1
 }
 
@@ -60,6 +65,7 @@ func valueCmd() *cobra.Command {
 		files, sets                                        []string
 		all                                                bool
 	)
+
 	helm := cli.New()
 	cmd := &cobra.Command{
 		Use:   "value <kind>/<name> [<path>]",
@@ -70,18 +76,23 @@ func valueCmd() *cobra.Command {
 			if len(args) < 1 || len(args) > 2 {
 				return usageError{errors.New("value takes <kind>/<name> and an optional <path>")}
 			}
+
 			if chartRef == "" {
 				return usageError{errors.New("--chart is required")}
 			}
+
 			if n := countTrue(len(args) == 2, all, key != ""); n != 1 {
 				return usageError{errors.New("give exactly one of <path>, --all or --key")}
 			}
+
 			if !slices.Contains([]string{"human", "markdown", "json"}, output) {
 				return usageError{fmt.Errorf("--output must be human, markdown or json, got %q", output)}
 			}
+
 			return errors.New("value: not implemented yet")
 		},
 	}
+
 	f := cmd.Flags()
 	f.StringVar(&chartRef, "chart", "", "chart directory, .tgz, oci:// reference or repo/chart")
 	f.StringVar(&version, "version", "", "chart version (for repo and oci charts)")
@@ -92,11 +103,13 @@ func valueCmd() *cobra.Command {
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.BoolVar(&all, "all", false, "explain every field of the resource")
 	f.StringVar(&key, "key", "", "reverse lookup: rendered fields affected by this values key")
+
 	// Only Helm's chart lookup flags: value is offline, so the cluster flags don't apply.
 	f.StringVar(&helm.RepositoryConfig, "repository-config", helm.RepositoryConfig, "path to Helm's repositories file")
 	f.StringVar(&helm.RepositoryCache, "repository-cache", helm.RepositoryCache, "path to Helm's repository index cache")
 	f.StringVar(&helm.RegistryConfig, "registry-config", helm.RegistryConfig, "path to Helm's registry config")
 	f.StringVar(&helm.ContentCache, "content-cache", helm.ContentCache, "path to Helm's chart content cache")
+
 	return cmd
 }
 
@@ -117,5 +130,6 @@ func countTrue(bs ...bool) int {
 			n++
 		}
 	}
+
 	return n
 }
