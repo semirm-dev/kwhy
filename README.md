@@ -57,6 +57,12 @@ $ kwhy value deploy/api --key resources ...       # reverse: which rendered fiel
 $ kwhy value deploy/api <path> ... -o markdown    # for PR comments; -o json for CI and agents
 ```
 
+### How it works
+
+kwhy doesn't read templates. It renders the chart with Helm itself, tags or changes settings on purpose, and
+watches which lines of output change. [**Inside `kwhy value`**](https://claude.ai/artifact/DUEg6FMnDfw65yfdUWJj4v)
+walks through every step with diagrams, explained in plain words and mapped to the code behind it.
+
 ### What works today
 
 The engine underneath is in place: in-process Helm rendering (`render/`) and the override chain of every
