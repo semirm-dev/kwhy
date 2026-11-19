@@ -81,8 +81,10 @@ func TestAccuracy(t *testing.T) {
 				sampled++
 
 				predicted := map[Field]bool{}
-				for _, f := range Affects(idx, l.ID) {
-					predicted[f] = true
+				for f, hits := range idx.Hits {
+					if slices.ContainsFunc(hits, func(h Hit) bool { return h.Leaf == l.ID }) {
+						predicted[f] = true
+					}
 				}
 				for f := range moved {
 					if predicted[f] {

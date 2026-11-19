@@ -51,25 +51,6 @@ func TestRunHappyPath(t *testing.T) {
 	}
 }
 
-func TestRunKey(t *testing.T) {
-	var out, errb bytes.Buffer
-	code := run([]string{"value", "--key", "replicaCount", "--chart", mini, "-f", prod, "-o", "json"}, &out, &errb)
-
-	if code != 0 || !strings.Contains(out.String(), `"path": ".spec.replicas"`) {
-		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
-	}
-}
-
-// image.tag is "", which Trace doesn't mark; --key must still find the field it feeds.
-func TestRunKeyEmptyLeaf(t *testing.T) {
-	var out, errb bytes.Buffer
-	code := run([]string{"value", "--key", "image.tag", "--chart", mini, "-f", prod, "-o", "json"}, &out, &errb)
-
-	if code != 0 || !strings.Contains(out.String(), `"path": ".spec.template.spec.containers[0].image"`) {
-		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
-	}
-}
-
 func TestRunBaselineRenderFails(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{

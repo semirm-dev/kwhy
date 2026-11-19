@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -246,21 +245,13 @@ func TestTraceDirect(t *testing.T) {
 	}
 }
 
-// Trace skips empty strings (image.tag: ""); TraceLeaf marks one on demand.
+// Trace skips empty strings (image.tag: ""); Explain finds them (TestExplain).
 func TestTraceComposed(t *testing.T) {
-	idx, v, c := trace(t, mini, prod)
+	idx, v, _ := trace(t, mini, prod)
 
 	f := field(t, idx, "deploy/api", ".spec.template.spec.containers[name=api].image")
-	repo, tag := lookup(t, v, "image", "repository").ID, lookup(t, v, "image", "tag").ID
-	if want := []value.Hit{{Leaf: repo}}; !reflect.DeepEqual(idx.Hits[f], want) {
+	if want := []value.Hit{{Leaf: lookup(t, v, "image", "repository").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
 		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
-	}
-
-	if err := value.TraceLeaf(t.Context(), idx, c, v, render.Options{}, tag); err != nil {
-		t.Fatal(err)
-	}
-	if want := []value.Hit{{Leaf: repo}, {Leaf: tag}}; !reflect.DeepEqual(idx.Hits[f], want) {
-		t.Fatalf("after TraceLeaf got %+v, want %+v", idx.Hits[f], want)
 	}
 }
 
@@ -505,14 +496,6 @@ func TestExplainAll(t *testing.T) {
 	}
 	want := []string{".apiVersion chart", ".data.LOG_LEVEL direct", ".kind chart", ".metadata.name chart"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v", got)
-	}
-}
-
-func TestAffectsReverse(t *testing.T) {
-	idx, v, _ := trace(t, mini, prod)
-
-	if got := value.Affects(idx, lookup(t, v, "replicaCount").ID); !slices.Contains(got, field(t, idx, "deploy/api", ".spec.replicas")) {
 		t.Fatalf("got %v", got)
 	}
 }

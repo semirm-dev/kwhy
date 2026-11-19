@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -72,10 +71,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func valueCmd() *cobra.Command {
 	var (
-		chartRef, version, release, namespace, output, key string
-		files, sets                                        []string
-		all                                                bool
-		chunk                                              int
+		chartRef, version, release, namespace, output string
+		files, sets                                   []string
+		all                                           bool
+		chunk                                         int
 	)
 
 	helm := cli.New()
@@ -85,7 +84,7 @@ func valueCmd() *cobra.Command {
 		Example: `  kwhy value deploy/api '.spec.template.spec.containers[name=api].resources.requests.memory' \
     --chart ./charts/api -f values-prod.yaml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 2 || len(args) == 0 && key == "" {
+			if len(args) > 2 || len(args) == 0 {
 				return usageError{errors.New("value takes <kind>/<name> and an optional <path>")}
 			}
 
@@ -93,8 +92,8 @@ func valueCmd() *cobra.Command {
 				return usageError{errors.New("--chart is required")}
 			}
 
-			if n := countTrue(len(args) == 2, all, key != ""); n != 1 {
-				return usageError{errors.New("give exactly one of <path>, --all or --key")}
+			if (len(args) == 2) == all {
+				return usageError{errors.New("give exactly one of <path> or --all")}
 			}
 
 			if chunk < 1 {
@@ -125,29 +124,20 @@ func valueCmd() *cobra.Command {
 				return err
 			}
 
-			// Check the resource, path and key on one render before tracing, so a typo fails fast.
+			// Check the resource and path on one render before tracing, so a typo fails fast.
 			o := render.Options{Release: release, Namespace: namespace}
 			docs, err := c.Render(ctx, v.User, o)
 			if err != nil {
 				return err
 			}
 
-			doc := -1
-			if len(args) > 0 {
-				if doc, err = value.SelectDoc(docs, args[0], selectNS); err != nil {
-					return err
-				}
+			doc, err := value.SelectDoc(docs, args[0], selectNS)
+			if err != nil {
+				return err
 			}
 
-			leaf := -1
 			var fields []value.Field
-			switch {
-			case key != "":
-				if leaf = slices.IndexFunc(v.Leaves, func(l value.Leaf) bool { return value.PathString(l.Path) == key }); leaf < 0 {
-					return fmt.Errorf("unknown values key %s", key)
-				}
-
-			case !all:
+			if !all {
 				p, err := value.ResolvePath(docs[doc].Object, args[1])
 				if err != nil {
 					var valid []string
@@ -168,27 +158,13 @@ func valueCmd() *cobra.Command {
 				return err
 			}
 
-			switch {
-			case all:
+			if all {
 				as, err := value.ExplainAll(ctx, idx, c, v, o, doc)
 				if err != nil {
 					return err
 				}
 
 				return writers[output](cmd.OutOrStdout(), as)
-
-			case key != "":
-				if v.Leaves[leaf].Value == "" {
-					if err := value.TraceLeaf(ctx, idx, c, v, o, leaf); err != nil {
-						return err
-					}
-				}
-
-				for _, f := range value.Affects(idx, leaf) {
-					if doc < 0 || f.Doc == doc {
-						fields = append(fields, f)
-					}
-				}
 			}
 
 			var as []value.Answer
@@ -213,7 +189,6 @@ func valueCmd() *cobra.Command {
 	f.StringVarP(&namespace, "namespace", "n", "default", "release namespace")
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.BoolVar(&all, "all", false, "explain every field of the resource")
-	f.StringVar(&key, "key", "", "reverse lookup: rendered fields affected by this values key")
 	f.IntVar(&chunk, "chunk-size", value.ChunkSize, "values leaves marked per tracing render (tuning)")
 
 	// Only Helm's chart lookup flags: value is offline, so the cluster flags don't apply.
@@ -233,15 +208,4 @@ func notYet(name, short string) *cobra.Command {
 			return fmt.Errorf("%s: not implemented yet", name)
 		},
 	}
-}
-
-func countTrue(bs ...bool) int {
-	n := 0
-	for _, b := range bs {
-		if b {
-			n++
-		}
-	}
-
-	return n
 }

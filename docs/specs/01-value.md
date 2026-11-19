@@ -16,7 +16,6 @@ annotations are per resource.
 ## Users and jobs
 
 - Platform engineer debugging "why is prod running 2Gi?"
-- Reviewer asking "which rendered fields does this key feed?" (`--key`)
 - Automation (rightsizers, Renovate-style bots, AI agents) that needs to know which source line sets a
   rendered value (`-o json`).
 
@@ -27,7 +26,6 @@ annotations are per resource.
 kwhy value <kind>/<name> <path> --chart <dir|oci://|repo/chart> [-f values.yaml ...] [--set k=v ...]
            [--namespace ns] [--release name] [--version x.y.z] [--output human|markdown|json]
 kwhy value <kind>/<name> --all          # every field of the resource with its source
-kwhy value --key resources.cpu ...      # reverse: which rendered fields does this values key affect
 ```
 `<path>` uses a jq-like syntax: `.spec.template.spec.containers[name=api].resources.requests.memory`
 (`[name=x]` selects list items by name, since indexes shift between renders).
@@ -80,8 +78,7 @@ Every answer has one of these **kinds**, shown to the user and in JSON:
    (`derived`). Candidates are limited to leaves under the same top-level key as the field's resource
    first, then widened. Fields that do have markers still test the empty-string leaves the marker pass
    skipped (`image.tag: ""` behind `default .Chart.AppVersion`): one render with all of them nudged is
-   shared by every field, and only fields it moves are bisected. `--key` on an empty-string leaf marks
-   that leaf alone.
+   shared by every field, and only fields it moves are bisected.
 5. **Template attribution** is file-level from Helm's `# Source:` header. A line hint inside the template
    (searching for `.Values.<key>`) may be shown, labelled as a hint, never as the answer.
 
@@ -119,6 +116,24 @@ the spike README.
 with remote bases fails with an error naming each one. Fetching them comes later (decided 2026-11-19):
 clone each once into a cache, map the clones into the in-memory copy, opt-in since it breaks "offline"
 (see the spike README). `helmCharts:` in a kustomization is untested.
+
+## Removed: `--key` (2026-11-19)
+
+`kwhy value --key <values.path>` answered the reverse question: which rendered fields does this values
+setting end up in. Removed because no one needed it; rebuild it if a need shows up. The last commit with
+it is `bbe29d3`. How it worked:
+
+- CLI: `--key` replaced `<path>`/`--all` (exactly one of the three); `<kind>/<name>` was optional and
+  filtered the result to that resource. The key was checked against `Values.Leaves` by `PathString`
+  before tracing (`unknown values key …`).
+- `value.Affects(idx, leafID)`: the fields whose marker hits (`Index.Hits`) include the leaf, sorted by
+  document and path. Marker hits only, so fields a leaf reaches through template logic (`derived`) or
+  as a bool/zero were not listed.
+- Empty-string leaves aren't marked by `Trace`, so `--key` on one first ran `value.TraceLeaf`, which
+  marked that leaf alone in one render (`tracer.mark` with a single leaf) and added its hits.
+- Each field found was then explained with `Explain` as usual.
+- Kustomize equivalent, if wanted: the leave-one-out builds already know which fields each entry
+  moves.
 
 ## Acceptance criteria (v0.1)
 

@@ -332,25 +332,6 @@ func ExplainAll(ctx context.Context, idx *Index, c *render.Chart, v *Values, o r
 	return out, nil
 }
 
-// Affects returns the fields whose marker hits include leaf, sorted.
-func Affects(idx *Index, leaf int) []Field {
-	var out []Field
-	for f, hits := range idx.Hits {
-		if slices.ContainsFunc(hits, func(h Hit) bool { return h.Leaf == leaf }) {
-			out = append(out, f)
-		}
-	}
-
-	slices.SortFunc(out, func(a, b Field) int {
-		if a.Doc != b.Doc {
-			return a.Doc - b.Doc
-		}
-		return strings.Compare(a.Path, b.Path)
-	})
-
-	return out
-}
-
 // setSparse writes val at path into sparse. Lists on the way are copied whole from coalesced,
 // because Helm replaces lists instead of merging them.
 func setSparse(sparse map[string]any, coalesced any, path []any, val any) {

@@ -49,7 +49,6 @@ Other forms:
 
 ```console
 $ kwhy value deploy/api --all ...                 # every field of the resource with its source
-$ kwhy value deploy/api --key resources ...       # reverse: which rendered fields this values key affects
 $ kwhy value deploy/api <path> ... -o markdown    # for PR comments; -o json for CI and agents
 ```
 
@@ -77,7 +76,7 @@ It follows Helm's own merge rules: later files win, maps merge, lists replace wh
 subchart defaults mount under their name or alias, and YAML anchors point at the line where the value is written.
 
 On top of that, marker tracing matches rendered fields to these leaves, every answer gets one of the eight
-kinds, and `kwhy value` prints them (`--all`, `--key`, `-o human|markdown|json`) for local charts.
+kinds, and `kwhy value` prints them (`--all`, `-o human|markdown|json`) for local charts.
 
 Accuracy is checked against 10 pinned public charts (`go test -tags accuracy ./value/`, run nightly in CI).
 All 10 pass: kwhy never named a wrong setting (precision 1.00), and it found at least 98% of the settings
@@ -128,7 +127,7 @@ Single static binary, offline by default, no telemetry. Release binaries, Homebr
 | `--set K=V` | set a value, repeatable, wins over files |
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |
 | `-o, --output` | `human` (default), `markdown` or `json` |
-| `--all`, `--key PATH` | every field of the resource, or reverse lookup from a values key |
+| `--all` | every field of the resource instead of one path |
 | `--chunk-size N` | values leaves marked per tracing render (default 10; tuning only) |
 | `--repository-config`, `--repository-cache`, `--registry-config`, `--content-cache` | Helm's paths, same defaults as `helm` |
 
