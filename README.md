@@ -9,7 +9,7 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 
 | Command | Question | Works on | Status |
 |---|---|---|---|
-| `kwhy value` | Where does this rendered value come from, and how do I change it safely? | Git repo, offline | v0.1, in progress |
+| `kwhy value` | Where does this rendered value come from, and how do I change it safely? | Git repo, offline | v0.1 |
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster) | planned, v0.3 |
 | `kwhy pod` | Why is this pod not running, and what is the smallest fix? | Live cluster, read-only | planned, v0.4 |
 
