@@ -1,0 +1,5 @@
+replicaCount: 2
+resources: {requests: {cpu: 500m, memory: 1Gi}, limits: {memory: 2Gi}}
+nodeSelector: {pool: auth}
+proxyHeaders: xforwarded
+auth: {adminUser: admin, adminPassword: s3cret}

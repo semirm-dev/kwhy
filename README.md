@@ -16,15 +16,12 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 A rendered field can come from chart defaults, several `-f` files, `--set` flags or template logic.
 `kwhy value` points at the exact line that wins, and at everything it overrides.
 
-```console
-$ kwhy value deploy/checkout '.spec.template.spec.containers[name=api].resources.requests.memory' \
-    --chart ./charts/checkout -f values.yaml -f values-prod.yaml
+<img src="docs/demo/value.svg" alt="kwhy value tracing requests.memory to values-prod.yaml:31 and what it overrides" width="100%">
 
-2Gi  values-prod.yaml:31   checkout.resources.memory
-     ├─ overrides  values.yaml:12              = 1Gi
-     └─ default    charts/svc/values.yaml:40   = 512Mi
-     template      charts/svc/templates/deployment.yaml
-```
+With `--set-value` (v0.2) it writes the change back to that line, keeps comments, and warns about other
+environments sharing the file:
+
+<img src="docs/demo/value-set.svg" alt="kwhy value --set-value patching values-prod.yaml:31 from 2Gi to 768Mi" width="100%">
 
 When a field isn't a plain copy of one value, the answer says so instead of guessing:
 
@@ -79,38 +76,14 @@ Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
 Diff tools show the full rendered diff. `kwhy change` says what the diff *does*, as one short PR comment:
 
-```console
-$ kwhy change main..feature -o markdown
-
-Merging this PR will:
-↻ restart    Deployment prod/checkout     12 pods   image tag
-⏱ ordered    StatefulSet prod/postgres     3 pods   one at a time, ~9m
-! no effect  ConfigMap prod/api-config → Deployment prod/api
-             env var: running pods keep the OLD value until they restart
-✗ will fail  StatefulSet prod/cache  spec.serviceName is immutable
-⚠ data       PersistentVolumeClaim prod/data-postgres-0 deleted
-45 pods restarted · est. 11 min · 1 apply error
-```
+<img src="docs/demo/change.svg" alt="kwhy change summarising which workloads restart, roll in order, see no effect or fail" width="100%">
 
 ## `kwhy pod`: why is it Pending? (planned, v0.4)
 
 Runs the real kube-scheduler filters on every node, not just the first failing check the scheduler reports,
 and tries the smallest change that makes the pod fit:
 
-```console
-$ kwhy pod deploy/trainer --what-if
-
-Pending 14m · 0 of 12 nodes fit · every check, every node
-
-NODE       CPU            MEMORY          TAINTS          AFFINITY  VOLUME
-gpu-a1     ✗ 7.5/8 +2     ✓               ✓               ✓         ✓
-gpu-a2     ✓              ✗ 61/64 +16Gi   ✓               ✗ zone b  ✓
-cpu-* (9)  ✓              ✓               ✗ nvidia.com    ✗ gpu     ✓
-
-Smallest fixes (re-ran the filters on a modified copy)
- → lower cpu request 2 → 1                 fits gpu-a1
-   set at values-prod.yaml:31 (kwhy value) — run with --set-value to change it
-```
+<img src="docs/demo/pod.svg" alt="kwhy pod showing a node by check matrix and the smallest fix for a Pending pod" width="100%">
 
 ## Install
 

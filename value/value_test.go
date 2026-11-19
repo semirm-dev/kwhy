@@ -1,9 +1,14 @@
 package value
 
 import (
+	"bytes"
+	"encoding/json"
+	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,49 +23,7 @@ const (
 	anchors = "../testdata/values-anchors.yaml"
 )
 
-func loadValues(t *testing.T, files, sets []string) *Values {
-	t.Helper()
-
-	c, err := render.LoadChart(mini, "", cli.New())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	v, err := LoadValues(c, files, sets)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return v
-}
-
-func lookup(t *testing.T, v *Values, path ...any) Leaf {
-	t.Helper()
-
-	l, ok := v.Lookup(path)
-	if !ok {
-		t.Fatalf("no leaf %s", PathString(path))
-	}
-
-	return l
-}
-
-// writeFiles writes name → content files to a temp dir and returns their paths in the given order.
-func writeFiles(t *testing.T, files ...[2]string) []string {
-	t.Helper()
-
-	dir := t.TempDir()
-	var paths []string
-	for _, f := range files {
-		p := filepath.Join(dir, f[0])
-		if err := os.WriteFile(p, []byte(f[1]), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		paths = append(paths, p)
-	}
-
-	return paths
-}
+var update = flag.Bool("update", false, "rewrite golden files")
 
 func TestChainOverride(t *testing.T) {
 	l := lookup(t, loadValues(t, []string{prod}, nil), "replicaCount")
@@ -127,7 +90,8 @@ func TestMergeKeys(t *testing.T) {
 }
 
 func TestSetFlags(t *testing.T) {
-	v := loadValues(t, []string{prod}, []string{"image.tag=9.9", `a\.b=1`, "list[0].x=2"})
+	sets := []string{"image.tag=9.9", `a\.b=1`, "list[0].x=2"}
+	v := loadValues(t, []string{prod}, sets)
 
 	for _, tt := range []struct {
 		path []any
@@ -137,7 +101,7 @@ func TestSetFlags(t *testing.T) {
 		{[]any{"a.b"}, 1},
 		{[]any{"list", 0, "x"}, 2},
 	} {
-		if got := lookup(t, v, tt.path...).Chain[0]; got.File != "--set" || got.Line != tt.line {
+		if got := lookup(t, v, tt.path...).Chain[0]; got.File != "--set "+sets[tt.line] || got.Line != tt.line {
 			t.Errorf("%s winner = %+v, want --set flag %d", PathString(tt.path), got, tt.line)
 		}
 	}
@@ -179,4 +143,466 @@ func TestPathString(t *testing.T) {
 			t.Errorf("PathString(%v) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
+}
+
+func TestFlatten(t *testing.T) {
+	docs := []render.Doc{{Object: map[string]any{
+		"spec":     map[string]any{"replicas": 3, "ports": []any{map[string]any{"port": 80}}},
+		"metadata": map[string]any{"annotations": map[string]any{"app.kubernetes.io/name": "x"}},
+	}}}
+
+	got := Flatten(docs)
+	want := map[Field]any{
+		{0, ".spec.replicas"}:                                  3,
+		{0, ".spec.ports[0].port"}:                             80,
+		{0, `.metadata.annotations["app.kubernetes.io/name"]`}: "x",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestResolveByName(t *testing.T) {
+	d := selectDoc(t, renderMini(t), "deploy/api")
+
+	got, err := ResolvePath(d.Object, ".spec.template.spec.containers[name=api].image")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != ".spec.template.spec.containers[0].image" {
+		t.Fatalf("got %s", got)
+	}
+}
+
+func TestResolveQuotedKey(t *testing.T) {
+	d := selectDoc(t, renderMini(t), "deploy/api")
+
+	got, err := ResolvePath(d.Object, `.spec.template.metadata.annotations["checksum/config"]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != ".spec.template.metadata.annotations.checksum/config" {
+		t.Fatalf("got %s", got)
+	}
+}
+
+func TestResolveUnknown(t *testing.T) {
+	d := selectDoc(t, renderMini(t), "deploy/api")
+
+	if _, err := ResolvePath(d.Object, ".spec.replica"); err == nil {
+		t.Fatal("want error")
+	}
+
+	var valid []string
+	for f := range Flatten([]render.Doc{d}) {
+		valid = append(valid, f.Path)
+	}
+	if got := Suggest(valid, ".spec.replica", 3); len(got) == 0 || got[0] != ".spec.replicas" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestSelectKindAlias(t *testing.T) {
+	docs := renderMini(t)
+
+	for sel, kind := range map[string]string{"deploy/api": "Deployment", "svc/api": "Service", "Deployment/rel-api": "Deployment", "service/rel-api": "Service"} {
+		if got := selectDoc(t, docs, sel).Kind; got != kind {
+			t.Errorf("%s: got %s, want %s", sel, got, kind)
+		}
+	}
+}
+
+func TestSelectAmbiguousNamespace(t *testing.T) {
+	docs := []render.Doc{
+		{Kind: "Deployment", Name: "x", Namespace: "a"},
+		{Kind: "Deployment", Name: "x", Namespace: "b"},
+	}
+
+	_, err := SelectDoc(docs, "deploy/x", "")
+	if err == nil || err.Error() != "deployment/x exists in namespaces a, b: use --namespace" {
+		t.Fatalf("got %v", err)
+	}
+
+	i, err := SelectDoc(docs, "deploy/x", "b")
+	if err != nil || i != 1 {
+		t.Fatalf("got %d, %v", i, err)
+	}
+}
+
+func TestSelectUnknownListsResources(t *testing.T) {
+	_, err := SelectDoc(renderMini(t), "deploy/nope", "")
+	if err == nil || !strings.Contains(err.Error(), "resources: ConfigMap/rel-config, ConfigMap/rel-sub, Deployment/rel-api, Secret/rel-auth, Service/rel-api") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestTraceDirect(t *testing.T) {
+	idx, v, _ := trace(t, mini, prod)
+
+	f := field(t, idx, "deploy/api", ".spec.replicas")
+	if want := []Hit{{Leaf: lookup(t, v, "replicaCount").ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
+	}
+}
+
+func TestTraceComposed(t *testing.T) {
+	idx, v, _ := trace(t, mini, prod)
+
+	f := field(t, idx, "deploy/api", ".spec.template.spec.containers[name=api].image")
+	if want := []Hit{{Leaf: lookup(t, v, "image", "repository").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
+		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
+	}
+}
+
+func TestTraceEncoded(t *testing.T) {
+	idx, v, _ := trace(t, mini, prod)
+
+	f := field(t, idx, "secret/auth", ".data.user")
+	if want := []Hit{{Leaf: lookup(t, v, "auth", "user").ID, Encoded: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
+	}
+}
+
+func TestTraceRandom(t *testing.T) {
+	idx, _, _ := trace(t, mini, prod)
+
+	if f := field(t, idx, "secret/auth", ".data.password"); !idx.Random[f] {
+		t.Fatal("password not random")
+	}
+	if f := field(t, idx, "secret/auth", ".data.user"); idx.Random[f] {
+		t.Fatal("user random")
+	}
+}
+
+func TestTraceLargeNumber(t *testing.T) {
+	idx, v, _ := trace(t, mini, prod)
+
+	f := field(t, idx, "deploy/api", ".spec.template.spec.containers[0].args[0]")
+	if idx.Fields[f] != "--max-body=2e+06" {
+		t.Fatalf("baseline %v", idx.Fields[f])
+	}
+	if want := []Hit{{Leaf: lookup(t, v, "maxBodyBytes").ID}}; !reflect.DeepEqual(idx.Hits[f], want) {
+		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
+	}
+}
+
+func TestTraceSubchartAndGlobal(t *testing.T) {
+	idx, v, _ := trace(t, mini, prod)
+
+	for path, leaf := range map[string][]any{".data.greeting": {"sub", "greeting"}, ".data.env": {"global", "env"}} {
+		f := field(t, idx, "cm/sub", path)
+		if want := []Hit{{Leaf: lookup(t, v, leaf...).ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+			t.Errorf("%s: got %+v, want %+v", path, idx.Hits[f], want)
+		}
+	}
+}
+
+func TestTraceStructuralLeafIsolated(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mini")
+	if err := os.CopyFS(dir, os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+	tpl := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: mode\ndata:\n  y: z\n{{- if eq .Values.mode \"fast\" }}\n  x: \"1\"\n{{- end }}\n"
+	if err := os.WriteFile(filepath.Join(dir, "templates", "mode.yaml"), []byte(tpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := writeFiles(t, [2]string{"mode.yaml", "mode: fast\n"})
+
+	idx, v, _ := trace(t, dir, prod, files[0])
+
+	if got := idx.Unmarkable[lookup(t, v, "mode").ID]; got != "changes structure" {
+		t.Fatalf("mode: %q", got)
+	}
+	if len(idx.Unmarkable) != 1 {
+		t.Fatalf("unmarkable %v", idx.Unmarkable)
+	}
+
+	f := field(t, idx, "deploy/api", ".spec.replicas")
+	if want := []Hit{{Leaf: lookup(t, v, "replicaCount").ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
+	}
+}
+
+func TestMarkerCollisionShift(t *testing.T) {
+	leaves := []Leaf{{Value: "x"}, {Value: float64(1)}, {Value: float64(900001)}}
+	if got := markerBase(leaves); got != 901000 {
+		t.Fatalf("base %d", got)
+	}
+
+	files := writeFiles(t, [2]string{"big.yaml", "replicaCount: 900003\n"})
+	idx, v, _ := trace(t, mini, files[0])
+
+	f := field(t, idx, "deploy/api", ".spec.replicas")
+	if want := []Hit{{Leaf: lookup(t, v, "replicaCount").ID, Exact: true}}; !reflect.DeepEqual(idx.Hits[f], want) {
+		t.Fatalf("got %+v, want %+v", idx.Hits[f], want)
+	}
+}
+
+func TestExplainKinds(t *testing.T) {
+	idx, v, c := trace(t, mini, prod)
+
+	tests := []struct {
+		sel, path string
+		kind      Kind
+		leaves    [][]any
+	}{
+		{"deploy/api", ".spec.replicas", Direct, [][]any{{"replicaCount"}}},
+		{"deploy/api", ".spec.template.spec.containers[0].image", Composed, [][]any{{"image", "repository"}}},
+		{"secret/auth", ".data.user", Encoded, [][]any{{"auth", "user"}}},
+		{"secret/auth", ".data.password", Random, nil},
+		{"deploy/api", `.spec.template.metadata.annotations["checksum/config"]`, Hashed, nil},
+		{"deploy/api", ".spec.template.spec.containers[0].env[0].value", Derived, [][]any{{"replicaCount"}}},
+		{"ingress/api", ".spec.ingressClassName", Structural, [][]any{{"ingress", "enabled"}}},
+		{"deploy/api", ".spec.template.spec.containers[0].ports[0].containerPort", Chart, nil},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.kind), func(t *testing.T) {
+			f := field(t, idx, tt.sel, tt.path)
+
+			a, err := Explain(t.Context(), idx, c, v, render.Options{}, f)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var got [][]any
+			for _, l := range a.Leaves {
+				got = append(got, l.Path)
+			}
+			if a.Kind != tt.kind || !reflect.DeepEqual(got, tt.leaves) {
+				t.Fatalf("got %s %v, want %s %v", a.Kind, got, tt.kind, tt.leaves)
+			}
+			if a.Field != f || a.Value != idx.Fields[f] || a.Template != idx.Docs[f.Doc].Source {
+				t.Fatalf("answer %+v", a)
+			}
+		})
+	}
+
+	a, _ := Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "deploy/api", ".spec.replicas"))
+	if want := (Source{File: prod, Line: 1, Value: float64(3)}); a.Leaves[0].Chain[0] != want {
+		t.Fatalf("chain %+v", a.Leaves[0].Chain)
+	}
+}
+
+func TestExplainAll(t *testing.T) {
+	idx, v, c := trace(t, mini, prod)
+
+	i, _ := SelectDoc(idx.Docs, "cm/config", "")
+	as, err := ExplainAll(t.Context(), idx, c, v, render.Options{}, i)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, a := range as {
+		got = append(got, a.Field.Path+" "+string(a.Kind))
+	}
+	want := []string{".apiVersion chart", ".data.LOG_LEVEL direct", ".kind chart", ".metadata.name chart"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestAffectsReverse(t *testing.T) {
+	idx, v, _ := trace(t, mini, prod)
+
+	if got := Affects(idx, lookup(t, v, "replicaCount").ID); !slices.Contains(got, field(t, idx, "deploy/api", ".spec.replicas")) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestWriters(t *testing.T) {
+	as := kindAnswers(t)
+
+	for name, write := range map[string]func(io.Writer, []Answer) error{
+		"answers.txt": WriteHuman, "answers.md": WriteMarkdown, "answers.json": WriteJSON,
+		"one.txt": func(w io.Writer, as []Answer) error { return WriteHuman(w, as[:1]) },
+	} {
+		var b bytes.Buffer
+		if err := write(&b, as); err != nil {
+			t.Fatal(err)
+		}
+
+		golden := filepath.Join("testdata", "golden", name)
+		if *update {
+			if err := os.WriteFile(golden, b.Bytes(), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		want, err := os.ReadFile(golden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b.String() != string(want) {
+			t.Errorf("%s:\n%s\nwant:\n%s", name, b.String(), want)
+		}
+	}
+}
+
+func TestJSONSchemaField(t *testing.T) {
+	var b bytes.Buffer
+	if err := WriteJSON(&b, kindAnswers(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	var out struct {
+		Schema  string `json:"schema"`
+		Answers []struct {
+			Kind  string `json:"kind"`
+			Value any    `json:"value"`
+			Field struct {
+				Path string `json:"path"`
+			} `json:"field"`
+			Leaves []struct {
+				Chain []struct {
+					File string `json:"file"`
+					Line int    `json:"line"`
+				} `json:"chain"`
+			} `json:"leaves"`
+		} `json:"answers"`
+	}
+	if err := json.Unmarshal(b.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+
+	a := out.Answers[0]
+	if out.Schema != "kwhy.value/v1" || a.Kind != "direct" || a.Value != float64(3) || a.Field.Path != ".spec.replicas" ||
+		a.Leaves[0].Chain[0].File != prod || a.Leaves[0].Chain[0].Line != 1 {
+		t.Fatalf("got %+v", out)
+	}
+}
+
+func loadValues(t *testing.T, files, sets []string) *Values {
+	t.Helper()
+
+	c, err := render.LoadChart(mini, "", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := LoadValues(c, files, sets)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return v
+}
+
+func lookup(t *testing.T, v *Values, path ...any) Leaf {
+	t.Helper()
+
+	l, ok := v.Lookup(path)
+	if !ok {
+		t.Fatalf("no leaf %s", PathString(path))
+	}
+
+	return l
+}
+
+// writeFiles writes name → content files to a temp dir and returns their paths in the given order.
+func writeFiles(t *testing.T, files ...[2]string) []string {
+	t.Helper()
+
+	dir := t.TempDir()
+	var paths []string
+	for _, f := range files {
+		p := filepath.Join(dir, f[0])
+		if err := os.WriteFile(p, []byte(f[1]), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+
+	return paths
+}
+
+func renderMini(t *testing.T) []render.Doc {
+	t.Helper()
+
+	c, err := render.LoadChart(mini, "", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	docs, err := c.Render(t.Context(), nil, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return docs
+}
+
+func selectDoc(t *testing.T, docs []render.Doc, sel string) render.Doc {
+	t.Helper()
+
+	i, err := SelectDoc(docs, sel, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return docs[i]
+}
+
+func trace(t *testing.T, chart string, files ...string) (*Index, *Values, *render.Chart) {
+	t.Helper()
+
+	c, err := render.LoadChart(chart, "", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := LoadValues(c, files, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	idx, err := Trace(t.Context(), c, v, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return idx, v, c
+}
+
+func field(t *testing.T, idx *Index, sel, path string) Field {
+	t.Helper()
+
+	i, err := SelectDoc(idx.Docs, sel, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := ResolvePath(idx.Docs[i].Object, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return Field{Doc: i, Path: p}
+}
+
+// kindAnswers explains one field of every kind, in the order of TestExplainKinds.
+func kindAnswers(t *testing.T) []Answer {
+	t.Helper()
+
+	idx, v, c := trace(t, mini, prod)
+	var as []Answer
+	for _, fp := range [][2]string{
+		{"deploy/api", ".spec.replicas"},
+		{"deploy/api", ".spec.template.spec.containers[0].image"},
+		{"secret/auth", ".data.user"},
+		{"secret/auth", ".data.password"},
+		{"deploy/api", `.spec.template.metadata.annotations["checksum/config"]`},
+		{"deploy/api", ".spec.template.spec.containers[0].env[0].value"},
+		{"ingress/api", ".spec.ingressClassName"},
+		{"deploy/api", ".spec.template.spec.containers[0].ports[0].containerPort"},
+	} {
+		a, err := Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, fp[0], fp[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		as = append(as, a)
+	}
+	as[3].Value = "<random>" // differs per render
+
+	return as
 }

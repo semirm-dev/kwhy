@@ -1,0 +1,173 @@
+{
+  "schema": "kwhy.value/v1",
+  "answers": [
+    {
+      "resource": "Deployment/rel-api",
+      "field": {
+        "path": ".spec.replicas"
+      },
+      "value": 3,
+      "kind": "direct",
+      "leaves": [
+        {
+          "path": [
+            "replicaCount"
+          ],
+          "value": 3,
+          "chain": [
+            {
+              "file": "../testdata/values-prod.yaml",
+              "line": 1,
+              "value": 3
+            },
+            {
+              "file": "mini/values.yaml",
+              "line": 1,
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "template": "mini/templates/deployment.yaml"
+    },
+    {
+      "resource": "Deployment/rel-api",
+      "field": {
+        "path": ".spec.template.spec.containers[0].image"
+      },
+      "value": "ghcr.io/acme/api:1.2.3",
+      "kind": "composed",
+      "leaves": [
+        {
+          "path": [
+            "image",
+            "repository"
+          ],
+          "value": "ghcr.io/acme/api",
+          "chain": [
+            {
+              "file": "mini/values.yaml",
+              "line": 3,
+              "value": "ghcr.io/acme/api"
+            }
+          ]
+        }
+      ],
+      "template": "mini/templates/deployment.yaml"
+    },
+    {
+      "resource": "Secret/rel-auth",
+      "field": {
+        "path": ".data.user"
+      },
+      "value": "YWRtaW4=",
+      "kind": "encoded",
+      "leaves": [
+        {
+          "path": [
+            "auth",
+            "user"
+          ],
+          "value": "admin",
+          "chain": [
+            {
+              "file": "mini/values.yaml",
+              "line": 9,
+              "value": "admin"
+            }
+          ]
+        }
+      ],
+      "template": "mini/templates/secret.yaml"
+    },
+    {
+      "resource": "Secret/rel-auth",
+      "field": {
+        "path": ".data.password"
+      },
+      "value": "\u003crandom\u003e",
+      "kind": "random",
+      "leaves": null,
+      "template": "mini/templates/secret.yaml"
+    },
+    {
+      "resource": "Deployment/rel-api",
+      "field": {
+        "path": ".spec.template.metadata.annotations.checksum/config"
+      },
+      "value": "714c1f1cc84f6dde8e56ce65840dd1d147273d5088bef70b7f2c829bb619c1a9",
+      "kind": "hashed",
+      "leaves": null,
+      "template": "mini/templates/deployment.yaml"
+    },
+    {
+      "resource": "Deployment/rel-api",
+      "field": {
+        "path": ".spec.template.spec.containers[0].env[0].value"
+      },
+      "value": "true",
+      "kind": "derived",
+      "leaves": [
+        {
+          "path": [
+            "replicaCount"
+          ],
+          "value": 3,
+          "chain": [
+            {
+              "file": "../testdata/values-prod.yaml",
+              "line": 1,
+              "value": 3
+            },
+            {
+              "file": "mini/values.yaml",
+              "line": 1,
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "template": "mini/templates/deployment.yaml"
+    },
+    {
+      "resource": "Ingress/rel-api",
+      "field": {
+        "path": ".spec.ingressClassName"
+      },
+      "value": "nginx",
+      "kind": "structural",
+      "leaves": [
+        {
+          "path": [
+            "ingress",
+            "enabled"
+          ],
+          "value": true,
+          "chain": [
+            {
+              "file": "../testdata/values-prod.yaml",
+              "line": 6,
+              "value": true
+            },
+            {
+              "file": "mini/values.yaml",
+              "line": 13,
+              "value": false
+            }
+          ]
+        }
+      ],
+      "template": "mini/templates/ingress.yaml"
+    },
+    {
+      "resource": "Deployment/rel-api",
+      "field": {
+        "path": ".spec.template.spec.containers[0].ports[0].containerPort"
+      },
+      "value": 8080,
+      "kind": "chart",
+      "leaves": null,
+      "template": "mini/templates/deployment.yaml"
+    }
+  ]
+}

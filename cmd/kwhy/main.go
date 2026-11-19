@@ -2,15 +2,26 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
+	"os/signal"
 	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v4/pkg/cli"
+
+	"github.com/semirm-dev/kwhy/render"
+	"github.com/semirm-dev/kwhy/value"
 )
+
+var writers = map[string]func(io.Writer, []value.Answer) error{
+	"human": value.WriteHuman, "markdown": value.WriteMarkdown, "json": value.WriteJSON,
+}
 
 // usageError marks errors that exit with code 2.
 type usageError struct{ error }
@@ -73,7 +84,7 @@ func valueCmd() *cobra.Command {
 		Example: `  kwhy value deploy/api '.spec.template.spec.containers[name=api].resources.requests.memory' \
     --chart ./charts/api -f values-prod.yaml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) < 1 || len(args) > 2 {
+			if len(args) > 2 || len(args) == 0 && key == "" {
 				return usageError{errors.New("value takes <kind>/<name> and an optional <path>")}
 			}
 
@@ -85,11 +96,91 @@ func valueCmd() *cobra.Command {
 				return usageError{errors.New("give exactly one of <path>, --all or --key")}
 			}
 
-			if !slices.Contains([]string{"human", "markdown", "json"}, output) {
+			if writers[output] == nil {
 				return usageError{fmt.Errorf("--output must be human, markdown or json, got %q", output)}
 			}
 
-			return errors.New("value: not implemented yet")
+			selectNS := ""
+			if cmd.Flags().Changed("namespace") {
+				selectNS = namespace
+			}
+
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer stop()
+
+			slog.SetDefault(slog.New(slog.DiscardHandler))
+
+			c, err := render.LoadChart(chartRef, version, helm)
+			if err != nil {
+				return err
+			}
+
+			v, err := value.LoadValues(c, files, sets)
+			if err != nil {
+				return err
+			}
+
+			o := render.Options{Release: release, Namespace: namespace}
+			idx, err := value.Trace(ctx, c, v, o)
+			if err != nil {
+				return err
+			}
+
+			doc := -1
+			if len(args) > 0 {
+				if doc, err = value.SelectDoc(idx.Docs, args[0], selectNS); err != nil {
+					return err
+				}
+			}
+
+			var fields []value.Field
+			switch {
+			case all:
+				as, err := value.ExplainAll(ctx, idx, c, v, o, doc)
+				if err != nil {
+					return err
+				}
+
+				return writers[output](cmd.OutOrStdout(), as)
+
+			case key != "":
+				i := slices.IndexFunc(v.Leaves, func(l value.Leaf) bool { return value.PathString(l.Path) == key })
+				if i < 0 {
+					return fmt.Errorf("unknown values key %s", key)
+				}
+
+				for _, f := range value.Affects(idx, i) {
+					if doc < 0 || f.Doc == doc {
+						fields = append(fields, f)
+					}
+				}
+
+			default:
+				p, err := value.ResolvePath(idx.Docs[doc].Object, args[1])
+				if err != nil {
+					var valid []string
+					for f := range idx.Fields {
+						if f.Doc == doc {
+							valid = append(valid, f.Path)
+						}
+					}
+
+					return fmt.Errorf("%w; did you mean %s", err, strings.Join(value.Suggest(valid, args[1], 3), ", "))
+				}
+
+				fields = append(fields, value.Field{Doc: doc, Path: p})
+			}
+
+			var as []value.Answer
+			for _, f := range fields {
+				a, err := value.Explain(ctx, idx, c, v, o, f)
+				if err != nil {
+					return err
+				}
+				as = append(as, a)
+			}
+
+			return writers[output](cmd.OutOrStdout(), as)
 		},
 	}
 

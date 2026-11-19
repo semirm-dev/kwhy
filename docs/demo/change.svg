@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="598" height="266" viewBox="0 0 598 266" role="img" aria-label="kwhy change terminal demo">
+<style>
+text{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",monospace;fill:#d6deea;white-space:pre}
+.p,.g{fill:#7fd4a0}.d{fill:#7d8aa0}.r{fill:#ff8f87}.y{fill:#f2c86b}.b{fill:#8fb2ff}.c{fill:#7fd3e0}.s{fill:#fff;font-weight:600}
+.t{font-size:12px;fill:#7d8aa0}
+.k0{animation:k0 8.37s infinite}@keyframes k0{0%,7.17%{transform:translateX(0);animation-timing-function:steps(37,end)}22.65%,99.9%{transform:translateX(291px)}100%{transform:translateX(0)}}.k0p{animation:k0p 8.37s infinite}@keyframes k0p{0%,3.59%{opacity:0}3.71%,99.9%{opacity:1}100%{opacity:0}}.o2{animation:o2 8.37s infinite}@keyframes o2{0%,28.75%{opacity:0}28.87%,99.9%{opacity:1}100%{opacity:0}}.o3{animation:o3 8.37s infinite}@keyframes o3{0%,30.19%{opacity:0}30.30%,99.9%{opacity:1}100%{opacity:0}}.o4{animation:o4 8.37s infinite}@keyframes o4{0%,31.62%{opacity:0}31.74%,99.9%{opacity:1}100%{opacity:0}}.o5{animation:o5 8.37s infinite}@keyframes o5{0%,33.05%{opacity:0}33.17%,99.9%{opacity:1}100%{opacity:0}}.o6{animation:o6 8.37s infinite}@keyframes o6{0%,34.49%{opacity:0}34.61%,99.9%{opacity:1}100%{opacity:0}}.o7{animation:o7 8.37s infinite}@keyframes o7{0%,35.92%{opacity:0}36.04%,99.9%{opacity:1}100%{opacity:0}}.o8{animation:o8 8.37s infinite}@keyframes o8{0%,37.36%{opacity:0}37.48%,99.9%{opacity:1}100%{opacity:0}}.o9{animation:o9 8.37s infinite}@keyframes o9{0%,38.79%{opacity:0}38.91%,99.9%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}[class^=k]:not([class$=p]){display:none}}
+</style>
+<rect width="598" height="266" rx="10" fill="#121a26"/>
+<circle cx="18" cy="17" r="5" fill="#ffffff26"/><circle cx="34" cy="17" r="5" fill="#ffffff26"/><circle cx="50" cy="17" r="5" fill="#ffffff26"/>
+<text class="t" x="299.0" y="21" text-anchor="middle">kwhy change</text>
+<line x1="0" y1="34" x2="598" y2="34" stroke="#ffffff14"/>
+<g xml:space="preserve">
+<g class="k0p">
+<text x="18" y="65"><tspan class="p">$</tspan> kwhy change main..feature -o markdown</text>
+<rect class="k0" x="33.6" y="52" width="598" height="20" fill="#121a26"/>
+</g>
+<text class="o2" x="18" y="105"><tspan x="18.0" class="s">Merging this PR will:</tspan></text>
+<text class="o3" x="18" y="125"><tspan x="18.0" class="c">↻ restart  </tspan><tspan x="103.8">  Deployment prod/checkout     12 pods   </tspan><tspan x="423.6" class="d">image tag</tspan></text>
+<text class="o4" x="18" y="145"><tspan x="18.0" class="y">⏱ ordered  </tspan><tspan x="103.8">  StatefulSet prod/postgres     3 pods   </tspan><tspan x="423.6" class="d">one at a time, ~9m</tspan></text>
+<text class="o5" x="18" y="165"><tspan x="18.0" class="y">! no effect</tspan><tspan x="103.8">  ConfigMap prod/api-config → Deployment prod/api</tspan></text>
+<text class="o6" x="18" y="185"><tspan x="18.0" class="d">             env var: running pods keep the OLD value until they restart</tspan></text>
+<text class="o7" x="18" y="205"><tspan x="18.0" class="r">✗ will fail</tspan><tspan x="103.8">  StatefulSet prod/cache  spec.serviceName is immutable</tspan></text>
+<text class="o8" x="18" y="225"><tspan x="18.0" class="r">⚠ data     </tspan><tspan x="103.8">  PersistentVolumeClaim prod/data-postgres-0 deleted</tspan></text>
+<text class="o9" x="18" y="245"><tspan x="18.0" class="d">45 pods restarted · est. 11 min · 1 apply error</tspan></text>
+</g>
+</svg>

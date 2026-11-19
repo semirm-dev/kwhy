@@ -1,0 +1,3 @@
+3  ../testdata/values-prod.yaml:1  replicaCount
+   └─ default  mini/values.yaml:1  = 1
+   template    mini/templates/deployment.yaml

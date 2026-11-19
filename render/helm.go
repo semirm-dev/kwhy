@@ -20,22 +20,10 @@ import (
 	releaseutil "helm.sh/helm/v4/pkg/release/v1/util"
 )
 
-// Options are the release settings a render runs with. Empty fields default to "rel" and "default".
-type Options struct {
-	Release, Namespace string
-}
-
 // Chart is a located Helm chart. Every Render and Coalesce loads a fresh copy, because Helm's
 // dependency processing removes disabled subcharts and renames aliased ones in place.
 type Chart struct {
 	path string
-}
-
-// Doc is one rendered Kubernetes document.
-type Doc struct {
-	Source                string // template path, e.g. "mini/templates/deployment.yaml"
-	Kind, Name, Namespace string
-	Object                map[string]any
 }
 
 // LoadChart loads a chart from a directory, .tgz, oci:// reference or repo/chart name.
@@ -67,16 +55,6 @@ func LoadChart(ref, version string, settings *cli.EnvSettings) (*Chart, error) {
 	return c, nil
 }
 
-// shortcut: reloads from disk on every call; cache the archive bytes if Task 7 shows it is slow.
-func (c *Chart) load() (*chart.Chart, error) {
-	ch, err := loader.Load(c.path)
-	if err != nil {
-		return nil, fmt.Errorf("load chart: %w", err)
-	}
-
-	return ch, nil
-}
-
 // Coalesce merges chart and subchart defaults with user values, as Helm does before rendering:
 // disabled subcharts are dropped and aliased ones are mounted under their alias.
 func (c *Chart) Coalesce(user map[string]any) (map[string]any, error) {
@@ -97,13 +75,6 @@ func (c *Chart) Coalesce(user map[string]any) (map[string]any, error) {
 	return v, nil
 }
 
-// ValuesFile is the default values.yaml of the chart or one of its enabled subcharts.
-type ValuesFile struct {
-	Mount []string // where its values sit in the coalesced values: nil for the root chart, {"sub"} for a subchart
-	Name  string   // e.g. "mini/charts/sub/values.yaml"; an aliased subchart shows its alias
-	Data  []byte
-}
-
 // ValuesFiles returns the default values files that apply with user values, lowest precedence first
 // (subcharts before their parent).
 func (c *Chart) ValuesFiles(user map[string]any) ([]ValuesFile, error) {
@@ -117,21 +88,6 @@ func (c *Chart) ValuesFiles(user map[string]any) ([]ValuesFile, error) {
 	}
 
 	return valuesFiles(ch, nil), nil
-}
-
-func valuesFiles(ch *chart.Chart, mount []string) []ValuesFile {
-	var files []ValuesFile
-	for _, dep := range ch.Dependencies() {
-		files = append(files, valuesFiles(dep, append(slices.Clip(mount), dep.Name()))...)
-	}
-
-	for _, f := range ch.Raw {
-		if f.Name == "values.yaml" {
-			files = append(files, ValuesFile{Mount: mount, Name: ch.ChartFullPath() + "/values.yaml", Data: f.Data})
-		}
-	}
-
-	return files
 }
 
 // Render renders the chart with user values, hooks and CRDs included, like `helm template`.
@@ -164,14 +120,13 @@ func (c *Chart) Render(ctx context.Context, user map[string]any, o Options) ([]D
 		return nil, fmt.Errorf("render chart: unsupported release type %T", r)
 	}
 
-	var docs []Doc
 	split := releaseutil.SplitManifests(rel.Manifest)
 	keys := make([]string, 0, len(split))
-
 	for k := range split {
 		keys = append(keys, k)
 	}
 
+	var docs []Doc
 	sort.Sort(releaseutil.BySplitManifestsOrder(keys))
 	for _, k := range keys {
 		m := split[k]
@@ -189,9 +144,52 @@ func (c *Chart) Render(ctx context.Context, user map[string]any, o Options) ([]D
 	return docs, nil
 }
 
+// shortcut: reloads from disk on every call; cache the archive bytes if Task 7 shows it is slow.
+func (c *Chart) load() (*chart.Chart, error) {
+	ch, err := loader.Load(c.path)
+	if err != nil {
+		return nil, fmt.Errorf("load chart: %w", err)
+	}
+
+	return ch, nil
+}
+
+// Options are the release settings a render runs with. Empty fields default to "rel" and "default".
+type Options struct {
+	Release, Namespace string
+}
+
+// Doc is one rendered Kubernetes document.
+type Doc struct {
+	Source                string // template path, e.g. "mini/templates/deployment.yaml"
+	Kind, Name, Namespace string
+	Object                map[string]any
+}
+
+// ValuesFile is the default values.yaml of the chart or one of its enabled subcharts.
+type ValuesFile struct {
+	Mount []string // where its values sit in the coalesced values: nil for the root chart, {"sub"} for a subchart
+	Name  string   // e.g. "mini/charts/sub/values.yaml"; an aliased subchart shows its alias
+	Data  []byte
+}
+
+func valuesFiles(ch *chart.Chart, mount []string) []ValuesFile {
+	var files []ValuesFile
+	for _, dep := range ch.Dependencies() {
+		files = append(files, valuesFiles(dep, append(slices.Clip(mount), dep.Name()))...)
+	}
+
+	for _, f := range ch.Raw {
+		if f.Name == "values.yaml" {
+			files = append(files, ValuesFile{Mount: mount, Name: ch.ChartFullPath() + "/values.yaml", Data: f.Data})
+		}
+	}
+
+	return files
+}
+
 func appendDoc(docs *[]Doc, src, manifest, namespace string) error {
 	var obj map[string]any
-
 	if err := yaml.Unmarshal([]byte(manifest), &obj); err != nil {
 		return fmt.Errorf("decode %s: %w", src, err)
 	}

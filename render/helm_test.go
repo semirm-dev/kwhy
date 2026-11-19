@@ -12,26 +12,6 @@ import (
 
 const mini = "../testdata/charts/mini"
 
-func load(t *testing.T, ref string) *Chart {
-	t.Helper()
-	c, err := LoadChart(ref, "", cli.New())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return c
-}
-
-func find(docs []Doc, kind string) *Doc {
-	for i := range docs {
-		if docs[i].Kind == kind {
-			return &docs[i]
-		}
-	}
-
-	return nil
-}
-
 func TestRenderMini(t *testing.T) {
 	docs, err := load(t, mini).Render(t.Context(), nil, Options{})
 	if err != nil {
@@ -62,36 +42,6 @@ func TestRenderUserValues(t *testing.T) {
 	if ing == nil || ing.Object["spec"].(map[string]any)["ingressClassName"] != "nginx" {
 		t.Fatalf("ingress = %+v", ing)
 	}
-}
-
-// copyMini copies the mini chart to a temp dir and writes extra files into it, relative to the chart root.
-func copyMini(t *testing.T, files map[string]string) string {
-	t.Helper()
-
-	dir := filepath.Join(t.TempDir(), "mini")
-	if err := os.CopyFS(dir, os.DirFS(mini)); err != nil {
-		t.Fatal(err)
-	}
-
-	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	return dir
-}
-
-// withDep is mini's Chart.yaml declaring the sub chart as a dependency.
-func withDep(extra string) map[string]string {
-	return map[string]string{"Chart.yaml": `apiVersion: v2
-name: mini
-version: 0.1.0
-appVersion: "1.2.3"
-dependencies:
-  - name: sub
-    version: 0.1.0
-` + extra}
 }
 
 func TestRenderHooksIncluded(t *testing.T) {
@@ -209,4 +159,54 @@ func TestValuesFiles(t *testing.T) {
 			}
 		})
 	}
+}
+
+func load(t *testing.T, ref string) *Chart {
+	t.Helper()
+	c, err := LoadChart(ref, "", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return c
+}
+
+func find(docs []Doc, kind string) *Doc {
+	for i := range docs {
+		if docs[i].Kind == kind {
+			return &docs[i]
+		}
+	}
+
+	return nil
+}
+
+// copyMini copies the mini chart to a temp dir and writes extra files into it, relative to the chart root.
+func copyMini(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	dir := filepath.Join(t.TempDir(), "mini")
+	if err := os.CopyFS(dir, os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	return dir
+}
+
+// withDep is mini's Chart.yaml declaring the sub chart as a dependency.
+func withDep(extra string) map[string]string {
+	return map[string]string{"Chart.yaml": `apiVersion: v2
+name: mini
+version: 0.1.0
+appVersion: "1.2.3"
+dependencies:
+  - name: sub
+    version: 0.1.0
+` + extra}
 }
