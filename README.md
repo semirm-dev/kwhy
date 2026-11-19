@@ -86,7 +86,7 @@ kinds, and `kwhy value` prints them (`--all`, `--key`, `-o human|markdown|json`)
 Accuracy is checked against 10 pinned public charts (`go test -tags accuracy ./value/`, run nightly in CI).
 All 10 pass: kwhy never named a wrong setting (precision 1.00), and it found at least 96% of the settings
 that really change a field (recall 0.96–1.00). Speed is not there yet: on a large chart like argo-cd one
-answer takes about a minute, against a 2-second target.
+answer takes about 15 seconds, against a 2-second target.
 Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
 ## `kwhy change`: what will this PR do? (planned, v0.3)
