@@ -1,0 +1,26 @@
+resources:
+  - ../staging
+namespace: prod
+namePrefix: prod-
+components:
+  - ../../components/monitoring
+images:
+  - name: ghcr.io/acme/api
+    newTag: 2.3.1
+replicas:
+  - name: api
+    count: 3
+patches:
+  - path: memory.yaml
+  - target:
+      kind: Deployment
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 500m
+configMapGenerator:
+  - name: api-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=warn

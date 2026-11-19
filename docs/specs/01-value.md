@@ -99,13 +99,26 @@ Spike results, 40 sampled leaves per chart checked against perturbation ground t
 The spike rendered via the `helm` CLI (2–28s per chart, dominated by process start). In-process rendering is
 expected to be roughly 10× faster; that's a performance target for v0.1, not yet measured.
 
-## Kustomize (v0.2), open risk, needs a spike first
+## Kustomize (v0.2), validated in `docs/spikes/kustomize`
 
-Markers do not apply: patches are literal YAML, not templates. Proposed approach, **not yet validated**:
-build the overlay stack in-process with `krusty`, applying resources/patches incrementally (base,
-then each patch in order) and recording which step last changed each field. Fallback if the API can't
-be stepped: static analysis of strategic-merge and JSON6902 patches targeting the resource, last writer
-wins. Spike this before planning v0.2.
+Markers do not apply: patches are literal YAML, not templates. **Leave-one-out builds** instead: build
+the overlay with `krusty` on an in-memory copy, then once more per entry of every kustomization in the
+stack with that entry removed; fields that change were last written by it. Fields no entry moves come
+from the resource file (origin annotation). The spec's earlier ideas (stepping through patches in
+order, static patch analysis) are dropped: Kustomize doesn't apply transformers in file order, and
+static analysis means reimplementing it.
+
+Spike: 7 overlays from 5 repos (podinfo, flux example, microservices-demo with all components, argo-cd
+plain and HA), ~39,000 fields; the attributed line shows the value for all but 6. One build per entry
+plus one: under a second for typical overlays, 25s single-threaded for argo-cd HA (50 entries, 500ms
+builds), to be parallelised. The rules it took (document identity, name-keyed lists, "added by" for
+resources, components as routes, line lookup per entry type, `target:`-aware override chains) are in
+the spike README.
+
+**Remote bases** (`https://github.com/...?ref=`) need git and network. v0.2 stays offline: an overlay
+with remote bases fails with an error naming each one. Fetching them comes later (decided 2026-11-19):
+clone each once into a cache, map the clones into the in-memory copy, opt-in since it breaks "offline"
+(see the spike README). `helmCharts:` in a kustomization is untested.
 
 ## Acceptance criteria (v0.1)
 
