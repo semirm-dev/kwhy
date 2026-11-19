@@ -104,18 +104,33 @@ func (p *perturber) test(ctx context.Context, set []Leaf) (moves, removed, faile
 	return moves, removed, failed, nil
 }
 
-// lookup finds the field in docs by its document's kind, name and namespace, since document
-// indexes shift when documents come and go.
+// lookup finds the field in docs by its document's key, since document indexes shift when
+// documents come and go.
 func (p *perturber) lookup(docs []render.Doc) (any, bool) {
-	base := p.idx.Docs[p.field.Doc]
-	for _, d := range docs {
-		if d.Kind == base.Kind && d.Name == base.Name && d.Namespace == base.Namespace {
-			val, ok := Flatten([]render.Doc{d})[Field{Path: p.field.Path}]
+	want := docKeys(p.idx.Docs)[p.field.Doc]
+	for i, k := range docKeys(docs) {
+		if k == want {
+			val, ok := Flatten(docs[i : i+1])[Field{Path: p.field.Path}]
 			return val, ok
 		}
 	}
 
 	return nil, false
+}
+
+// docKeys names each document by kind, template and position among that template's documents of
+// the kind. Names and namespaces don't work: leaves rename and move documents, and some names are
+// random.
+func docKeys(docs []render.Doc) []string {
+	seen := map[string]int{}
+	keys := make([]string, len(docs))
+	for i, d := range docs {
+		k := d.Kind + "/" + d.Source
+		keys[i] = fmt.Sprintf("%s#%d", k, seen[k])
+		seen[k]++
+	}
+
+	return keys
 }
 
 type found struct {
@@ -163,8 +178,8 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 	for _, l := range v.Leaves {
 		if _, ok := l.Value.(bool); ok {
 			bools = append(bools, l)
-		} else if l.Value != "" && l.Value != 0.0 && l.Value != int64(0) { // file numbers are float64, --set ones int64
-			candidates = append(candidates, l)
+		} else {
+			candidates = append(candidates, l) // empty ones too: `default x .Values.y` reads y even when ""
 		}
 	}
 

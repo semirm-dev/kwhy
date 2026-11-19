@@ -379,6 +379,59 @@ func TestExplainKinds(t *testing.T) {
 	}
 }
 
+// Test hooks with random names (podinfo's tests/*.yaml) must still be found in perturbed renders,
+// and in the same order, or every leaf looks like it moves their fields.
+func TestExplainRandomNamedHooks(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mini")
+	if err := os.CopyFS(dir, os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"Never", "OnFailure"} {
+		tpl := "apiVersion: v1\nkind: Pod\nmetadata:\n  name: t-{{ randAlphaNum 5 | lower }}\n  annotations:\n    helm.sh/hook: test\nspec:\n  restartPolicy: " + p + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "templates", "test-"+p+".yaml"), []byte(tpl), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	idx, v, c := trace(t, dir, prod)
+	for i, d := range idx.Docs {
+		if d.Kind != "Pod" {
+			continue
+		}
+
+		f := value.Field{Doc: i, Path: ".spec.restartPolicy"}
+		a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a.Kind != value.Chart || len(a.Leaves) != 0 {
+			t.Fatalf("%s: got %s with %d leaves, want chart", d.Source, a.Kind, len(a.Leaves))
+		}
+	}
+}
+
+// An empty leaf behind `default` (ingress-nginx's namespaceOverride: "") is the knob that sets the field.
+func TestExplainEmptyLeafDefault(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mini")
+	if err := os.CopyFS(dir, os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+	tpl := "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: {{ .Values.saName | default \"api\" }}\n"
+	if err := os.WriteFile(filepath.Join(dir, "templates", "sa.yaml"), []byte(tpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := writeFiles(t, [2]string{"sa.yaml", "saName: \"\"\n"})
+
+	idx, v, c := trace(t, dir, files[0])
+	a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "serviceaccount/api", ".metadata.name"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Kind != value.Derived || len(a.Leaves) != 1 || a.Leaves[0].ID != lookup(t, v, "saName").ID {
+		t.Fatalf("got %s %+v, want derived from saName", a.Kind, a.Leaves)
+	}
+}
+
 func TestExplainAll(t *testing.T) {
 	idx, v, c := trace(t, mini, prod)
 

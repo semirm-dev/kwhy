@@ -139,6 +139,8 @@ func (c *Chart) Render(ctx context.Context, user map[string]any, o Options) ([]D
 		}
 	}
 
+	// Helm orders hooks by weight then name; random names (test pods) would reorder docs per render.
+	slices.SortStableFunc(rel.Hooks, func(a, b *rspb.Hook) int { return strings.Compare(a.Path, b.Path) })
 	for _, h := range rel.Hooks {
 		if err := appendDoc(&docs, h.Path, h.Manifest, o.Namespace); err != nil {
 			return nil, err

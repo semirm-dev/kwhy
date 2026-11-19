@@ -42,17 +42,16 @@ func TestAccuracy(t *testing.T) {
 			}
 			o := render.Options{}
 
-			byKey := map[string]int{}
-			for i, d := range idx.Docs {
-				byKey[d.Kind+"/"+d.Namespace+"/"+d.Name] = i
-			}
-
 			explained := map[Field]Answer{}
-			var tp, fp, fn int
+			var tp, fp, fn, sampled int
 			var misses []string
 
+			// Sample 40 leaves that move at least one field, as the spike did.
 			r := rand.New(rand.NewPCG(1, 0))
-			for _, i := range r.Perm(len(v.Leaves))[:min(40, len(v.Leaves))] {
+			for _, i := range r.Perm(len(v.Leaves)) {
+				if sampled == 40 {
+					break
+				}
 				l := v.Leaves[i]
 
 				sparse := map[string]any{}
@@ -62,22 +61,24 @@ func TestAccuracy(t *testing.T) {
 					continue // the chart rejects the perturbed value; no ground truth
 				}
 
-				// Re-key the perturbed render by baseline doc, since doc indexes shift.
-				after := map[Field]any{}
-				for f, val := range Flatten(docs) {
-					d := docs[f.Doc]
-					if j, ok := byKey[d.Kind+"/"+d.Namespace+"/"+d.Name]; ok {
-						after[Field{Doc: j, Path: f.Path}] = val
-					}
+				// As in the spike that set the 0.95 target: only perturbations that keep the render's
+				// shape count, so fields compare by doc index and path.
+				after := Flatten(docs)
+				if !sameShape(idx.Docs, idx.Fields, docs, after) {
+					continue
 				}
 
 				moved := map[Field]bool{}
 				for f, old := range idx.Fields {
 					// random and hashed fields are not attributed to leaves
-					if val, ok := after[f]; (!ok || val != old) && !idx.Random[f] && !strings.Contains(f.Path, "checksum/") {
+					if after[f] != old && !idx.Random[f] && !strings.Contains(f.Path, "checksum/") {
 						moved[f] = true
 					}
 				}
+				if len(moved) == 0 {
+					continue // unused in this config
+				}
+				sampled++
 
 				predicted := map[Field]bool{}
 				for _, f := range Affects(idx, l.ID) {
@@ -116,7 +117,7 @@ func TestAccuracy(t *testing.T) {
 			}
 
 			precision, recall := ratio(tp, tp+fp), ratio(tp, tp+fn)
-			t.Logf("leaves %d, fields %d, tp %d, precision %.2f, recall %.2f", len(v.Leaves), len(idx.Fields), tp, precision, recall)
+			t.Logf("leaves %d, fields %d, sampled %d, tp %d, precision %.2f, recall %.2f", len(v.Leaves), len(idx.Fields), sampled, tp, precision, recall)
 			if precision < 1 || recall < 0.95 {
 				slices.Sort(misses)
 				t.Errorf("precision %.2f, recall %.2f:\n%s", precision, recall, strings.Join(misses, "\n"))
