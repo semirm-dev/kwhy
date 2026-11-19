@@ -84,9 +84,9 @@ On top of that, marker tracing matches rendered fields to these leaves, every an
 kinds, and `kwhy value` prints them (`--all`, `--key`, `-o human|markdown|json`) for local charts.
 
 Accuracy is checked against 10 pinned public charts (`go test -tags accuracy ./value/`, run nightly in CI).
-kwhy has never named a wrong setting on them (precision 1.00). Recall is at or above the 0.95 target on 5
-of the 9 charts that finish in time; argo-cd doesn't finish yet. The main gap is empty or true/false
-settings that feed a field another setting already explains, such as `image.sha: ""`.
+All 10 pass: kwhy never named a wrong setting (precision 1.00), and it found at least 96% of the settings
+that really change a field (recall 0.96–1.00). Speed is not there yet: on a large chart like argo-cd one
+answer takes about a minute, against a 2-second target.
 Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
 ## `kwhy change`: what will this PR do? (planned, v0.3)
