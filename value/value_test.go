@@ -432,6 +432,31 @@ func TestExplainEmptyLeafDefault(t *testing.T) {
 	}
 }
 
+// A leaf that fails the render when perturbed (an enum the chart validates) is left out up front;
+// answers must not change.
+func TestExplainSkipsBreakers(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mini")
+	if err := os.CopyFS(dir, os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+	tpl := "{{- if not (has .Values.mode (list \"a\" \"b\")) }}{{ fail \"bad mode\" }}{{- end }}\n"
+	if err := os.WriteFile(filepath.Join(dir, "templates", "mode.yaml"), []byte(tpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := writeFiles(t, [2]string{"mode.yaml", "mode: a\n"})
+
+	idx, v, c := trace(t, dir, prod, files[0])
+	for range 2 { // the second call reuses the breakers found by the first
+		a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "deploy/api", ".spec.template.spec.containers[0].env[0].value"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a.Kind != value.Derived || len(a.Leaves) != 1 || a.Leaves[0].ID != lookup(t, v, "replicaCount").ID {
+			t.Fatalf("got %s %+v, want derived from replicaCount", a.Kind, a.Leaves)
+		}
+	}
+}
+
 func TestExplainAll(t *testing.T) {
 	idx, v, c := trace(t, mini, prod)
 

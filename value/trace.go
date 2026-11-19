@@ -24,6 +24,7 @@ type Index struct {
 	Unmarkable map[int]string // Leaf.ID → "render error" | "changes structure"
 
 	coalesced map[string]any // the values Helm rendered the baseline with
+	breakers  map[int]bool   // Leaf.ID → perturbing it alone fails the render; nil until Explain needs it
 }
 
 // Trace renders with the values replaced by unique markers, chunk by chunk, and records which

@@ -44,34 +44,39 @@ type perturber struct {
 
 // find bisects set down to the leaves whose perturbation moves the field. A leaf whose own
 // perturbation fails to render is skipped.
-func (p *perturber) find(ctx context.Context, set []Leaf) ([]found, error) {
+// known means set is already known to move the field, so only its halves need testing. moved
+// reports whether set moves the field.
+func (p *perturber) find(ctx context.Context, set []Leaf, known bool) (out []found, moved bool, err error) {
 	if len(set) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
-	moves, removed, failed, err := p.test(ctx, set)
-	if err != nil || !moves {
-		return nil, err
-	}
-
-	if len(set) == 1 {
-		if failed {
-			return nil, nil
+	if !known || len(set) == 1 {
+		moves, removed, failed, err := p.test(ctx, set)
+		if err != nil || !moves {
+			return nil, false, err
 		}
-		return []found{{leaf: set[0], removed: removed}}, nil
+
+		if len(set) == 1 {
+			if failed {
+				return nil, true, nil
+			}
+			return []found{{leaf: set[0], removed: removed}}, true, nil
+		}
 	}
 
-	left, err := p.find(ctx, set[:len(set)/2])
+	left, leftMoved, err := p.find(ctx, set[:len(set)/2], false)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	right, err := p.find(ctx, set[len(set)/2:])
+	// set moves and its left half doesn't, so the right half does.
+	right, _, err := p.find(ctx, set[len(set)/2:], !leftMoved)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return append(left, right...), nil
+	return append(left, right...), true, nil
 }
 
 // test renders twice with every leaf of set perturbed: nudged (string+"p9", number+1) and zeroed
@@ -79,12 +84,11 @@ func (p *perturber) find(ctx context.Context, set []Leaf) ([]found, error) {
 // A render error counts as moving, so bisection can isolate it.
 func (p *perturber) test(ctx context.Context, set []Leaf) (moves, removed, failed bool, err error) {
 	for _, zero := range []bool{false, true} {
-		sparse := map[string]any{}
-		for _, l := range set {
-			setSparse(sparse, p.idx.coalesced, l.Path, perturb(l.Value, zero))
+		if moves && len(set) > 1 { // removed and failed only matter for a single leaf
+			break
 		}
 
-		docs, rerr := p.c.Render(ctx, merge(deepCopy(p.user), sparse).(map[string]any), p.o)
+		docs, rerr := p.render(ctx, set, zero)
 		if ctx.Err() != nil {
 			return false, false, false, ctx.Err()
 		}
@@ -102,6 +106,49 @@ func (p *perturber) test(ctx context.Context, set []Leaf) (moves, removed, faile
 	}
 
 	return moves, removed, failed, nil
+}
+
+func (p *perturber) render(ctx context.Context, set []Leaf, zero bool) ([]render.Doc, error) {
+	sparse := map[string]any{}
+	for _, l := range set {
+		setSparse(sparse, p.idx.coalesced, l.Path, perturb(l.Value, zero))
+	}
+
+	return p.c.Render(ctx, merge(deepCopy(p.user), sparse).(map[string]any), p.o)
+}
+
+// breakers finds the leaves whose own perturbation fails to render, by splitting sets that fail.
+// find skips such leaves anyway; finding them once spares every field the same descent.
+func (p *perturber) breakers(ctx context.Context, set []Leaf, out map[int]bool) error {
+	if len(set) == 0 {
+		return nil
+	}
+
+	failed := false
+	for _, zero := range []bool{false, true} {
+		_, err := p.render(ctx, set, zero)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			failed = true
+			break
+		}
+	}
+	if !failed {
+		return nil
+	}
+
+	if len(set) == 1 {
+		out[set[0].ID] = true
+		return nil
+	}
+
+	if err := p.breakers(ctx, set[:len(set)/2], out); err != nil {
+		return err
+	}
+
+	return p.breakers(ctx, set[len(set)/2:], out)
 }
 
 // lookup finds the field in docs by its document's key, since document indexes shift when
@@ -184,7 +231,16 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 	}
 
 	p := perturber{c: c, o: o, idx: idx, user: v.User, field: f}
-	found, err := p.find(ctx, append(candidates, bools...))
+	all := append(candidates, bools...)
+	if idx.breakers == nil {
+		breakers := map[int]bool{}
+		if err := p.breakers(ctx, all, breakers); err != nil {
+			return Answer{}, err
+		}
+		idx.breakers = breakers
+	}
+
+	found, _, err := p.find(ctx, slices.DeleteFunc(all, func(l Leaf) bool { return idx.breakers[l.ID] }), false)
 	if err != nil {
 		return Answer{}, err
 	}
