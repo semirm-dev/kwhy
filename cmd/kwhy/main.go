@@ -125,20 +125,49 @@ func valueCmd() *cobra.Command {
 				return err
 			}
 
+			// Check the resource, path and key on one render before tracing, so a typo fails fast.
 			o := render.Options{Release: release, Namespace: namespace}
-			idx, err := value.Trace(ctx, c, v, o, chunk)
+			docs, err := c.Render(ctx, v.User, o)
 			if err != nil {
 				return err
 			}
 
 			doc := -1
 			if len(args) > 0 {
-				if doc, err = value.SelectDoc(idx.Docs, args[0], selectNS); err != nil {
+				if doc, err = value.SelectDoc(docs, args[0], selectNS); err != nil {
 					return err
 				}
 			}
 
+			leaf := -1
 			var fields []value.Field
+			switch {
+			case key != "":
+				if leaf = slices.IndexFunc(v.Leaves, func(l value.Leaf) bool { return value.PathString(l.Path) == key }); leaf < 0 {
+					return fmt.Errorf("unknown values key %s", key)
+				}
+
+			case !all:
+				p, err := value.ResolvePath(docs[doc].Object, args[1])
+				if err != nil {
+					var valid []string
+					for f := range value.Flatten(docs) {
+						if f.Doc == doc {
+							valid = append(valid, f.Path)
+						}
+					}
+
+					return fmt.Errorf("%w; did you mean %s", err, strings.Join(value.Suggest(valid, args[1], 3), ", "))
+				}
+
+				fields = append(fields, value.Field{Doc: doc, Path: p})
+			}
+
+			idx, err := value.Trace(ctx, c, v, o, chunk)
+			if err != nil {
+				return err
+			}
+
 			switch {
 			case all:
 				as, err := value.ExplainAll(ctx, idx, c, v, o, doc)
@@ -149,36 +178,17 @@ func valueCmd() *cobra.Command {
 				return writers[output](cmd.OutOrStdout(), as)
 
 			case key != "":
-				i := slices.IndexFunc(v.Leaves, func(l value.Leaf) bool { return value.PathString(l.Path) == key })
-				if i < 0 {
-					return fmt.Errorf("unknown values key %s", key)
-				}
-				if v.Leaves[i].Value == "" {
-					if err := value.TraceLeaf(ctx, idx, c, v, o, i); err != nil {
+				if v.Leaves[leaf].Value == "" {
+					if err := value.TraceLeaf(ctx, idx, c, v, o, leaf); err != nil {
 						return err
 					}
 				}
 
-				for _, f := range value.Affects(idx, i) {
+				for _, f := range value.Affects(idx, leaf) {
 					if doc < 0 || f.Doc == doc {
 						fields = append(fields, f)
 					}
 				}
-
-			default:
-				p, err := value.ResolvePath(idx.Docs[doc].Object, args[1])
-				if err != nil {
-					var valid []string
-					for f := range idx.Fields {
-						if f.Doc == doc {
-							valid = append(valid, f.Path)
-						}
-					}
-
-					return fmt.Errorf("%w; did you mean %s", err, strings.Join(value.Suggest(valid, args[1], 3), ", "))
-				}
-
-				fields = append(fields, value.Field{Doc: doc, Path: p})
 			}
 
 			var as []value.Answer

@@ -13,8 +13,8 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster) | planned, v0.3 |
 | `kwhy pod` | Why is this pod not running, and what is the smallest fix? | Live cluster, read-only | planned, v0.4 |
 
-> **Status:** early development. `kwhy value` answers for local charts; it isn't yet checked against public charts.
-> The examples below show the target output from the [specs](docs/specs), not the output of today's build.
+> **Status:** early development. `kwhy value` works today and is checked nightly against 10 public charts.
+> The `--set-value`, `change` and `pod` examples below show planned output from the [specs](docs/specs).
 
 ## `kwhy value`: where does this value come from?
 
@@ -34,6 +34,7 @@ When a field isn't a plain copy of one value, the answer says so instead of gues
 $ kwhy value deploy/api '.spec.template.spec.containers[name=api].env[name=LEADER_ELECTION].value' ...
 
 true  derived  ← replicaCount (values-prod.yaml:1)
+      template  mini/templates/deployment.yaml
 ```
 
 Every answer has one of these kinds, in the human output and in `-o json` (`"schema": "kwhy.value/v1"`):
@@ -143,6 +144,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 - `lookup` returns empty, as with `helm template` (offline).
 - Kustomize tracing and `--set-value` write-back come in v0.2.
 - `-f` takes local files only for now (Helm also accepts URLs).
+- Every run traces the whole chart again; nothing is cached between runs (~20s on kube-prometheus-stack).
 
 ## Development
 

@@ -46,10 +46,10 @@ func TestAccuracy(t *testing.T) {
 			var tp, fp, fn, sampled int
 			var misses []string
 
-			// Sample 40 leaves that move at least one field, as the spike did.
+			// Sample up to 50 leaves that move at least one field (small charts run out first).
 			r := rand.New(rand.NewPCG(1, 0))
 			for _, i := range r.Perm(len(v.Leaves)) {
-				if sampled == 40 {
+				if sampled == 50 {
 					break
 				}
 				l := v.Leaves[i]
