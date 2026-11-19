@@ -1,0 +1,131 @@
+// Package render renders Helm charts in-process into documents that remember their template.
+package render
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	"go.yaml.in/yaml/v3"
+	"helm.sh/helm/v4/pkg/action"
+	"helm.sh/helm/v4/pkg/chart"
+	"helm.sh/helm/v4/pkg/chart/common/util"
+	"helm.sh/helm/v4/pkg/chart/loader"
+	"helm.sh/helm/v4/pkg/cli"
+	rspb "helm.sh/helm/v4/pkg/release/v1"
+	releaseutil "helm.sh/helm/v4/pkg/release/v1/util"
+)
+
+// Options are the release settings a render runs with. Empty fields default to "rel" and "default".
+type Options struct {
+	Release, Namespace string
+}
+
+// Chart is a loaded Helm chart.
+type Chart struct {
+	chart chart.Charter
+}
+
+// Doc is one rendered Kubernetes document.
+type Doc struct {
+	Source                string // template path, e.g. "mini/templates/deployment.yaml"
+	Kind, Name, Namespace string
+	Object                map[string]any
+}
+
+// LoadChart loads a chart from a directory, .tgz, oci:// reference or repo/chart name.
+// settings carries Helm's repository and registry paths.
+func LoadChart(ref, version string, settings *cli.EnvSettings) (*Chart, error) {
+	opts := action.ChartPathOptions{Version: version}
+	path, err := opts.LocateChart(ref, settings)
+	if err != nil {
+		return nil, fmt.Errorf("locate chart: %w", err)
+	}
+	c, err := loader.Load(path)
+	if err != nil {
+		return nil, fmt.Errorf("load chart: %w", err)
+	}
+	return &Chart{chart: c}, nil
+}
+
+// Coalesce merges chart and subchart defaults with user values, as Helm does before rendering.
+func (c *Chart) Coalesce(user map[string]any) (map[string]any, error) {
+	v, err := util.CoalesceValues(c.chart, user)
+	if err != nil {
+		return nil, fmt.Errorf("coalesce values: %w", err)
+	}
+	return v, nil
+}
+
+// Render renders the chart with user values, hooks and CRDs included, like `helm template`.
+func (c *Chart) Render(ctx context.Context, user map[string]any, o Options) ([]Doc, error) {
+	if o.Release == "" {
+		o.Release = "rel"
+	}
+	if o.Namespace == "" {
+		o.Namespace = "default"
+	}
+	install := action.NewInstall(action.NewConfiguration())
+	install.DryRunStrategy = action.DryRunClient
+	install.ReleaseName = o.Release
+	install.Namespace = o.Namespace
+	install.IncludeCRDs = true
+	r, err := install.RunWithContext(ctx, c.chart, user)
+	if err != nil {
+		return nil, fmt.Errorf("render chart: %w", err)
+	}
+	rel, ok := r.(*rspb.Release)
+	if !ok {
+		return nil, fmt.Errorf("render chart: unsupported release type %T", r)
+	}
+
+	var docs []Doc
+	split := releaseutil.SplitManifests(rel.Manifest)
+	keys := make([]string, 0, len(split))
+	for k := range split {
+		keys = append(keys, k)
+	}
+	sort.Sort(releaseutil.BySplitManifestsOrder(keys))
+	for _, k := range keys {
+		m := split[k]
+		if err := appendDoc(&docs, source(m), m, o.Namespace); err != nil {
+			return nil, err
+		}
+	}
+	for _, h := range rel.Hooks {
+		if err := appendDoc(&docs, h.Path, h.Manifest, o.Namespace); err != nil {
+			return nil, err
+		}
+	}
+	return docs, nil
+}
+
+func appendDoc(docs *[]Doc, src, manifest, namespace string) error {
+	var obj map[string]any
+	if err := yaml.Unmarshal([]byte(manifest), &obj); err != nil {
+		return fmt.Errorf("decode %s: %w", src, err)
+	}
+	if obj == nil {
+		return nil
+	}
+	d := Doc{Source: src, Object: obj, Namespace: namespace}
+	d.Kind, _ = obj["kind"].(string)
+	if md, ok := obj["metadata"].(map[string]any); ok {
+		d.Name, _ = md["name"].(string)
+		if ns, ok := md["namespace"].(string); ok && ns != "" {
+			d.Namespace = ns
+		}
+	}
+	*docs = append(*docs, d)
+	return nil
+}
+
+func source(manifest string) string {
+	for line := range strings.Lines(manifest) {
+		if s, ok := strings.CutPrefix(line, "# Source: "); ok {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}

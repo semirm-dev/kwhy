@@ -1,0 +1,17 @@
+replicaCount: 1
+image:
+  repository: ghcr.io/acme/api
+  tag: ""
+resources:
+  requests:
+    memory: 512Mi
+auth:
+  user: admin
+config:
+  logLevel: info
+ingress:
+  enabled: false
+  host: api.example.com
+maxBodyBytes: 2000000
+global:
+  env: dev

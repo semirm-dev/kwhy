@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-sub
+data:
+  greeting: {{ .Values.greeting }}
+  env: {{ .Values.global.env }}

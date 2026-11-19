@@ -87,7 +87,11 @@ var mutable = map[string]map[string]bool{
 	"Job":         {"parallelism": true, "completions": true, "activeDeadlineSeconds": true, "suspend": true, "backoffLimit": true, "ttlSecondsAfterFinished": true, "backoffLimitPerIndex": true, "maxFailedIndexes": true, "podFailurePolicy": true, "successPolicy": true, "managedBy": false},
 }
 
-type ref struct{ kind, name string; env bool; subPath bool }
+type ref struct {
+	kind, name string
+	env        bool
+	subPath    bool
+}
 
 // refs finds ConfigMaps/Secrets a pod template consumes, and how.
 func refs(tpl any) []ref {
