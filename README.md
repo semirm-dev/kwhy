@@ -3,7 +3,6 @@
 [![ci](https://github.com/semirm-dev/kwhy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/semirm-dev/kwhy/actions/workflows/ci.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/semirm-dev/kwhy)](go.mod)
 [![Go Reference](https://pkg.go.dev/badge/github.com/semirm-dev/kwhy.svg)](https://pkg.go.dev/github.com/semirm-dev/kwhy)
-[![Go Report Card](https://goreportcard.com/badge/github.com/semirm-dev/kwhy)](https://goreportcard.com/report/github.com/semirm-dev/kwhy)
 [![License](https://img.shields.io/github/license/semirm-dev/kwhy)](LICENSE)
 
 Answers the "why" questions about Kubernetes config, using the real Helm and scheduler code instead of guesses.
