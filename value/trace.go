@@ -5,8 +5,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/semirm-dev/kwhy/render"
 )
@@ -64,12 +68,19 @@ func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options) (*
 		}
 	}
 
-	t := tracer{c: c, o: o, user: v.User, idx: idx, base: base}
-	// shortcut: chunks render one after another; run them in parallel if Task 7's 2s gate needs it.
+	t := &tracer{c: c, o: o, user: v.User, idx: idx, base: base}
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(runtime.GOMAXPROCS(0))
 	for chunk := range slices.Chunk(marked, chunkSize) {
-		if err := t.mark(ctx, chunk); err != nil {
-			return nil, err
-		}
+		g.Go(func() error { return t.mark(gctx, chunk) })
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Chunks finish in any order; sort so answers list leaves the same way every run.
+	for _, hits := range idx.Hits {
+		slices.SortStableFunc(hits, func(a, b Hit) int { return a.Leaf - b.Leaf })
 	}
 
 	return idx, nil
@@ -86,8 +97,9 @@ type tracer struct {
 	c    *render.Chart
 	o    render.Options
 	user map[string]any
-	idx  *Index
+	idx  *Index // Hits and Unmarkable are written under mu; the rest is read-only while marking
 	base int
+	mu   sync.Mutex
 }
 
 // mark renders once with every leaf of chunk marked. A render error or a changed set of fields
@@ -119,7 +131,9 @@ func (t *tracer) mark(ctx context.Context, chunk []Leaf) error {
 
 	if reason != "" {
 		if len(chunk) == 1 {
+			t.mu.Lock()
 			t.idx.Unmarkable[chunk[0].ID] = reason
+			t.mu.Unlock()
 			return nil
 		}
 
@@ -147,11 +161,13 @@ func (t *tracer) mark(ctx context.Context, chunk []Leaf) error {
 			}
 		}
 
+		t.mu.Lock()
 		for _, h := range hits {
 			if !slices.Contains(t.idx.Hits[f], h) {
 				t.idx.Hits[f] = append(t.idx.Hits[f], h)
 			}
 		}
+		t.mu.Unlock()
 	}
 
 	return nil
