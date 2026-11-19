@@ -1,0 +1,6 @@
+replicas: 2
+resources: {requests: {cpu: 100m, memory: 256Mi}}
+ingress: {enabled: true, hosts: [grafana.example.com]}
+persistence: {enabled: true, size: 20Gi}
+adminUser: ops
+grafana.ini: {server: {root_url: "https://grafana.example.com"}}
