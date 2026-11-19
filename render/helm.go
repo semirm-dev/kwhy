@@ -10,6 +10,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 	"helm.sh/helm/v4/pkg/action"
+	"helm.sh/helm/v4/pkg/chart/common"
 	"helm.sh/helm/v4/pkg/chart/common/util"
 	chart "helm.sh/helm/v4/pkg/chart/v2"
 	"helm.sh/helm/v4/pkg/chart/v2/loader"
@@ -109,6 +110,9 @@ func (c *Chart) Render(ctx context.Context, user map[string]any, o Options) ([]D
 	install.ReleaseName = o.Release
 	install.Namespace = o.Namespace
 	install.IncludeCRDs = true
+	// Helm assumes v1.20 under go test and the client-go version otherwise; pin it so both agree.
+	// shortcut: fixed to client-go v0.37's version, bump with client-go or add --kube-version if users need it.
+	install.KubeVersion = &common.KubeVersion{Version: "v1.37.0", Major: "1", Minor: "37"}
 
 	r, err := install.RunWithContext(ctx, ch, user)
 	if err != nil {

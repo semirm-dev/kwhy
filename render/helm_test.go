@@ -34,6 +34,15 @@ func TestRenderMini(t *testing.T) {
 	}
 }
 
+// Under go test Helm assumes Kubernetes v1.20; Render must pin a current version so tests and the
+// binary render alike.
+func TestRenderModernKubeVersion(t *testing.T) {
+	dir := copyMini(t, map[string]string{"Chart.yaml": "apiVersion: v2\nname: mini\nversion: 0.1.0\nkubeVersion: \">=1.30.0-0\"\n"})
+	if _, err := load(t, dir).Render(t.Context(), nil, render.Options{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRenderUserValues(t *testing.T) {
 	docs, err := load(t, mini).Render(t.Context(), map[string]any{"ingress": map[string]any{"enabled": true}}, render.Options{})
 	if err != nil {
