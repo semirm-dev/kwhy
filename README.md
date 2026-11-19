@@ -85,8 +85,8 @@ On top of that, marker tracing matches rendered fields to these leaves, every an
 kinds, and `kwhy value` prints them (`--all`, `--key`, `-o human|markdown|json`) for local charts.
 
 Accuracy is checked against 10 pinned public charts (`go test -tags accuracy ./value/`, run nightly in CI).
-All 10 pass: kwhy never named a wrong setting (precision 1.00), and it found at least 96% of the settings
-that really change a field (recall 0.96–1.00).
+All 10 pass: kwhy never named a wrong setting (precision 1.00), and it found at least 98% of the settings
+that really change a field (recall 0.98–1.00, up to 50 settings checked per chart).
 
 One field, end to end, on an 8-core M1 Pro:
 
