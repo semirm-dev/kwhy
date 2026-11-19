@@ -9,12 +9,12 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 
 | Command | Question | Works on | Status |
 |---|---|---|---|
-| `kwhy value` | Where does this rendered value come from, and how do I change it safely? | Git repo, offline | v0.1 |
+| `kwhy value` | Where does this rendered value come from? | Git repo, offline | v0.1 |
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster) | planned, v0.3 |
-| `kwhy pod` | Why is this pod not running, and what is the smallest fix? | Live cluster, read-only | planned, v0.4 |
+| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | planned, v0.4 |
 
 > **Status:** early development. `kwhy value` works today and is checked nightly against 10 public charts.
-> The `--set-value`, `change` and `pod` examples below show planned output from the [specs](docs/specs).
+> The `change` and `pod` examples below show planned output from the [specs](docs/specs).
 
 ## `kwhy value`: where does this value come from?
 
@@ -22,11 +22,6 @@ A rendered field can come from chart defaults, several `-f` files, `--set` flags
 `kwhy value` points at the exact line that wins, and at everything it overrides.
 
 <img src="docs/demo/value.svg" alt="kwhy value tracing requests.memory to values-prod.yaml:31 and what it overrides" width="100%">
-
-With `--set-value` (v0.2) it writes the change back to that line, keeps comments, and warns about other
-environments sharing the file:
-
-<img src="docs/demo/value-set.svg" alt="kwhy value --set-value patching values-prod.yaml:31 from 2Gi to 768Mi" width="100%">
 
 When a field isn't a plain copy of one value, the answer says so instead of guessing:
 
@@ -109,10 +104,10 @@ Diff tools show the full rendered diff. `kwhy change` says what the diff *does*,
 
 ## `kwhy pod`: why is it Pending? (planned, v0.4)
 
-Runs the real kube-scheduler filters on every node, not just the first failing check the scheduler reports,
-and tries the smallest change that makes the pod fit:
+Runs the real kube-scheduler filters on every node and shows every failing check, not just the first one the
+scheduler reports. It says what's wrong; fixing it stays with you:
 
-<img src="docs/demo/pod.svg" alt="kwhy pod showing a node by check matrix and the smallest fix for a Pending pod" width="100%">
+<img src="docs/demo/pod.svg" alt="kwhy pod showing every failing check on every node for a Pending pod" width="100%">
 
 ## Install
 
@@ -142,7 +137,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 ## Known limits
 
 - `lookup` returns empty, as with `helm template` (offline).
-- Kustomize tracing and `--set-value` write-back come in v0.2.
+- Kustomize tracing comes in v0.2.
 - `-f` takes local files only for now (Helm also accepts URLs).
 - Every run traces the whole chart again; nothing is cached between runs (~20s on kube-prometheus-stack).
 

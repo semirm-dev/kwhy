@@ -1,6 +1,6 @@
 # Spec 01: `kwhy value`
 
-Trace any field of rendered Kubernetes config back to the source line that sets it, then change it there.
+Trace any field of rendered Kubernetes config back to the source line that sets it. Read-only: kwhy never changes values or files.
 
 ## Problem
 
@@ -16,9 +16,9 @@ annotations are per resource.
 ## Users and jobs
 
 - Platform engineer debugging "why is prod running 2Gi?"
-- Reviewer asking "if I change this key, what else moves?"
-- Automation (rightsizers, Renovate-style bots, AI agents) that knows the desired rendered value and needs
-  the safe source edit.
+- Reviewer asking "which rendered fields does this key feed?" (`--key`)
+- Automation (rightsizers, Renovate-style bots, AI agents) that needs to know which source line sets a
+  rendered value (`-o json`).
 
 ## Scope
 
@@ -32,7 +32,7 @@ kwhy value --key resources.cpu ...      # reverse: which rendered fields does th
 `<path>` uses a jq-like syntax: `.spec.template.spec.containers[name=api].resources.requests.memory`
 (`[name=x]` selects list items by name, since indexes shift between renders).
 
-**v0.2:** `kwhy value ... --set-value <path>=<value> [--in <file>]` write-back; then Kustomize.
+**v0.2:** Kustomize.
 
 **Non-goals (v0.x):** Terraform/HCL, Jsonnet, cdk8s, live cluster objects (use `kubectl blame` for
 "who changed it in the cluster"), editing chart templates.
@@ -83,7 +83,7 @@ Every answer has one of these **kinds**, shown to the user and in JSON:
    shared by every field, and only fields it moves are bisected. `--key` on an empty-string leaf marks
    that leaf alone.
 5. **Template attribution** is file-level from Helm's `# Source:` header. A line hint inside the template
-   (searching for `.Values.<key>`) may be shown, labelled as a hint, never used for edits.
+   (searching for `.Values.<key>`) may be shown, labelled as a hint, never as the answer.
 
 Spike results, 40 sampled leaves per chart checked against perturbation ground truth:
 
@@ -98,19 +98,6 @@ Spike results, 40 sampled leaves per chart checked against perturbation ground t
 
 The spike rendered via the `helm` CLI (2–28s per chart, dominated by process start). In-process rendering is
 expected to be roughly 10× faster; that's a performance target for v0.1, not yet measured.
-
-## Write-back (`--set-value`, v0.2)
-
-1. Only for `direct` answers. For `composed`/`derived`, print the leaves involved and refuse with an
-   explanation, so the tool never guesses.
-2. Target file: the file that currently wins (top of the override chain). If that is the chart's own
-   `values.yaml`, write a new key into the highest-precedence user file instead; never edit vendored
-   charts. `--in <file>` overrides the choice.
-3. **Warn when the winning file is shared** (also passed for another environment in a known app config).
-   Suggest `--in values-prod.yaml`.
-4. Edit with `yaml.v3` Node API: keep comments, anchors, key order, quoting style and indentation.
-5. **Verify by re-rendering:** exactly the requested field changes, nothing else. Otherwise roll back the
-   edit and print the unexpected diffs.
 
 ## Kustomize (v0.2), open risk, needs a spike first
 

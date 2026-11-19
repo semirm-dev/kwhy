@@ -10,9 +10,9 @@ Kustomize and scheduler code instead of guesses:
 
 | Command | Question | Works on | Spec |
 |---|---|---|---|
-| `kwhy value` | Where does this rendered value come from, and how do I change it safely? | Git repo, offline | [01-value.md](01-value.md) |
+| `kwhy value` | Where does this rendered value come from? | Git repo, offline | [01-value.md](01-value.md) |
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster) | [02-change.md](02-change.md) |
-| `kwhy pod` | Why is this pod not running, and what is the smallest fix? | Live cluster | [03-pod.md](03-pod.md) |
+| `kwhy pod` | Why is this pod not running? | Live cluster | [03-pod.md](03-pod.md) |
 
 The features reinforce each other. `pod` says *"requests 2 CPU"* and `value` says *"set at
 values-prod.yaml:31"*. `change` reuses the rendering engine `value` needs.
@@ -46,9 +46,9 @@ Spike code and inputs are in `docs/spikes/`.
 ```
 cmd/kwhy/              wiring only: flags → features
 render/                Helm + Kustomize rendering to []*yaml.Node with Source info (shared by value, change)
-value/                 tracing (markers, perturbation), merge replay, write-back
+value/                 tracing (markers, perturbation), merge replay
 change/                base/head diff, impact rules, rollout estimate
-pod/                   cluster snapshot, per-filter scheduler runs, what-if search
+pod/                   cluster snapshot, per-filter scheduler runs
 internal/k8s/          tiny helpers shared by change and pod (GVK keys, pod template access)
 docs/specs, docs/spikes
 ```
@@ -61,7 +61,7 @@ it moves to its own Go module without changing the CLI.
 | Version | Ships | Gate to start the next one |
 |---|---|---|
 | v0.1 | `value` read-only, Helm only | Correct answers on the 6 spike charts plus 4 more in CI golden tests |
-| v0.2 | `value --set-value` write-back, then Kustomize tracing; goreleaser releases + Homebrew | Kustomize spike done (see 01-value.md, open risk) |
+| v0.2 | Kustomize tracing for `value`; goreleaser releases + Homebrew | Kustomize spike done (see 01-value.md, open risk) |
 | v0.3 | `change` (Helm + Kustomize, offline) + GitHub Action | Rules suite green on kind in CI |
 | v0.4 | `pod`; Krew manifest (`kubectl-kwhy`) | Parity test against real scheduler events on kind |
 | later | Argo CD / Flux app discovery, MCP server, Terraform for `value` | |

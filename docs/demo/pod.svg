@@ -1,18 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="644" height="306" viewBox="0 0 644 306" role="img" aria-label="kwhy pod terminal demo">
+<svg xmlns="http://www.w3.org/2000/svg" width="644" height="266" viewBox="0 0 644 266" role="img" aria-label="kwhy pod terminal demo">
 <style>
 text{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",monospace;fill:#d6deea;white-space:pre}
 .p,.g{fill:#7fd4a0}.d{fill:#7d8aa0}.r{fill:#ff8f87}.y{fill:#f2c86b}.b{fill:#8fb2ff}.c{fill:#7fd3e0}.s{fill:#fff;font-weight:600}
 .t{font-size:12px;fill:#7d8aa0}
-.k0{animation:k0 15.35s infinite}@keyframes k0{0%,3.91%{transform:translateX(0);animation-timing-function:steps(33,end)}11.44%,99.9%{transform:translateX(259px)}100%{transform:translateX(0)}}.k0p{animation:k0p 15.35s infinite}@keyframes k0p{0%,1.96%{opacity:0}2.02%,99.9%{opacity:1}100%{opacity:0}}.o2{animation:o2 15.35s infinite}@keyframes o2{0%,14.76%{opacity:0}14.83%,99.9%{opacity:1}100%{opacity:0}}.o4{animation:o4 15.35s infinite}@keyframes o4{0%,15.93%{opacity:0}16.00%,99.9%{opacity:1}100%{opacity:0}}.o5{animation:o5 15.35s infinite}@keyframes o5{0%,16.72%{opacity:0}16.78%,99.9%{opacity:1}100%{opacity:0}}.o6{animation:o6 15.35s infinite}@keyframes o6{0%,17.50%{opacity:0}17.56%,99.9%{opacity:1}100%{opacity:0}}.o7{animation:o7 15.35s infinite}@keyframes o7{0%,18.28%{opacity:0}18.34%,99.9%{opacity:1}100%{opacity:0}}.o9{animation:o9 15.35s infinite}@keyframes o9{0%,19.45%{opacity:0}19.52%,99.9%{opacity:1}100%{opacity:0}}.o10{animation:o10 15.35s infinite}@keyframes o10{0%,20.23%{opacity:0}20.30%,99.9%{opacity:1}100%{opacity:0}}.o11{animation:o11 15.35s infinite}@keyframes o11{0%,21.02%{opacity:0}21.08%,99.9%{opacity:1}100%{opacity:0}}
+.k0{animation:k0 15.35s infinite}@keyframes k0{0%,3.91%{transform:translateX(0);animation-timing-function:steps(23,end)}11.44%,99.9%{transform:translateX(179.4px)}100%{transform:translateX(0)}}.k0p{animation:k0p 15.35s infinite}@keyframes k0p{0%,1.96%{opacity:0}2.02%,99.9%{opacity:1}100%{opacity:0}}.o2{animation:o2 15.35s infinite}@keyframes o2{0%,14.76%{opacity:0}14.83%,99.9%{opacity:1}100%{opacity:0}}.o4{animation:o4 15.35s infinite}@keyframes o4{0%,15.93%{opacity:0}16.00%,99.9%{opacity:1}100%{opacity:0}}.o5{animation:o5 15.35s infinite}@keyframes o5{0%,16.72%{opacity:0}16.78%,99.9%{opacity:1}100%{opacity:0}}.o6{animation:o6 15.35s infinite}@keyframes o6{0%,17.50%{opacity:0}17.56%,99.9%{opacity:1}100%{opacity:0}}.o7{animation:o7 15.35s infinite}@keyframes o7{0%,18.28%{opacity:0}18.34%,99.9%{opacity:1}100%{opacity:0}}.o9{animation:o9 15.35s infinite}@keyframes o9{0%,19.45%{opacity:0}19.52%,99.9%{opacity:1}100%{opacity:0}}.o10{animation:o10 15.35s infinite}@keyframes o10{0%,20.23%{opacity:0}20.30%,99.9%{opacity:1}100%{opacity:0}}.o11{animation:o11 15.35s infinite}@keyframes o11{0%,21.02%{opacity:0}21.08%,99.9%{opacity:1}100%{opacity:0}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}[class^=k]:not([class$=p]){display:none}}
 </style>
-<rect width="644" height="306" rx="10" fill="#121a26"/>
+<rect width="644" height="266" rx="10" fill="#121a26"/>
 <circle cx="18" cy="17" r="5" fill="#ffffff26"/><circle cx="34" cy="17" r="5" fill="#ffffff26"/><circle cx="50" cy="17" r="5" fill="#ffffff26"/>
 <text class="t" x="322.0" y="21" text-anchor="middle">kwhy pod</text>
 <line x1="0" y1="34" x2="644" y2="34" stroke="#ffffff14"/>
 <g xml:space="preserve">
 <g class="k0p">
-<text x="18" y="65"><tspan class="p">$</tspan> kwhy pod deploy/trainer --what-if</text>
+<text x="18" y="65"><tspan class="p">$</tspan> kwhy pod deploy/trainer</text>
 <rect class="k0" x="33.6" y="52" width="644" height="20" fill="#121a26"/>
 </g>
 <text class="o2" x="18" y="105"><tspan x="18.0" class="y">Pending 14m</tspan><tspan x="103.8"> · 0 of 12 nodes fit · every check, every node</tspan></text>
@@ -20,8 +20,6 @@ text{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",mon
 <text class="o5" x="18" y="165"><tspan x="18.0">gpu-a1     </tspan><tspan x="103.8" class="r">✗ 7.5/8 +2</tspan><tspan x="181.8">     </tspan><tspan x="220.8" class="g">✓</tspan><tspan x="228.6">               </tspan><tspan x="345.6" class="g">✓</tspan><tspan x="353.4">               </tspan><tspan x="470.4" class="g">✓</tspan><tspan x="478.2">         </tspan><tspan x="548.4" class="g">✓</tspan></text>
 <text class="o6" x="18" y="185"><tspan x="18.0">gpu-a2     </tspan><tspan x="103.8" class="g">✓</tspan><tspan x="111.6">              </tspan><tspan x="220.8" class="r">✗ 61/64 +16Gi</tspan><tspan x="322.2">   </tspan><tspan x="345.6" class="g">✓</tspan><tspan x="353.4">               </tspan><tspan x="470.4" class="r">✗ zone b</tspan><tspan x="532.8">  </tspan><tspan x="548.4" class="g">✓</tspan></text>
 <text class="o7" x="18" y="205"><tspan x="18.0">cpu-* (9)  </tspan><tspan x="103.8" class="g">✓</tspan><tspan x="111.6">              </tspan><tspan x="220.8" class="g">✓</tspan><tspan x="228.6">               </tspan><tspan x="345.6" class="r">✗ nvidia.com</tspan><tspan x="439.2">    </tspan><tspan x="470.4" class="r">✗ gpu</tspan><tspan x="509.4">     </tspan><tspan x="548.4" class="g">✓</tspan></text>
-<text class="o9" x="18" y="245"><tspan x="18.0" class="s">Smallest fixes</tspan><tspan x="127.2" class="d"> (re-ran the filters on a modified copy)</tspan></text>
-<text class="o10" x="18" y="265"><tspan x="18.0" class="c"> → </tspan><tspan x="41.4">lower cpu request 2 → 1                 </tspan><tspan x="353.4" class="g">fits gpu-a1</tspan></text>
-<text class="o11" x="18" y="285"><tspan x="18.0" class="d">   set at values-prod.yaml:31 (kwhy value) — run with --set-value to change it</tspan></text>
+<text class="o9" x="18" y="245"><tspan x="18.0" class="s">Source</tspan><tspan x="64.8" class="d">  cpu request 2 ← resources.requests.cpu, values-prod.yaml:31</tspan></text>
 </g>
 </svg>

@@ -1,7 +1,7 @@
 # Spec 03: `kwhy pod`
 
-Explain why a pod is not scheduled: every failing check on every node, from the real scheduler code, and
-the smallest change that would make it fit.
+Explain why a pod is not scheduled: every failing check on every node, from the real scheduler code.
+Read-only and diagnosis only: it says what's wrong and never suggests or tries changes.
 
 ## Problem
 
@@ -22,7 +22,7 @@ allocations, taints and affinity terms by hand.
    plugins and edge cases a reimplementation misses.
 2. **The full node × check matrix**, not one diagnosis.
 3. **Link to source**: if the pod comes from a Helm/Kustomize app in the current repo, point at the line
-   that sets the problematic field (`kwhy value`), and offer the edit.
+   that sets the problematic field (`kwhy value`).
 
 This is the most crowded of the three features, so it ships last (v0.4) and leans on 3.
 
@@ -30,7 +30,7 @@ This is the most crowded of the three features, so it ships last (v0.4) and lean
 
 **v0.4:**
 ```
-kwhy pod <name|kind/name> [-n ns] [--context ctx] [--what-if] [--output human|markdown|json]
+kwhy pod <name|kind/name> [-n ns] [--context ctx] [--output human|markdown|json]
 ```
 - Read-only. Lists nodes, pods (all namespaces, for allocated resources), PVs, PVCs, StorageClasses,
   CSINodes; builds the scheduler snapshot.
@@ -49,9 +49,7 @@ gpu-a1     ✗ 7.5/8 +2     ✓               ✓               ✓         ✓
 gpu-a2     ✓              ✗ 61/64 +16Gi   ✓               ✗ zone b  ✓
 cpu-* (9)  ✓              ✓               ✗ nvidia.com    ✗ gpu     ✓
 
-Smallest fixes (re-ran the filters on a modified copy)
- → lower cpu request 2 → 1                 fits gpu-a1
-   set at values-prod.yaml:31 (kwhy value) — run with --set-value to change it
+Source: cpu request 2 ← resources.requests.cpu, values-prod.yaml:31 (kwhy value)
 ```
 Nodes with identical results are grouped (`cpu-* (9)`). Cells carry numbers
 (requested/allocatable), not just plugin messages.
@@ -67,10 +65,6 @@ Nodes with identical results are grouped (`cpu-* (9)`). Cells carry numbers
 - **All filters:** `RunFilterPlugins` returns on the first failure, so build one framework per filter
   plugin (`Filter.Enabled=[name]`, `Disabled=[*]`), run PreFilter, then Filter on every node. The spike
   shows the gain: on `gpu-a2` the scheduler reported only NodeAffinity, but NodeResourcesFit also failed.
-- **What-if:** mutate a copy of the pod and re-run: lower each failing resource request to the closest
-  node's free amount; add a toleration for each untolerated taint; drop or relax one affinity term.
-  Report the single changes that make at least one node fit, smallest first. Preemption ("evict
-  lower-priority pods") uses the DefaultPreemption PostFilter dry-run, planned for after v0.4.
 - **Autoscaler awareness:** if Cluster Autoscaler/Karpenter events show a scale-up for this pod, say
   "a node is being added" before the matrix.
 - **Version skew:** warn when the cluster's minor version differs from the compiled scheduler by more than
@@ -86,7 +80,6 @@ every default filter plugin. Needs a benchmark at 1,000 nodes / 30,000 pods befo
   anti-affinity, topology spread, ports, volume zone), the first failing plugin per node in kwhy equals
   the plugin named in the real `FailedScheduling` event.
 - Every node row shows all failing checks.
-- `--what-if` suggestions are verified: applying each suggested change on kind makes the pod schedule.
 - 1,000 nodes in under 5s.
 
 ## Risks
