@@ -13,7 +13,7 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster) | planned, v0.3 |
 | `kwhy pod` | Why is this pod not running, and what is the smallest fix? | Live cluster, read-only | planned, v0.4 |
 
-> **Status:** early development. The CLI parses and validates its flags but no command prints answers yet.
+> **Status:** early development. `kwhy value` answers for local charts; it isn't yet checked against public charts.
 > The examples below show the target output from the [specs](docs/specs), not the output of today's build.
 
 ## `kwhy value`: where does this value come from?
@@ -74,7 +74,9 @@ global.env                 prod   values-prod.yaml:10=prod    mini/values.yaml:1
 It follows Helm's own merge rules: later files win, maps merge, lists replace whole, `null` deletes,
 subchart defaults mount under their name or alias, and YAML anchors point at the line where the value is written.
 
-Next up: matching rendered fields to these leaves (marker tracing), then the answer kinds and output.
+On top of that, marker tracing matches rendered fields to these leaves, every answer gets one of the eight
+kinds, and `kwhy value` prints them (`--all`, `--key`, `-o human|markdown|json`) for local charts.
+Next up: the accuracy and latency gate on 10 public charts, then CI.
 Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
 ## `kwhy change`: what will this PR do? (planned, v0.3)
