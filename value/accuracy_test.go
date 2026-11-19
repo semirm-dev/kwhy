@@ -50,7 +50,7 @@ func explainArgoCD(tb testing.TB) {
 		tb.Fatal(err)
 	}
 
-	idx, err := value.Trace(tb.Context(), c, v, render.Options{})
+	idx, err := value.Trace(tb.Context(), c, v, render.Options{}, value.ChunkSize)
 	if err != nil {
 		tb.Fatal(err)
 	}

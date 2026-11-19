@@ -15,7 +15,7 @@ import (
 	"github.com/semirm-dev/kwhy/render"
 )
 
-const chunkSize = 40 // how many leaves one tracing render marks
+const ChunkSize = 10 // default for how many leaves one tracing render marks
 
 var markerRe = regexp.MustCompile(`zq(\d+)qz|\d+`)
 
@@ -33,8 +33,9 @@ type Index struct {
 
 // Trace renders with the values replaced by unique markers, chunk by chunk, and records which
 // leaves show up in which fields. Strings (empty ones too, for `default x .Values.y`) and non-zero
-// numbers are marked; bools and zeros steer control flow and are left to Explain.
-func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options) (*Index, error) {
+// numbers are marked; bools and zeros steer control flow and are left to Explain. chunk is how
+// many leaves one render marks (ChunkSize unless tuning).
+func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunk int) (*Index, error) {
 	docs, err := c.Render(ctx, v.User, o)
 	if err != nil {
 		return nil, err
@@ -71,7 +72,7 @@ func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options) (*
 	t := &tracer{c: c, o: o, user: v.User, idx: idx, base: base}
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(runtime.GOMAXPROCS(0))
-	for chunk := range slices.Chunk(marked, chunkSize) {
+	for chunk := range slices.Chunk(marked, chunk) {
 		g.Go(func() error { return t.mark(gctx, chunk) })
 	}
 	if err := g.Wait(); err != nil {

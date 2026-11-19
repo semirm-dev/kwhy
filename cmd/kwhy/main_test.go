@@ -29,6 +29,7 @@ func TestRunExitCodes(t *testing.T) {
 		{"value missing path", []string{"value", "deploy/api", "--chart", "c"}, 2},
 		{"value path and all", []string{"value", "deploy/api", ".spec.replicas", "--all", "--chart", "c"}, 2},
 		{"value bad output", []string{"value", "deploy/api", "--all", "--chart", "c", "-o", "yaml"}, 2},
+		{"value bad chunk size", []string{"value", "deploy/api", "--all", "--chart", "c", "--chunk-size", "0"}, 2},
 		{"value flags after args", []string{"value", "deploy/api", ".spec.replicas", "--chart", "c", "-f", "a.yaml", "-f", "b.yaml"}, 1},
 		{"change", []string{"change"}, 1},
 	}

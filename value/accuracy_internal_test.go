@@ -36,7 +36,7 @@ func TestAccuracy(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			idx, err := Trace(t.Context(), c, v, render.Options{})
+			idx, err := Trace(t.Context(), c, v, render.Options{}, ChunkSize)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -75,6 +75,7 @@ func valueCmd() *cobra.Command {
 		chartRef, version, release, namespace, output, key string
 		files, sets                                        []string
 		all                                                bool
+		chunk                                              int
 	)
 
 	helm := cli.New()
@@ -94,6 +95,10 @@ func valueCmd() *cobra.Command {
 
 			if n := countTrue(len(args) == 2, all, key != ""); n != 1 {
 				return usageError{errors.New("give exactly one of <path>, --all or --key")}
+			}
+
+			if chunk < 1 {
+				return usageError{fmt.Errorf("--chunk-size must be at least 1, got %d", chunk)}
 			}
 
 			if writers[output] == nil {
@@ -121,7 +126,7 @@ func valueCmd() *cobra.Command {
 			}
 
 			o := render.Options{Release: release, Namespace: namespace}
-			idx, err := value.Trace(ctx, c, v, o)
+			idx, err := value.Trace(ctx, c, v, o, chunk)
 			if err != nil {
 				return err
 			}
@@ -194,6 +199,7 @@ func valueCmd() *cobra.Command {
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.BoolVar(&all, "all", false, "explain every field of the resource")
 	f.StringVar(&key, "key", "", "reverse lookup: rendered fields affected by this values key")
+	f.IntVar(&chunk, "chunk-size", value.ChunkSize, "values leaves marked per tracing render (tuning)")
 
 	// Only Helm's chart lookup flags: value is offline, so the cluster flags don't apply.
 	f.StringVar(&helm.RepositoryConfig, "repository-config", helm.RepositoryConfig, "path to Helm's repositories file")

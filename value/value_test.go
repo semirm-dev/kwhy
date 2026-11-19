@@ -654,7 +654,7 @@ func trace(t *testing.T, chart string, files ...string) (*value.Index, *value.Va
 		t.Fatal(err)
 	}
 
-	idx, err := value.Trace(t.Context(), c, v, render.Options{})
+	idx, err := value.Trace(t.Context(), c, v, render.Options{}, value.ChunkSize)
 	if err != nil {
 		t.Fatal(err)
 	}
