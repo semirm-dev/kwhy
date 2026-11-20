@@ -85,7 +85,11 @@ evictions. Each problem names the container and kubelet's own reason, never a gu
 Also a `node` problem when the pod's node isn't Ready or is under pressure (best effort: needs `get nodes`), and
 `--logs N` (opt-in) for the last run of a crashed container. Checked on kind against kubelet for pull, crash, OOM,
 config, mount, probe and init failures (`pod/kind_running_test.go`). Plan: `docs/plans/2026-11-20-v0.5-pod-running.md`.
-What's still missing: `docs/plans/2026-11-20-backlog.md`.
+**v0.6 (built 2026-11-20):** the workload's controller speaks too (`create`: pods it can't create, `rollout`:
+progress deadline exceeded, `job`: a failed Job), pods stuck `terminating`, `ds/` targets, Cluster Autoscaler and
+Karpenter events on a Pending pod (`autoscaler`), and a preemption hint (nodes it would fit on without
+lower-priority pods). Plan: `docs/plans/2026-11-20-v0.6-pod-complete.md`. What's still missing:
+`docs/plans/2026-11-20-backlog.md`.
 
 ## Design (validated in `docs/spikes/pod`)
 

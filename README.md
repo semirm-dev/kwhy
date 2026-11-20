@@ -11,7 +11,7 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 |---|---|---|---|
 | `kwhy value` | Where does this rendered value come from? | Git repo, offline | v0.1 |
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.3 |
-| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.5 |
+| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.6 |
 
 > **Status:** early development. `kwhy value` works today and is checked nightly against 10 public charts.
 > `kwhy change` works for Helm charts and every rule is checked against a real cluster in CI. `kwhy pod` works on
@@ -97,7 +97,7 @@ Nearly all of it is tracing the whole chart, which every run repeats, so a secon
 same chart costs the same again.
 Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
-## `kwhy change`: what will this PR do? (v0.3)
+## `kwhy change`: what will this PR do? (v0.3–v0.7)
 
 Diff tools show the full rendered diff. `kwhy change` says what the diff *does*, as one short PR comment
 (target output):
@@ -117,15 +117,17 @@ Merging this change will:
 kwhy: --fail-on: will fail Job kwhy-demo/migrate
 ```
 
-It renders the chart at both refs (temporary `git worktree` checkouts, removed afterwards) and classifies every
-changed object: `restart`, `ordered`, `scale`, `resize` (PVC growth), `recreate` (Argo `Replace`/`Force`),
-`runs as hook`, `no effect` / `delayed` / `picked up` for ConfigMap and Secret consumers, `will fail` for
-immutable fields, `data` for deletes that lose stored data, and `create` / `delete`. Restarts that pull a
-mutable tag (`:latest` or untagged) say so.
+It renders the chart at both refs (temporary `git worktree` checkouts, removed afterwards), or reads a directory
+of plain YAML with `--manifests DIR`, and classifies every changed object: `restart`, `ordered`, `scale`,
+`resize` (PVC growth), `recreate` (Argo `Replace`/`Force`), `runs as hook`, `no effect` / `delayed` /
+`picked up` for ConfigMap and Secret consumers, `will fail` for immutable fields, `no endpoints` for a Service
+whose selector stops matching its pods, `data` for deletes that lose stored data, and `create` / `delete`.
+Restarts that pull a mutable tag (`:latest` or untagged) say so.
 
 Offline, pod counts come from the manifests' `replicas`. `--context` reads the cluster (get and list only) for
 live replica counts, HPA ranges, DaemonSet node counts, whether a claim's StorageClass can expand, and a rollout
-estimate (batches from `maxSurge`/`maxUnavailable`, each ~10s start plus readiness delay and `minReadySeconds`).
+estimate (batches from `maxSurge`/`maxUnavailable`, each ~10s start plus readiness delay and `minReadySeconds`),
+and whether a Deployment's surge pods fit the namespace's ResourceQuota.
 
 Every rule kubectl can observe is checked in CI on kind (Kubernetes N-2..N): `testdata/change/` holds one
 base/head fixture per rule, and the suite applies both and compares the cluster with the prediction. Upgrades of
@@ -150,8 +152,8 @@ jobs:
 ```
 
 It posts one comment per PR and updates it on every push, comparing the PR's base with the merge commit.
-Inputs: `chart`, `values` and `set` (one per line), `release`, `namespace`, `kube-version`, `fail-on`, `base`,
-`head`, `version` (kwhy release, default latest), `comment`. Linux runners only.
+Inputs: `chart` or `manifests`, `values` and `set` (one per line), `release`, `namespace`, `kube-version`,
+`fail-on`, `base`, `head`, `version` (kwhy release, default latest), `comment`. Linux, macOS and Windows runners.
 
 ## `kwhy pod`: why isn't it running? (v0.5)
 
@@ -191,11 +193,24 @@ Logs (worker, last run):
 kwhy never guesses why an app exits: `exit 1` is all kubelet knows, and the logs (opt-in, `--logs N`) are the app's
 own words. With `--chart`, problems link to values like checks do (from the test suite, the test chart with
 `--set resources.limits.memory=4Gi`): `oom (api)  .spec.containers[0].resources.limits.memory = 4Gi  ← resources.limits.memory (--set resources.limits.memory=4Gi)`.
-For a workload it explains the worst pod (unscheduled first, then the not-ready one with the most restarts), or
-says `all N pods ready`.
+For a workload (`deploy/`, `sts/`, `ds/`, `job/`) it explains the worst pod (unscheduled first, then the
+not-ready one with the most restarts, then one stuck terminating), or says `all N pods ready`. It also reads the
+workload's controller (v0.6): pods a ReplicaSet, StatefulSet, DaemonSet or Job can't create (`create`: quota,
+PodSecurity, webhooks), a Deployment rollout past its deadline (`rollout`), a failed Job (`job`). A pod deleted but
+still there gets `terminating` with its finalizers. Real output on kind, for a namespace with a zero-pod quota:
+
+```console
+$ kwhy pod deploy/target -n shop
+shop/deploy/target · no pod to check · 1 problem from its controller
+
+CONTAINER     PROBLEM  DETAIL
+(controller)  create   replicaset target-f5bdbb58: pods "target-f5bdbb58-v7thh" is forbidden: exceeded quota: no-pods, requested: pods=1, used: pods=0, limited: pods=0
+```
 
 **Not scheduled (Pending)** (v0.4): runs the real kube-scheduler filters on every node and shows every failing
-check, not just the first one the scheduler reports.
+check, not just the first one the scheduler reports. It adds what Cluster Autoscaler or Karpenter last said about
+the pod (`autoscaler`), and, for a pod that may preempt, the nodes it would fit on if lower-priority pods there were
+preempted (v0.6).
 
 Real output, for a Deployment asking for a gpu node and 40 CPUs on a 3-node kind cluster:
 
@@ -264,12 +279,13 @@ Single static binary, offline by default, no telemetry. Homebrew comes later.
 | `<chart>` (first argument) | chart directory, `.tgz`, `oci://` reference or `repo/chart` |
 | `--version V` | chart version, for repo and OCI charts |
 | `-f, --values FILE` | values file or URL, repeatable, later wins |
-| `--set K=V` | set a value, repeatable, wins over files |
+| `--set K=V`, `--set-string`, `--set-json`, `--set-file`, `--set-literal` | as for `helm`, applied in Helm's order (json, set, string, file, literal) |
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |
 | `--kube-version V` | Kubernetes version charts see in `.Capabilities` (default `v1.37.0`) |
 | `-o, --output` | `human` (default), `markdown` or `json` |
 | `--all` | every field of the resource instead of one path |
 | `--chunk-size N` | values leaves marked per tracing render (default 10; tuning only) |
+| `--no-cache` | trace again instead of reusing the cached trace and answers (in the user cache dir, keyed by chart, values, options and the kwhy binary) |
 | `--repository-config`, `--repository-cache`, `--registry-config`, `--content-cache` | Helm's paths, same defaults as `helm` |
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
@@ -279,9 +295,10 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | Flag | Meaning |
 |---|---|
 | `<base>..<head>` (argument) | the two git refs to compare, e.g. `main..feature` |
-| `--chart DIR` | chart directory in the repo (required) |
+| `--chart DIR` | chart directory in the repo (this or `--manifests`) |
+| `--manifests DIR` | directory of plain YAML in the repo, read at each ref; a Kustomize directory is refused |
 | `-f, --values FILE` | values file or URL, repeatable, later wins; files in the repo are read at each ref |
-| `--set K=V` | set a value, repeatable, wins over files |
+| `--set K=V`, `--set-string`, `--set-json`, `--set-file`, `--set-literal` | as for `helm` (with `--chart`) |
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |
 | `--kube-version V` | Kubernetes version charts see in `.Capabilities` (default `v1.37.0`) |
 | `-o, --output` | `human` (default), `markdown` (PR comment, kept under GitHub's 65,000 characters) or `json` (`"schema": "kwhy.change/v1"`) |
@@ -294,12 +311,13 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 
 | Flag | Meaning |
 |---|---|
-| `<name>` (argument) | a pod (`x`, `pod/x`) or a workload (`deploy/x`, `sts/x`, `job/x`) |
+| `<name>` (argument) | a pod (`x`, `pod/x`) or a workload (`deploy/x`, `sts/x`, `ds/x`, `job/x`) |
 | `-n, --namespace NS` | namespace (default: the kube context's) |
 | `--context NAME` | kube context to read from, read-only |
 | `-o, --output` | `human` (default), `markdown` or `json` (`"schema": "kwhy.pod/v1"`, every node with all failing checks and the scheduler's first) |
 | `--chart CHART` | chart that deploys the pod (directory, `.tgz`, `oci://` or `repo/chart`): adds the values line behind each field a failing check reads |
-| `-f, --values FILE`, `--set K=V`, `--version V` | as the release was deployed (with `--chart`) |
+| `-f`, `--set`, `--set-string`, `--set-json`, `--set-file`, `--set-literal`, `--version V` | as the release was deployed (with `--chart`) |
+| `--no-cache` | with `--chart`: trace the chart again instead of reusing the cached trace |
 | `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
 | `--logs N` | last N log lines of a crashed or OOM-killed container's last run (default 0: none; logs may contain secrets, so they're never read unless asked) |
 
@@ -312,15 +330,14 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 
 - `lookup` returns empty, as with `helm template` (offline).
 - Kustomize is not supported yet.
-- `change` handles one local chart per run. Without `--context`, DaemonSet pod counts are unknown
-  ("one pod per node").
-- Every run traces the whole chart again; nothing is cached between runs (~20s on kube-prometheus-stack).
+- `change` handles one chart or manifests directory per run. Without `--context`, DaemonSet pod counts are
+  unknown ("one pod per node").
+- The first question about a chart traces it whole (~20s on kube-prometheus-stack); repeats with the same chart
+  and values come from the cache (argo-cd: 9s → 0.2s).
 - `pod` runs the default scheduler profile compiled into kwhy (v1.37) and warns when the cluster is more than one
   minor version away or the pod names another scheduler. Custom profiles and scheduler plugins aren't seen.
-- `pod` explains a pod, not a workload's controller: a Deployment whose ReplicaSet can't create pods (quota,
-  PodSecurity, webhooks), a failed Job's own reason and pods stuck Terminating aren't diagnosed yet. What's
-  missing across all three commands is in the [backlog](docs/plans/2026-11-20-backlog.md).
-- `pod` doesn't support pods with resource claims (DRA) and doesn't consider preemption or nominated pods.
+- `pod` doesn't support pods with resource claims (DRA). Its preemption hint ignores PodDisruptionBudgets and
+  nominated pods. What's missing across all three commands is in the [backlog](docs/plans/2026-11-20-backlog.md).
 - `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
 
 ## Development

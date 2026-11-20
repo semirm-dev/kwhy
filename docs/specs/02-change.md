@@ -32,6 +32,12 @@ kwhy change <base>..<head> --chart <dir> [-f values.yaml ...] [--set k=v ...] [-
   Kustomize is shelved (see the overview). Auto-discovery of Argo CD `Application` and Flux `HelmRelease`
   comes later.
 
+**v0.7 (built 2026-11-20):** `--manifests DIR` for plain YAML instead of a chart (a Kustomize directory is
+refused), Helm's `--set-string`/`--set-json`/`--set-file`/`--set-literal`, a `no endpoints` verdict for a Service
+whose selector matched rendered pods before and none after (checked on kind: its EndpointSlices empty), and with
+`--context` a note when a Deployment's surge pods exceed the namespace's ResourceQuota. The Action takes
+`manifests` and runs on Linux, macOS and Windows.
+
 **Non-goals:** applying anything, validating against admission webhooks/policies (Kyverno etc.), cost
 estimates.
 

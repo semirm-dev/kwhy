@@ -30,6 +30,11 @@ kwhy value chart <chart> <kind>/<name> --all        # every field of the resourc
 `<path>` uses a jq-like syntax: `.spec.template.spec.containers[name=api].resources.requests.memory`
 (`[name=x]` selects list items by name, since indexes shift between renders).
 
+**v0.7 (built 2026-11-20):** Helm's `--set-string`, `--set-json`, `--set-file` and `--set-literal`, each a source
+in the override chain, applied in Helm's order. Traces and answers are cached in the user cache dir, keyed by the
+chart's files, the merged values, the options and the kwhy binary (`--no-cache` to skip): argo-cd's second
+question about the same field takes 0.2s instead of 9s.
+
 **Kustomize:** shelved (2026-11-20), see below.
 
 **Non-goals (v0.x):** Terraform/HCL, Jsonnet, cdk8s, live cluster objects (use `kubectl blame` for
