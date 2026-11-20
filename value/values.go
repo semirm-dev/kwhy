@@ -168,7 +168,7 @@ func loadLayers(c *render.Chart, user map[string]any, files, sets []string) ([]l
 	for _, f := range files {
 		data, err := readFile(f, providers)
 		if err != nil {
-			return nil, nil, fmt.Errorf("read values: %w", err)
+			return nil, nil, err
 		}
 
 		l, err := fileLayer(f, data)

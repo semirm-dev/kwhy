@@ -19,12 +19,14 @@ import (
 	"github.com/semirm-dev/kwhy/value"
 )
 
-// version is set at release time with -ldflags "-X main.version=...".
-var version = "dev"
+var (
+	// version is set at release time with -ldflags "-X main.version=...".
+	version = "dev"
 
-var writers = map[string]func(io.Writer, []value.Answer) error{
-	"human": value.WriteHuman, "markdown": value.WriteMarkdown, "json": value.WriteJSON,
-}
+	writers = map[string]func(io.Writer, []value.Answer) error{
+		"human": value.WriteHuman, "markdown": value.WriteMarkdown, "json": value.WriteJSON,
+	}
+)
 
 // usageError marks errors that exit with code 2.
 type usageError struct{ error }
@@ -91,53 +93,23 @@ func valueCmd() *cobra.Command {
 			return usageError{errors.New("missing value command: chart")}
 		},
 	}
+
 	cmd.AddCommand(valueChartCmd())
 
 	return cmd
 }
 
-// usageArgs is cobra.RangeArgs with a wrong count exiting 2.
-func usageArgs(min, max int) cobra.PositionalArgs {
-	return func(cmd *cobra.Command, args []string) error {
-		if err := cobra.RangeArgs(min, max)(cmd, args); err != nil {
-			return usageError{err}
-		}
-
-		return nil
-	}
-}
-
-// onePathOrAll enforces that exactly one of <path> or --all is given.
-func onePathOrAll(hasPath, all bool) error {
-	if hasPath == all {
-		return usageError{errors.New("give exactly one of <path> or --all")}
-	}
-
-	return nil
-}
-
-// pathError adds the closest valid paths of doc to a path resolution error.
-func pathError(err error, docs []render.Doc, doc int, path string) error {
-	var valid []string
-	for f := range value.Flatten(docs) {
-		if f.Doc == doc {
-			valid = append(valid, f.Path)
-		}
-	}
-
-	return fmt.Errorf("%w; did you mean %s", err, strings.Join(value.Suggest(valid, path, 3), ", "))
-}
-
 func valueChartCmd() *cobra.Command {
 	var (
-		version, release, namespace, output string
-		kubeVersion                         string
-		files, sets                         []string
-		all                                 bool
-		chunk                               int
+		chartVersion, release, namespace string
+		output, kubeVersion              string
+		files, sets                      []string
+		all                              bool
+		chunk                            int
 	)
 
 	helm := cli.New()
+
 	cmd := &cobra.Command{
 		Use:   "chart <chart> <kind>/<name> [<path>]",
 		Short: "Where a rendered value comes from, for a Helm chart",
@@ -173,7 +145,7 @@ func valueChartCmd() *cobra.Command {
 
 			slog.SetDefault(slog.New(slog.DiscardHandler))
 
-			c, err := render.LoadChart(chartRef, version, helm)
+			c, err := render.LoadChart(chartRef, chartVersion, helm)
 			if err != nil {
 				return err
 			}
@@ -233,12 +205,12 @@ func valueChartCmd() *cobra.Command {
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&version, "version", "", "chart version (for repo and oci charts)")
+	f.StringVar(&chartVersion, "version", "", "chart version (for repo and oci charts)")
 	f.StringArrayVarP(&files, "values", "f", nil, "values file (repeatable, later wins)")
 	f.StringArrayVar(&sets, "set", nil, "set a value: key=value (repeatable, wins over files)")
 	f.StringVar(&release, "release", "rel", "release name")
 	f.StringVarP(&namespace, "namespace", "n", "default", "release namespace")
-	f.StringVar(&kubeVersion, "kube-version", render.DefaultKubeVersion, "Kubernetes version for .Capabilities.KubeVersion")
+	f.StringVar(&kubeVersion, "kube-version", render.KubeVersion, "Kubernetes version for .Capabilities.KubeVersion")
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.BoolVar(&all, "all", false, "explain every field of the resource")
 	f.IntVar(&chunk, "chunk-size", value.ChunkSize, "values leaves marked per tracing render (tuning)")
@@ -260,4 +232,36 @@ func notYet(name, short string) *cobra.Command {
 			return fmt.Errorf("%s: not implemented yet", name)
 		},
 	}
+}
+
+// usageArgs is cobra.RangeArgs with a wrong count exiting 2.
+func usageArgs(lo, hi int) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := cobra.RangeArgs(lo, hi)(cmd, args); err != nil {
+			return usageError{err}
+		}
+
+		return nil
+	}
+}
+
+// onePathOrAll enforces that exactly one of <path> or --all is given.
+func onePathOrAll(hasPath, all bool) error {
+	if hasPath == all {
+		return usageError{errors.New("give exactly one of <path> or --all")}
+	}
+
+	return nil
+}
+
+// pathError adds the closest valid paths of doc to a path resolution error.
+func pathError(err error, docs []render.Doc, doc int, path string) error {
+	var valid []string
+	for f := range value.Flatten(docs) {
+		if f.Doc == doc {
+			valid = append(valid, f.Path)
+		}
+	}
+
+	return fmt.Errorf("%w; did you mean %s", err, strings.Join(value.Suggest(valid, path, 3), ", "))
 }

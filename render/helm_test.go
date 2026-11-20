@@ -47,7 +47,7 @@ func TestRenderKubeVersion(t *testing.T) {
 	dir := copyMini(t, map[string]string{"templates/kv.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: kv\ndata:\n  kv: {{ .Capabilities.KubeVersion.Version }}\n"})
 	c := load(t, dir)
 
-	for in, want := range map[string]string{"": render.DefaultKubeVersion, "1.31.2": "v1.31.2"} {
+	for in, want := range map[string]string{"": render.KubeVersion, "1.31.2": "v1.31.2"} {
 		docs, err := c.Render(t.Context(), nil, render.Options{KubeVersion: in})
 		if err != nil {
 			t.Fatal(err)
@@ -196,6 +196,7 @@ func TestValuesFiles(t *testing.T) {
 
 func load(t *testing.T, ref string) *render.Chart {
 	t.Helper()
+
 	c, err := render.LoadChart(ref, "", cli.New())
 	if err != nil {
 		t.Fatal(err)

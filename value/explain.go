@@ -45,7 +45,7 @@ type perturber struct {
 // find bisects set down to the leaves whose perturbation moves the field. A leaf whose own
 // perturbation fails to render is skipped. known means set is already known to move the field, so
 // only its halves need testing; moved reports whether set moves the field.
-func (p *perturber) find(ctx context.Context, set []Leaf, known bool) (out []found, moved bool, err error) {
+func (p *perturber) find(ctx context.Context, set []Leaf, known bool) (out []match, moved bool, err error) {
 	if len(set) == 0 {
 		return nil, false, nil
 	}
@@ -60,7 +60,7 @@ func (p *perturber) find(ctx context.Context, set []Leaf, known bool) (out []fou
 			if failed {
 				return nil, true, nil
 			}
-			return []found{{leaf: set[0], removed: removed}}, true, nil
+			return []match{{leaf: set[0], removed: removed}}, true, nil
 		}
 	}
 
@@ -122,11 +122,18 @@ func (p *perturber) render(ctx context.Context, set []Leaf, zero bool) ([]render
 	return p.c.Render(ctx, merge(deepCopy(p.user), sparse).(map[string]any), p.o)
 }
 
-func mode(zero bool) int {
-	if zero {
-		return 1
+// lookup finds the field in docs by its document's key, since document indexes shift when
+// documents come and go.
+func (p *perturber) lookup(docs []render.Doc) (any, bool) {
+	want := docKeys(p.idx.Docs)[p.field.Doc]
+	for i, k := range docKeys(docs) {
+		if k == want {
+			val, ok := Flatten(docs[i : i+1])[Field{Path: p.field.Path}]
+			return val, ok
+		}
 	}
-	return 0
+
+	return nil, false
 }
 
 // breakers finds the leaves whose own perturbation one way fails to render, by splitting sets that
@@ -157,36 +164,7 @@ func (p *perturber) breakers(ctx context.Context, set []Leaf, zero bool, out map
 	return p.breakers(ctx, set[len(set)/2:], zero, out)
 }
 
-// lookup finds the field in docs by its document's key, since document indexes shift when
-// documents come and go.
-func (p *perturber) lookup(docs []render.Doc) (any, bool) {
-	want := docKeys(p.idx.Docs)[p.field.Doc]
-	for i, k := range docKeys(docs) {
-		if k == want {
-			val, ok := Flatten(docs[i : i+1])[Field{Path: p.field.Path}]
-			return val, ok
-		}
-	}
-
-	return nil, false
-}
-
-// docKeys names each document by kind, template and position among that template's documents of
-// the kind. Names and namespaces don't work: leaves rename and move documents, and some names are
-// random.
-func docKeys(docs []render.Doc) []string {
-	seen := map[string]int{}
-	keys := make([]string, len(docs))
-	for i, d := range docs {
-		k := d.Kind + "/" + d.Source
-		keys[i] = fmt.Sprintf("%s#%d", k, seen[k])
-		seen[k]++
-	}
-
-	return keys
-}
-
-type found struct {
+type match struct {
 	leaf    Leaf
 	removed bool // perturbing the leaf removes the field
 }
@@ -227,8 +205,12 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 			a.Leaves = append(a.Leaves, v.Leaves[h.Leaf])
 		}
 
-		found, err := emptyLeaves(ctx, idx, c, v, o, f)
-		for _, r := range found {
+		moved, err := emptyLeaves(ctx, idx, c, v, o, f)
+		if err != nil {
+			return Answer{}, err
+		}
+
+		for _, r := range moved {
 			if !slices.ContainsFunc(hits, func(h Hit) bool { return h.Leaf == r.leaf.ID }) {
 				a.Leaves = append(a.Leaves, r.leaf)
 				if a.Kind == Direct { // the empty leaf's fallback picks the field
@@ -237,7 +219,7 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 			}
 		}
 
-		return a, err
+		return a, nil
 	}
 
 	var candidates, bools []Leaf
@@ -262,17 +244,17 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 		idx.breakers = breakers
 	}
 
-	found, _, err := p.find(ctx, all, false)
+	moved, _, err := p.find(ctx, all, false)
 	if err != nil {
 		return Answer{}, err
 	}
 
 	a.Kind = Chart
-	if len(found) > 0 {
+	if len(moved) > 0 {
 		a.Kind = Structural
 	}
 
-	for _, r := range found {
+	for _, r := range moved {
 		if _, ok := r.leaf.Value.(bool); !ok || !r.removed {
 			a.Kind = Derived
 		}
@@ -280,34 +262,6 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 	}
 
 	return a, nil
-}
-
-// emptyLeaves finds the empty-string leaves that move f, which Trace doesn't mark. One render nudging
-// them all is shared by every field, so a field they don't move costs no render of its own.
-func emptyLeaves(ctx context.Context, idx *Index, c *render.Chart, v *Values, o render.Options, f Field) ([]found, error) {
-	var empty []Leaf
-	for _, l := range v.Leaves {
-		if l.Value == "" {
-			empty = append(empty, l)
-		}
-	}
-
-	p := perturber{c: c, o: o, idx: idx, user: v.User, field: f}
-	if idx.nudged == nil && !idx.nudgeFail {
-		docs, err := p.render(ctx, empty, false)
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		idx.nudged, idx.nudgeFail = docs, err != nil
-	}
-
-	val, ok := p.lookup(idx.nudged)
-	if !idx.nudgeFail && ok && val == idx.Fields[f] {
-		return nil, nil
-	}
-
-	found, _, err := p.find(ctx, empty, !idx.nudgeFail)
-	return found, err
 }
 
 // ExplainAll explains every field of document doc, sorted by path.
@@ -330,6 +284,34 @@ func ExplainAll(ctx context.Context, idx *Index, c *render.Chart, v *Values, o r
 	}
 
 	return out, nil
+}
+
+// emptyLeaves finds the empty-string leaves that move f, which Trace doesn't mark. One render nudging
+// them all is shared by every field, so a field they don't move costs no render of its own.
+func emptyLeaves(ctx context.Context, idx *Index, c *render.Chart, v *Values, o render.Options, f Field) ([]match, error) {
+	var empty []Leaf
+	for _, l := range v.Leaves {
+		if l.Value == "" {
+			empty = append(empty, l)
+		}
+	}
+
+	p := perturber{c: c, o: o, idx: idx, user: v.User, field: f}
+	if idx.nudged == nil && !idx.nudgeFail {
+		docs, err := p.render(ctx, empty, false)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		idx.nudged, idx.nudgeFail = docs, err != nil
+	}
+
+	val, ok := p.lookup(idx.nudged)
+	if !idx.nudgeFail && ok && val == idx.Fields[f] {
+		return nil, nil
+	}
+
+	moved, _, err := p.find(ctx, empty, !idx.nudgeFail)
+	return moved, err
 }
 
 // setSparse writes val at path into sparse. Lists on the way are copied whole from coalesced,
@@ -428,4 +410,26 @@ func perturb(v any, zero bool) any {
 	}
 
 	return v
+}
+
+func mode(zero bool) int {
+	if zero {
+		return 1
+	}
+	return 0
+}
+
+// docKeys names each document by kind, template and position among that template's documents of
+// the kind. Names and namespaces don't work: leaves rename and move documents, and some names are
+// random.
+func docKeys(docs []render.Doc) []string {
+	seen := map[string]int{}
+	keys := make([]string, len(docs))
+	for i, d := range docs {
+		k := d.Kind + "/" + d.Source
+		keys[i] = fmt.Sprintf("%s#%d", k, seen[k])
+		seen[k]++
+	}
+
+	return keys
 }

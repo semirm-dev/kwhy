@@ -21,6 +21,11 @@ import (
 	releaseutil "helm.sh/helm/v4/pkg/release/v1/util"
 )
 
+// KubeVersion is the Kubernetes version charts see when Options.KubeVersion is empty. Helm
+// assumes v1.20 under go test and the client-go version otherwise; pinning it makes both agree.
+// Bump it with client-go.
+const KubeVersion = "v1.37.0"
+
 // Chart is a located Helm chart. Every Render and Coalesce loads a fresh copy, because Helm's
 // dependency processing removes disabled subcharts and renames aliased ones in place.
 type Chart struct {
@@ -100,7 +105,7 @@ func (c *Chart) Render(ctx context.Context, user map[string]any, o Options) ([]D
 		o.Namespace = "default"
 	}
 	if o.KubeVersion == "" {
-		o.KubeVersion = DefaultKubeVersion
+		o.KubeVersion = KubeVersion
 	}
 
 	kv, err := common.ParseKubeVersion(o.KubeVersion)
@@ -166,13 +171,8 @@ func (c *Chart) load() (*chart.Chart, error) {
 	return ch, nil
 }
 
-// DefaultKubeVersion is the Kubernetes version charts see when Options.KubeVersion is empty. Helm
-// assumes v1.20 under go test and the client-go version otherwise; pinning it makes both agree.
-// Bump it with client-go.
-const DefaultKubeVersion = "v1.37.0"
-
 // Options are the release settings a render runs with. Empty fields default to "rel", "default"
-// and DefaultKubeVersion.
+// and KubeVersion.
 type Options struct {
 	Release, Namespace string
 	KubeVersion        string // as for helm --kube-version, e.g. "1.31" or "v1.31.2"

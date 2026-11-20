@@ -15,7 +15,8 @@ import (
 	"github.com/semirm-dev/kwhy/render"
 )
 
-const ChunkSize = 10 // default for how many leaves one tracing render marks
+// ChunkSize is the default number of leaves one tracing render marks.
+const ChunkSize = 10
 
 var markerRe = regexp.MustCompile(`zq(\d+)qz|\d+`)
 
@@ -36,8 +37,8 @@ type Index struct {
 // Trace renders with the values replaced by unique markers, chunk by chunk, and records which
 // leaves show up in which fields. Non-empty strings and non-zero numbers are marked; bools, zeros
 // and empty strings steer control flow (each `if` they flip would need its own render) and are
-// left to Explain. chunk is how many leaves one render marks (ChunkSize unless tuning).
-func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunk int) (*Index, error) {
+// left to Explain. chunkSize is how many leaves one render marks (ChunkSize unless tuning).
+func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunkSize int) (*Index, error) {
 	docs, err := c.Render(ctx, v.User, o)
 	if err != nil {
 		return nil, err
@@ -74,7 +75,7 @@ func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, ch
 	t := &tracer{c: c, o: o, user: v.User, idx: idx, base: base}
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(runtime.GOMAXPROCS(0))
-	for chunk := range slices.Chunk(marked, chunk) {
+	for chunk := range slices.Chunk(marked, chunkSize) {
 		g.Go(func() error { return t.mark(gctx, chunk) })
 	}
 	if err := g.Wait(); err != nil {
@@ -100,9 +101,9 @@ type tracer struct {
 	c    *render.Chart
 	o    render.Options
 	user map[string]any
-	idx  *Index // Hits and Unmarkable are written under mu; the rest is read-only while marking
 	base int
 	mu   sync.Mutex
+	idx  *Index // Hits and Unmarkable are written under mu; the rest is read-only while marking
 }
 
 // mark renders once with every leaf of chunk marked. A render error or a changed set of fields
@@ -157,10 +158,10 @@ func (t *tracer) mark(ctx context.Context, chunk []Leaf) error {
 			s = strconv.Itoa(n)
 		}
 
-		hits := find(s, markers, false)
+		hits := findMarkers(s, markers, false)
 		if str, ok := val.(string); ok {
 			if d, err := base64.StdEncoding.DecodeString(str); err == nil {
-				hits = append(hits, find(string(d), markers, true)...)
+				hits = append(hits, findMarkers(string(d), markers, true)...)
 			}
 		}
 
@@ -203,8 +204,8 @@ func whole(v any) (int, bool) {
 	return 0, false
 }
 
-// find returns the markers in s.
-func find(s string, markers map[int]string, encoded bool) []Hit {
+// findMarkers returns the markers in s.
+func findMarkers(s string, markers map[int]string, encoded bool) []Hit {
 	var hits []Hit
 	for _, m := range markerRe.FindAllStringSubmatch(s, -1) {
 		for id, marker := range markers {

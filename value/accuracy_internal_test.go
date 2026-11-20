@@ -36,11 +36,12 @@ func TestAccuracy(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			idx, err := Trace(t.Context(), c, v, render.Options{}, ChunkSize)
+			o := render.Options{}
+
+			idx, err := Trace(t.Context(), c, v, o, ChunkSize)
 			if err != nil {
 				t.Fatal(err)
 			}
-			o := render.Options{}
 
 			explained := map[Field]Answer{}
 			var tp, fp, fn, sampled int
