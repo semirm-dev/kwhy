@@ -9,6 +9,12 @@ inputs:
   manifests:
     description: Directory of plain YAML manifests in the repo, instead of a chart.
     default: ""
+  config:
+    description: File listing several charts or manifests directories (default .kwhy.yaml when present and no other source is given).
+    default: ""
+  apps:
+    description: Directory with Argo CD Applications or Flux HelmReleases; every app they point at in this repo is rendered.
+    default: ""
   values:
     description: Values files, one per line (later wins).
     default: ""
@@ -77,6 +83,8 @@ runs:
         HEAD: ${{ inputs.head }}
         CHART: ${{ inputs.chart }}
         MANIFESTS: ${{ inputs.manifests }}
+        CONFIG: ${{ inputs.config }}
+        APPS: ${{ inputs.apps }}
         VALUES: ${{ inputs.values }}
         SETS: ${{ inputs.set }}
         RELEASE: ${{ inputs.release }}
@@ -89,7 +97,11 @@ runs:
         fi
         # Both refs must be in the clone: actions/checkout needs fetch-depth: 0.
         args=(change "$BASE..$HEAD" -n "$NAMESPACE" -o markdown)
-        if [ -n "$MANIFESTS" ]; then args+=(--manifests "$MANIFESTS"); else args+=(--chart "$CHART" --release "$RELEASE"); fi
+        if [ -n "$APPS" ]; then args=(change "$BASE..$HEAD" -o markdown --apps "$APPS")
+        elif [ -n "$CONFIG" ]; then args=(change "$BASE..$HEAD" -o markdown --config "$CONFIG")
+        elif [ -n "$MANIFESTS" ]; then args+=(--manifests "$MANIFESTS")
+        elif [ -n "$CHART" ]; then args+=(--chart "$CHART" --release "$RELEASE")
+        else args=(change "$BASE..$HEAD" -o markdown); fi
         while IFS= read -r f; do [ -n "$f" ] && args+=(-f "$f"); done <<< "$VALUES"
         while IFS= read -r s; do [ -n "$s" ] && args+=(--set "$s"); done <<< "$SETS"
         [ -n "$KUBE_VERSION" ] && args+=(--kube-version "$KUBE_VERSION")

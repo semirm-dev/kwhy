@@ -2,7 +2,9 @@ package change
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,12 +45,18 @@ func Render(ctx context.Context, ref string, src Source, o render.Options, helm 
 	// Background context: the worktree must go even after Ctrl-C.
 	defer git(context.Background(), root, "worktree", "remove", "--force", dir) //nolint:errcheck
 
+	// An app added or removed by the change has no path at one ref: nothing renders there.
+	path := inTree(root, dir, or(src.Manifests, src.Chart))
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) && !strings.Contains(path, "://") {
+		return nil, nil
+	}
+
 	if src.Manifests != "" {
 		ns := o.Namespace
 		if ns == "" {
 			ns = "default"
 		}
-		docs, err := render.ReadManifests(inTree(root, dir, src.Manifests), ns)
+		docs, err := render.ReadManifests(path, ns)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", ref, err)
 		}
@@ -69,7 +77,7 @@ func Render(ctx context.Context, ref string, src Source, o render.Options, helm 
 		opts.FileValues[i] = s
 	}
 
-	c, err := render.LoadChart(inTree(root, dir, src.Chart), "", helm)
+	c, err := render.LoadChart(path, "", helm)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ref, err)
 	}
@@ -85,6 +93,24 @@ func Render(ctx context.Context, ref string, src Source, o render.Options, helm 
 	}
 
 	return docs, nil
+}
+
+// Remote is the URL of the repo's origin remote, "" if there is none.
+func Remote(ctx context.Context) string {
+	url, err := git(ctx, "", "remote", "get-url", "origin")
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(url)
+}
+
+func or(s, def string) string {
+	if s == "" {
+		return def
+	}
+
+	return s
 }
 
 // inTree maps a local path inside the repo at root to the same path in the checkout at dir.

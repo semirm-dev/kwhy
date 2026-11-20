@@ -217,3 +217,66 @@ func TestRunChangeManifests(t *testing.T) {
 		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
 }
+
+func TestRunChangeTargets(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.CopyFS(filepath.Join(repo, "chart"), os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(repo, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write(".kwhy.yaml", "targets:\n  - {chart: chart, values: [prod.yaml], release: api, namespace: shop}\n  - {manifests: infra, namespace: infra}\n")
+	write("prod.yaml", "replicaCount: 2\n")
+	write("apps/api.yaml", "apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata: {name: api}\n"+
+		"spec: {destination: {namespace: shop}, source: {repoURL: x, path: chart, helm: {valueFiles: [../prod.yaml]}}}\n")
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-qm", "base")
+
+	git("checkout", "-qb", "feature")
+	write("prod.yaml", "replicaCount: 2\nimage: {tag: '2.0'}\n")
+	write("infra/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: limits}\ndata: {max: '5'}\n")
+	git("add", ".")
+	git("commit", "-qm", "head")
+	git("checkout", "-q", "main")
+	t.Chdir(repo)
+
+	// No source flag: .kwhy.yaml. The infra directory only exists at head, so its ConfigMap is created.
+	var out, errb bytes.Buffer
+	if code := run([]string{"change", "main..feature"}, &out, &errb); code != 0 ||
+		!strings.Contains(out.String(), "Deployment shop/api-api  2 pods  image") || !strings.Contains(out.String(), "create   ConfigMap infra/limits") {
+		t.Fatalf(".kwhy.yaml: code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+
+	// Argo CD discovery: the Application's release is its name, its namespace the destination.
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"change", "main..feature", "--apps", "apps"}, &out, &errb); code != 0 ||
+		!strings.Contains(out.String(), "Deployment shop/api-api  2 pods  image") {
+		t.Fatalf("--apps: code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+
+	if code := run([]string{"change", "main..feature", "--apps", "apps", "-n", "x"}, io.Discard, io.Discard); code != 2 {
+		t.Errorf("--apps with -n: code %d, want 2", code)
+	}
+	if code := run([]string{"change", "main..feature", "--chart", "nope"}, io.Discard, io.Discard); code != 2 {
+		t.Errorf("--chart to a missing path: code %d, want 2", code)
+	}
+}

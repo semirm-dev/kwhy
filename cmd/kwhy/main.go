@@ -260,6 +260,7 @@ func changeCmd() *cobra.Command {
 	var (
 		src                                     change.Source
 		release, namespace, output, kubeVersion string
+		config, apps                            string
 		failOn                                  []string
 	)
 
@@ -276,11 +277,31 @@ func changeCmd() *cobra.Command {
 				return usageError{fmt.Errorf("want <base>..<head>, got %q", args[0])}
 			}
 
-			if (src.Chart == "") == (src.Manifests == "") {
-				return usageError{errors.New("give exactly one of --chart or --manifests")}
+			given := 0
+			for _, v := range []string{src.Chart, src.Manifests, config, apps} {
+				if v != "" {
+					given++
+				}
 			}
-			if src.Manifests != "" && !reflect.ValueOf(src.Values).IsZero() {
+			if given == 0 {
+				if _, err := os.Stat(".kwhy.yaml"); err != nil {
+					return usageError{errors.New("give one of --chart, --manifests, --config or --apps (or add a .kwhy.yaml)")}
+				}
+				config = ".kwhy.yaml"
+			}
+			if given > 1 {
+				return usageError{errors.New("give only one of --chart, --manifests, --config or --apps")}
+			}
+			if src.Chart == "" && !reflect.ValueOf(src.Values).IsZero() {
 				return usageError{errors.New("values flags apply to --chart only")}
+			}
+			if (config != "" || apps != "") && (cmd.Flags().Changed("release") || cmd.Flags().Changed("namespace")) {
+				return usageError{errors.New("--release and --namespace come from the config or the apps, not flags")}
+			}
+			if p := src.Chart + src.Manifests; p != "" {
+				if _, err := os.Stat(p); err != nil {
+					return usageError{fmt.Errorf("%s: %w", p, err)}
+				}
 			}
 
 			if _, err := common.ParseKubeVersion(kubeVersion); err != nil {
@@ -305,15 +326,45 @@ func changeCmd() *cobra.Command {
 
 			slog.SetDefault(slog.New(slog.DiscardHandler))
 
-			o := render.Options{Release: release, Namespace: namespace, KubeVersion: kubeVersion}
-			b, err := change.Render(ctx, base, src, o, helm)
-			if err != nil {
-				return err
+			targets := []change.Target{{Source: src, Release: release, Namespace: namespace}}
+			var err error
+			switch {
+			case config != "":
+				if targets, err = change.LoadConfig(config); err != nil {
+					return err
+				}
+			case apps != "":
+				tmp, err := os.MkdirTemp("", "kwhy-apps-")
+				if err != nil {
+					return err
+				}
+				defer os.RemoveAll(tmp)
+
+				var warnings []string
+				if targets, warnings, err = change.Discover(apps, change.Remote(ctx), tmp); err != nil {
+					return err
+				}
+				for _, w := range warnings {
+					fmt.Fprintln(cmd.ErrOrStderr(), "kwhy: warning:", w)
+				}
+				if len(targets) == 0 {
+					return fmt.Errorf("--apps %s: no Argo CD Application or Flux HelmRelease this repo can render", apps)
+				}
 			}
 
-			h, err := change.Render(ctx, head, src, o, helm)
-			if err != nil {
-				return err
+			// One diff over every target's documents, so an object one app changes and another consumes is seen.
+			var b, h []render.Doc
+			for _, t := range targets {
+				o := render.Options{Release: t.Release, Namespace: t.Namespace, KubeVersion: kubeVersion}
+				bd, err := change.Render(ctx, base, t.Source, o, helm)
+				if err != nil {
+					return err
+				}
+				hd, err := change.Render(ctx, head, t.Source, o, helm)
+				if err != nil {
+					return err
+				}
+				b, h = append(b, bd...), append(h, hd...)
 			}
 
 			is := change.Diff(b, h)
@@ -348,6 +399,8 @@ func changeCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&src.Chart, "chart", "", "chart directory in the repo")
 	f.StringVar(&src.Manifests, "manifests", "", "directory of plain YAML manifests in the repo, instead of --chart")
+	f.StringVar(&config, "config", "", "file listing several charts or manifests directories (default .kwhy.yaml when present)")
+	f.StringVar(&apps, "apps", "", "directory with Argo CD Applications or Flux HelmReleases: render every app they point at in this repo")
 	valuesFlags(f, &src.Values, "; files in the repo are read at each ref")
 	f.StringVar(&release, "release", "rel", "release name")
 	f.StringVarP(&namespace, "namespace", "n", "default", "release namespace")
