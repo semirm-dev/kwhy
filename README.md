@@ -11,7 +11,7 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 |---|---|---|---|
 | `kwhy value` | Where does this rendered value come from? | Git repo, offline | v0.1 |
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.3 |
-| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.4 |
+| `kwhy pod` | Why is this pod not scheduled (Pending)? | Live cluster, read-only | v0.4 (crashes, pull errors, OOM: planned, v0.5) |
 
 > **Status:** early development. `kwhy value` works today and is checked nightly against 10 public charts.
 > `kwhy change` works for Helm charts and every rule is checked against a real cluster in CI. `kwhy pod` works on
@@ -275,6 +275,8 @@ Exit codes: `0` ok (also for a pod that is already scheduled), `1` runtime error
 - Every run traces the whole chart again; nothing is cached between runs (~20s on kube-prometheus-stack).
 - `pod` runs the default scheduler profile compiled into kwhy (v1.37) and warns when the cluster is more than one
   minor version away or the pod names another scheduler. Custom profiles and scheduler plugins aren't seen.
+- `pod` explains why a pod isn't scheduled. A pod that is on a node but crashing, failing to pull its image,
+  OOM-killed or not ready gets only `scheduled on <node>`; diagnosing those is planned for v0.5.
 - `pod` doesn't support pods with resource claims (DRA) and doesn't consider preemption or nominated pods.
 - `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
 
