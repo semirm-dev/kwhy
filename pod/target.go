@@ -25,8 +25,9 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 	}
 
 	var (
-		sel  *metav1.LabelSelector
-		tmpl v1.PodTemplateSpec
+		sel   *metav1.LabelSelector
+		tmpl  v1.PodTemplateSpec
+		owner string
 	)
 	switch kind {
 	case "pod", "pods", "po":
@@ -40,19 +41,19 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 		if err != nil {
 			return nil, fmt.Errorf("get deployment: %w", err)
 		}
-		sel, tmpl = d.Spec.Selector, d.Spec.Template
+		sel, tmpl, owner = d.Spec.Selector, d.Spec.Template, "Deployment"
 	case "sts", "statefulset", "statefulsets":
 		s, err := c.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("get statefulset: %w", err)
 		}
-		sel, tmpl = s.Spec.Selector, s.Spec.Template
+		sel, tmpl, owner = s.Spec.Selector, s.Spec.Template, "StatefulSet"
 	case "job", "jobs":
 		j, err := c.BatchV1().Jobs(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("get job: %w", err)
 		}
-		sel, tmpl = j.Spec.Selector, j.Spec.Template
+		sel, tmpl, owner = j.Spec.Selector, j.Spec.Template, "Job"
 	default:
 		return nil, fmt.Errorf("unsupported kind %q: want pod, deploy, sts or job", kind)
 	}
@@ -74,8 +75,9 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 	}
 
 	return &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: templateUID, Labels: tmpl.Labels},
-		Spec:       tmpl.Spec,
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: templateUID, Labels: tmpl.Labels,
+			OwnerReferences: []metav1.OwnerReference{{Kind: owner, Name: name, Controller: new(true)}}},
+		Spec: tmpl.Spec,
 	}, nil
 }
 

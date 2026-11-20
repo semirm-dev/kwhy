@@ -58,6 +58,8 @@ type Result struct {
 	Plugins []string `json:"plugins"`
 	// Nodes are sorted by name.
 	Nodes []Node `json:"nodes"`
+	// Sources say where the fields failing checks read are set; filled by the caller (kwhy value), may be empty.
+	Sources []Source `json:"sources,omitempty"`
 }
 
 // Evaluate runs the default scheduler profile's filters for p on every node of cl. The scheduler stops at a

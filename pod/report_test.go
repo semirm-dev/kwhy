@@ -87,3 +87,29 @@ func TestWriteJSON(t *testing.T) {
 		t.Errorf("schema %q, %d nodes; want kwhy.pod/v1 and 4 ungrouped", out.Schema, len(out.Nodes))
 	}
 }
+
+func TestWriteSources(t *testing.T) {
+	p := newPod("train", "", "2", "16Gi")
+	r := pod.Result{Plugins: []string{"NodeResourcesFit"}, Nodes: []pod.Node{{Name: "n1", Failed: []pod.Check{{Plugin: "NodeResourcesFit", Reasons: []string{"Insufficient cpu"}}}}},
+		Sources: []pod.Source{{Plugin: "NodeResourcesFit", Field: ".spec.containers[0].resources.requests.cpu", Value: "2", From: "resources.requests.cpu (values-prod.yaml:31)"}}}
+
+	for name, write := range map[string]func(*bytes.Buffer) error{
+		"human":    func(b *bytes.Buffer) error { return pod.WriteHuman(b, p, r) },
+		"markdown": func(b *bytes.Buffer) error { return pod.WriteMarkdown(b, p, r) },
+		"json":     func(b *bytes.Buffer) error { return pod.WriteJSON(b, p, r) },
+	} {
+		var b bytes.Buffer
+		if err := write(&b); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(b.String(), "values-prod.yaml:31") {
+			t.Errorf("%s: no source in\n%s", name, b.String())
+		}
+	}
+
+	var b bytes.Buffer
+	pod.WriteHuman(&b, p, r)
+	if want := "Source:\n  NodeResourcesFit  .spec.containers[0].resources.requests.cpu = 2  ← resources.requests.cpu (values-prod.yaml:31)\n"; !strings.Contains(b.String(), want) {
+		t.Errorf("human:\n%s\nwant %q", b.String(), want)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -350,7 +351,10 @@ func changeCmd() *cobra.Command {
 }
 
 func podCmd() *cobra.Command {
-	var namespace, output string
+	var (
+		namespace, output string
+		src               podChart
+	)
 
 	helm := cli.New()
 
@@ -358,7 +362,8 @@ func podCmd() *cobra.Command {
 		Use:   "pod <name|pod/name|deploy/name|sts/name|job/name>",
 		Short: "Why a pod is not scheduled: every scheduler check on every node",
 		Example: `  kwhy pod api-7d9f-x2x -n shop
-  kwhy pod deploy/api -n shop --context prod -o markdown`,
+  kwhy pod deploy/api -n shop --context prod -o markdown
+  kwhy pod deploy/api -n shop --chart ./charts/api -f values-prod.yaml   # also: which values line set it`,
 		Args: usageArgs(1, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if podWriters[output] == nil {
@@ -408,6 +413,13 @@ func podCmd() *cobra.Command {
 				return err
 			}
 
+			if src.chart != "" {
+				slog.SetDefault(slog.New(slog.DiscardHandler))
+				if r.Sources, err = podSources(ctx, c, p, r, src, cl.Version, helm); err != nil {
+					return err
+				}
+			}
+
 			return podWriters[output](cmd.OutOrStdout(), p, r)
 		},
 	}
@@ -416,8 +428,116 @@ func podCmd() *cobra.Command {
 	f.StringVarP(&namespace, "namespace", "n", "", "namespace (default: the kube context's)")
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.StringVar(&helm.KubeContext, "context", "", "kube context to read from (read-only)")
+	f.StringVar(&src.chart, "chart", "", "chart that deploys the pod: also show which values line sets each field a failing check reads")
+	f.StringVar(&src.version, "version", "", "chart version, for repo and OCI charts")
+	f.StringArrayVarP(&src.files, "values", "f", nil, "values file or URL (repeatable, later wins), as deployed")
+	f.StringArrayVar(&src.sets, "set", nil, "set a value: key=value (repeatable, wins over files), as deployed")
+	f.StringVar(&src.release, "release", "", "Helm release name (default: the pod's app.kubernetes.io/instance label)")
 
 	return cmd
+}
+
+// podChart is how the pod's chart was deployed.
+type podChart struct {
+	chart, version, release string
+	files, sets             []string
+}
+
+// podSources finds, with kwhy value, the values lines that set the fields p's failing checks read. It renders the
+// chart, finds the workload that owns p in the render, and explains only the fields those checks read.
+func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r pod.Result, src podChart, kubeVersion string,
+	helm *cli.EnvSettings) ([]pod.Source, error) {
+	kind, name, err := pod.Owner(ctx, c, p)
+	if err != nil {
+		return nil, err
+	}
+
+	release := src.release
+	if release == "" {
+		release = p.Labels["app.kubernetes.io/instance"]
+	}
+	if release == "" {
+		return nil, usageError{errors.New("--chart: give --release, the pod has no app.kubernetes.io/instance label")}
+	}
+
+	ch, err := render.LoadChart(src.chart, src.version, helm)
+	if err != nil {
+		return nil, err
+	}
+
+	v, err := value.LoadValues(ch, src.files, src.sets)
+	if err != nil {
+		return nil, err
+	}
+
+	o := render.Options{Release: release, Namespace: p.Namespace, KubeVersion: kubeVersion}
+	docs, err := ch.Render(ctx, v.User, o)
+	if err != nil {
+		return nil, err
+	}
+
+	doc, err := value.SelectDoc(docs, kind+"/"+name, p.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("--chart: %w", err)
+	}
+
+	// A workload's pod spec sits under .spec.template; a bare Pod's is the document itself.
+	prefix := ".spec.template"
+	if kind == "Pod" {
+		prefix = ""
+	}
+
+	var checks []pod.Check
+	for _, n := range r.Nodes {
+		checks = append(checks, n.Failed...)
+	}
+
+	type want struct {
+		field  value.Field
+		plugin string
+	}
+	var wants []want
+	for f := range value.Flatten(docs) {
+		path, ok := strings.CutPrefix(f.Path, prefix)
+		if f.Doc != doc || !ok || !strings.HasPrefix(path, ".spec") {
+			continue
+		}
+		for _, chk := range checks {
+			if pod.Reads(chk, path) {
+				wants = append(wants, want{f, chk.Plugin})
+				break
+			}
+		}
+	}
+	if len(wants) == 0 {
+		return nil, nil
+	}
+	slices.SortFunc(wants, func(a, b want) int { return strings.Compare(a.field.Path, b.field.Path) })
+
+	idx, err := value.Trace(ctx, ch, v, o, value.ChunkSize)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []pod.Source
+	for _, w := range wants {
+		a, err := value.Explain(ctx, idx, ch, v, o, w.field)
+		if err != nil {
+			return nil, err
+		}
+		if len(a.Leaves) == 0 {
+			continue // set in the chart's templates, not by a value
+		}
+
+		var from []string
+		for _, l := range a.Leaves {
+			from = append(from, fmt.Sprintf("%s (%s)", value.PathString(l.Path), l.Chain[0]))
+		}
+		out = append(out, pod.Source{Plugin: w.plugin, Field: strings.TrimPrefix(w.field.Path, prefix), Value: a.Value,
+			From: strings.Join(from, ", ")})
+	}
+
+	return out, nil
 }
 
 // usageArgs is cobra.RangeArgs with a wrong count exiting 2.

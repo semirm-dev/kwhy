@@ -33,6 +33,15 @@ func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 		}
 	}
 
+	if len(r.Sources) > 0 {
+		b.WriteString("\nSource:\n")
+		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+		for _, s := range r.Sources {
+			fmt.Fprintf(tw, "  %s\t%s = %v\t← %s\n", s.Plugin, s.Field, s.Value, s.From)
+		}
+		tw.Flush()
+	}
+
 	_, err := io.WriteString(w, b.String())
 	return err
 }
@@ -55,6 +64,13 @@ func WriteMarkdown(w io.Writer, p *v1.Pod, r Result) error {
 		}
 	}
 
+	if len(r.Sources) > 0 {
+		b.WriteString("\n**Source:**\n\n")
+		for _, s := range r.Sources {
+			fmt.Fprintf(&b, "- %s: `%s` = `%v` ← %s\n", s.Plugin, s.Field, s.Value, s.From)
+		}
+	}
+
 	_, err := io.WriteString(w, b.String())
 	return err
 }
@@ -71,7 +87,8 @@ func WriteJSON(w io.Writer, p *v1.Pod, r Result) error {
 		Template  bool     `json:"template"`
 		Plugins   []string `json:"plugins"`
 		Nodes     []Node   `json:"nodes"`
-	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, r.Plugins, r.Nodes})
+		Sources   []Source `json:"sources,omitempty"`
+	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, r.Plugins, r.Nodes, r.Sources})
 }
 
 type group struct {

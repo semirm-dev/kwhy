@@ -91,6 +91,15 @@ type Source struct {
 	Default bool   `json:"default,omitempty"` // a chart or subchart values.yaml, not a user file or --set
 }
 
+// String is where the source sets its value: "values-prod.yaml:31", or the flag for --set.
+func (s Source) String() string {
+	if strings.HasPrefix(s.File, "--set ") {
+		return s.File
+	}
+
+	return fmt.Sprintf("%s:%d", s.File, s.Line)
+}
+
 // layer is one values source, in precedence order, with the line of every leaf it sets.
 type layer struct {
 	file  string
