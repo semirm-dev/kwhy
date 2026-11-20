@@ -8,11 +8,11 @@ on:
 jobs:
   kind:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # Kubernetes N-2..N: kwhy's first failing check per node must match the real scheduler's.
+        # Kubernetes N-2..N: scheduling parity with the real scheduler, and running problems as kubelet reports them.
         node: [v1.35.8, v1.36.4, v1.37.0]
     steps:
       - uses: actions/checkout@v5
@@ -21,4 +21,4 @@ jobs:
           go-version-file: go.mod
       - run: go install sigs.k8s.io/kind@v0.33.0
       - run: kind create cluster --name kwhy-pod --config testdata/pod/kind.yaml --image kindest/node:${{ matrix.node }} --wait 180s
-      - run: go test -tags kind -run TestKindParity -timeout 15m -v ./pod/
+      - run: go test -tags kind -run TestKind -timeout 20m -v ./pod/

@@ -201,8 +201,9 @@ func lastSeen(e v1.Event) time.Time {
 	return e.EventTime.Time
 }
 
-// AddLogs fills Logs of each current crash or OOM problem with the last n lines of the container's previous
-// instance. Logs are best effort: when kubelet has none, the line says why.
+// AddLogs fills Logs of each current crash or OOM problem with the last n lines of the container's last run.
+// A container that crashed is waiting or terminated, so its latest instance is the run that died; the previous
+// instance is tried when that has no logs. Logs are best effort: when kubelet has none, the line says why.
 func AddLogs(ctx context.Context, c kubernetes.Interface, p *v1.Pod, ps []Problem, n int64) {
 	for i := range ps {
 		pr := &ps[i]
@@ -210,11 +211,23 @@ func AddLogs(ctx context.Context, c kubernetes.Interface, p *v1.Pod, ps []Proble
 			continue
 		}
 
-		raw, err := c.CoreV1().Pods(p.Namespace).GetLogs(p.Name, &v1.PodLogOptions{Container: pr.Container, Previous: true, TailLines: &n}).DoRaw(ctx)
-		if err != nil {
-			pr.Logs = []string{"(no logs: " + err.Error() + ")"}
-			continue
+		var msg string
+		for _, previous := range []bool{false, true} {
+			raw, err := c.CoreV1().Pods(p.Namespace).GetLogs(p.Name,
+				&v1.PodLogOptions{Container: pr.Container, Previous: previous, TailLines: &n}).DoRaw(ctx)
+			if err != nil {
+				msg = err.Error()
+				continue
+			}
+			// Kubelet answers 200 with this text when the instance's log file is gone.
+			if msg = strings.TrimSpace(string(raw)); msg == "" || strings.HasPrefix(msg, "unable to retrieve container logs") {
+				continue
+			}
+			pr.Logs = strings.Split(msg, "\n")
+			break
 		}
-		pr.Logs = strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+		if pr.Logs == nil {
+			pr.Logs = []string{"(no logs: " + or(msg, "empty") + ")"}
+		}
 	}
 }

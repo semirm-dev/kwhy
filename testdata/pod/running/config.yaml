@@ -1,0 +1,9 @@
+# Reads a key from a Secret that doesn't exist.
+apiVersion: v1
+kind: Pod
+metadata: {name: target}
+spec:
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10
+      env: [{name: DB_PASSWORD, valueFrom: {secretKeyRef: {name: kwhy-missing, key: password}}}]

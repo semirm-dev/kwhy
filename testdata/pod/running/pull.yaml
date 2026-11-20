@@ -1,0 +1,7 @@
+# An image tag that doesn't exist.
+apiVersion: v1
+kind: Pod
+metadata: {name: target}
+spec:
+  containers:
+    - {name: app, image: registry.k8s.io/pause:kwhy-does-not-exist}

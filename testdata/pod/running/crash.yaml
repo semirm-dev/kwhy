@@ -1,0 +1,7 @@
+# Prints one line and exits 1 on every start.
+apiVersion: v1
+kind: Pod
+metadata: {name: target}
+spec:
+  containers:
+    - {name: app, image: busybox:1.36, command: [sh, -c, "echo kwhy-crash-log; exit 1"]}

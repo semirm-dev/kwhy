@@ -176,7 +176,7 @@ sidecar    ✓
 Events:
   app: Back-off restarting failed container app in pod api-1
 
-Logs (app, previous instance):
+Logs (app, last run):
   allocating 1GiB
 `
 	if b.String() != want {

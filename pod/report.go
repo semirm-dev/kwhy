@@ -190,7 +190,7 @@ func writeEvidence(b *strings.Builder, ps []Problem) {
 
 	for _, pr := range ps {
 		if len(pr.Logs) > 0 {
-			fmt.Fprintf(b, "\nLogs (%s, previous instance):\n", pr.Container)
+			fmt.Fprintf(b, "\nLogs (%s, last run):\n", pr.Container)
 			for _, l := range pr.Logs {
 				b.WriteString("  " + l + "\n")
 			}

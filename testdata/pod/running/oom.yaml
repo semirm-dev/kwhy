@@ -1,0 +1,10 @@
+# Buffers /dev/zero until it hits a 20Mi limit.
+apiVersion: v1
+kind: Pod
+metadata: {name: target}
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: [sh, -c, "tail /dev/zero"]
+      resources: {requests: {memory: 20Mi}, limits: {memory: 20Mi}}

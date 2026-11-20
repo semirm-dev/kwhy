@@ -1,0 +1,10 @@
+# Readiness probe on a port nothing listens on; the sidecar is fine.
+apiVersion: v1
+kind: Pod
+metadata: {name: target}
+spec:
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10
+      readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 2}
+    - {name: sidecar, image: registry.k8s.io/pause:3.10}
