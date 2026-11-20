@@ -145,3 +145,34 @@ func TestEvaluateDRA(t *testing.T) {
 		t.Errorf("err = %v, want ErrDRA", err)
 	}
 }
+
+// A high-priority pod that fits nowhere would fit where lower-priority pods could be preempted.
+func TestEvaluatePreempt(t *testing.T) {
+	low := newPod("batch", "n1", "3", "1Gi")
+	high := newPod("api", "", "2", "1Gi")
+	high.Spec.Priority = new(int32(1000))
+
+	cl, err := pod.Snapshot(t.Context(), fake.NewClientset(node("n1", "4", "8Gi", nil), node("n2", "1", "8Gi", nil), low))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := pod.Evaluate(t.Context(), cl, high)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(r.Preempt, []string{"n1"}) {
+		t.Errorf("preempt = %v, want [n1]", r.Preempt)
+	}
+
+	never := v1.PreemptNever
+	high.Spec.PreemptionPolicy = &never
+	if r, _ := pod.Evaluate(t.Context(), cl, high); r.Preempt != nil {
+		t.Errorf("preemptionPolicy Never: preempt = %v", r.Preempt)
+	}
+
+	high.Spec.PreemptionPolicy, high.Spec.Priority = nil, nil
+	if r, _ := pod.Evaluate(t.Context(), cl, high); r.Preempt != nil {
+		t.Errorf("same priority: preempt = %v", r.Preempt)
+	}
+}

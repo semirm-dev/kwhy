@@ -58,6 +58,9 @@ type Result struct {
 	Plugins []string `json:"plugins"`
 	// Nodes are sorted by name.
 	Nodes []Node `json:"nodes"`
+	// Preempt are the nodes the pod would fit on if every lower-priority pod were preempted, when it fits none
+	// now and may preempt. The scheduler also weighs PodDisruptionBudgets and picks the fewest victims.
+	Preempt []string `json:"preempt,omitempty"`
 	// Problems are why a pod on a node isn't running or ready (Diagnose); empty for an unscheduled pod.
 	Problems []Problem `json:"problems,omitempty"`
 	// Sources say where the fields failing checks read are set; filled by the caller (kwhy value), may be empty.
@@ -143,12 +146,65 @@ func Evaluate(ctx context.Context, cl *Cluster, p *v1.Pod) (Result, error) {
 		}
 	}
 
+	fit := false
 	for _, n := range byNode {
 		r.Nodes = append(r.Nodes, *n)
+		fit = fit || len(n.Failed) == 0
 	}
 	slices.SortFunc(r.Nodes, func(a, b Node) int { return strings.Compare(a.Name, b.Name) })
 
+	if !fit && (p.Spec.PreemptionPolicy == nil || *p.Spec.PreemptionPolicy != v1.PreemptNever) {
+		keep := slices.DeleteFunc(slices.Clone(cl.pods), func(q *v1.Pod) bool { return priority(q) < priority(p) })
+		if len(keep) < len(cl.pods) {
+			if r.Preempt, err = fitting(ctx, cl, keep, p); err != nil {
+				return Result{}, err
+			}
+		}
+	}
+
 	return r, nil
+}
+
+// fitting are the nodes p fits on, as the scheduler decides, when only pods remain on the nodes.
+func fitting(ctx context.Context, cl *Cluster, pods []*v1.Pod, p *v1.Pod) ([]string, error) {
+	snap := cache.NewSnapshot(pods, cl.nodes)
+	inf := informers.NewSharedInformerFactory(cl.client, 0)
+
+	fw, err := newFramework(ctx, snap, inf, cl.client, "", false)
+	if err != nil {
+		return nil, err
+	}
+
+	inf.Start(ctx.Done())
+	inf.WaitForCacheSync(ctx.Done())
+
+	infos, err := snap.NodeInfos().List()
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+
+	failed, err := run(ctx, fw, p, infos)
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+	for _, ni := range infos {
+		if failed[ni.Node().Name] == nil {
+			names = append(names, ni.Node().Name)
+		}
+	}
+	slices.Sort(names)
+
+	return names, nil
+}
+
+func priority(p *v1.Pod) int32 {
+	if p.Spec.Priority == nil {
+		return 0
+	}
+
+	return *p.Spec.Priority
 }
 
 // newFramework builds the default profile without DynamicResources. With filter set, the framework runs only

@@ -191,3 +191,17 @@ Logs (app, last run):
 		t.Errorf("markdown:\n%s", b.String())
 	}
 }
+
+func TestWritePreempt(t *testing.T) {
+	p := newPod("api", "", "2", "1Gi")
+	r := pod.Result{Plugins: []string{"NodeResourcesFit"}, Preempt: []string{"n1"},
+		Nodes: []pod.Node{{Name: "n1", Failed: []pod.Check{{Plugin: "NodeResourcesFit", Reasons: []string{"Insufficient cpu"}}}}}}
+
+	var b bytes.Buffer
+	if err := pod.WriteHuman(&b, p, r); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "\nWould fit on 1 node (n1) if lower-priority pods there were preempted;") {
+		t.Errorf("no preemption line in\n%s", b.String())
+	}
+}

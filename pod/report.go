@@ -46,6 +46,10 @@ func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 		}
 	}
 
+	if len(r.Preempt) > 0 {
+		b.WriteString("\n" + preempt(r) + "\n")
+	}
+
 	if len(r.Sources) > 0 {
 		b.WriteString("\nSource:\n")
 		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
@@ -85,6 +89,10 @@ func WriteMarkdown(w io.Writer, p *v1.Pod, r Result) error {
 		}
 	}
 
+	if len(r.Preempt) > 0 {
+		b.WriteString("\n" + preempt(r) + "\n")
+	}
+
 	if len(r.Sources) > 0 {
 		b.WriteString("\n**Source:**\n\n")
 		for _, s := range r.Sources {
@@ -110,9 +118,15 @@ func WriteJSON(w io.Writer, p *v1.Pod, r Result) error {
 		Scheduled string    `json:"scheduled,omitempty"`
 		Plugins   []string  `json:"plugins,omitempty"`
 		Nodes     []Node    `json:"nodes,omitempty"`
+		Preempt   []string  `json:"preempt,omitempty"`
 		Problems  []Problem `json:"problems,omitempty"`
 		Sources   []Source  `json:"sources,omitempty"`
-	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, p.Spec.NodeName, r.Plugins, r.Nodes, r.Problems, r.Sources})
+	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, p.Spec.NodeName, r.Plugins, r.Nodes, r.Preempt, r.Problems, r.Sources})
+}
+
+func preempt(r Result) string {
+	return fmt.Sprintf("Would fit on %s (%s) if lower-priority pods there were preempted; the scheduler does that only when "+
+		"PodDisruptionBudgets allow it.", plural(len(r.Preempt), "node"), strings.Join(r.Preempt, ", "))
 }
 
 // heading is the first line: a pod on a node, a pod being scheduled, or a workload only its controller speaks for.
