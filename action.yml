@@ -4,8 +4,11 @@ branding: {icon: git-pull-request, color: blue}
 
 inputs:
   chart:
-    description: Chart directory in the repo.
-    required: true
+    description: Chart directory in the repo (this or manifests).
+    default: ""
+  manifests:
+    description: Directory of plain YAML manifests in the repo, instead of a chart.
+    default: ""
   values:
     description: Values files, one per line (later wins).
     default: ""
@@ -48,7 +51,6 @@ outputs:
 runs:
   using: composite
   steps:
-    # shortcut: Linux runners only; add the darwin/windows archives when someone needs them.
     - name: Install kwhy
       shell: bash
       env:
@@ -57,8 +59,14 @@ runs:
       run: |
         arch=amd64; [ "$RUNNER_ARCH" = ARM64 ] && arch=arm64
         dir="$RUNNER_TEMP/kwhy" && mkdir -p "$dir"
-        gh release download $VERSION -R semirm-dev/kwhy -p "kwhy_*_linux_${arch}.tar.gz" -O "$dir/kwhy.tar.gz" --clobber
-        tar -xzf "$dir/kwhy.tar.gz" -C "$dir" kwhy
+        case "$RUNNER_OS" in
+          Linux)   gh release download $VERSION -R semirm-dev/kwhy -p "kwhy_*_linux_${arch}.tar.gz" -O "$dir/kwhy.tar.gz" --clobber
+                   tar -xzf "$dir/kwhy.tar.gz" -C "$dir" kwhy ;;
+          macOS)   gh release download $VERSION -R semirm-dev/kwhy -p "kwhy_*_darwin_${arch}.tar.gz" -O "$dir/kwhy.tar.gz" --clobber
+                   tar -xzf "$dir/kwhy.tar.gz" -C "$dir" kwhy ;;
+          Windows) gh release download $VERSION -R semirm-dev/kwhy -p "kwhy_*_windows_${arch}.zip" -O "$dir/kwhy.zip" --clobber
+                   unzip -o -q "$dir/kwhy.zip" kwhy.exe -d "$dir" ;;
+        esac
         echo "$dir" >> "$GITHUB_PATH"
 
     - name: Run kwhy change
@@ -68,6 +76,7 @@ runs:
         BASE: ${{ inputs.base }}
         HEAD: ${{ inputs.head }}
         CHART: ${{ inputs.chart }}
+        MANIFESTS: ${{ inputs.manifests }}
         VALUES: ${{ inputs.values }}
         SETS: ${{ inputs.set }}
         RELEASE: ${{ inputs.release }}
@@ -79,7 +88,8 @@ runs:
           echo "::error::base and head are required outside pull_request events"; exit 2
         fi
         # Both refs must be in the clone: actions/checkout needs fetch-depth: 0.
-        args=(change "$BASE..$HEAD" --chart "$CHART" --release "$RELEASE" -n "$NAMESPACE" -o markdown)
+        args=(change "$BASE..$HEAD" -n "$NAMESPACE" -o markdown)
+        if [ -n "$MANIFESTS" ]; then args+=(--manifests "$MANIFESTS"); else args+=(--chart "$CHART" --release "$RELEASE"); fi
         while IFS= read -r f; do [ -n "$f" ] && args+=(-f "$f"); done <<< "$VALUES"
         while IFS= read -r s; do [ -n "$s" ] && args+=(--set "$s"); done <<< "$SETS"
         [ -n "$KUBE_VERSION" ] && args+=(--kube-version "$KUBE_VERSION")
