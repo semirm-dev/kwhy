@@ -24,3 +24,15 @@ krews:
       kubectl kwhy pod <name> runs every kube-scheduler filter on every node and shows every failing check.
       kubectl kwhy value and kubectl kwhy change trace Helm values and predict what a change does to running workloads.
     skip_upload: true
+# Supply chain: an SBOM per archive (syft) and a keyless cosign signature of checksums.txt, using the workflow's
+# OIDC identity. Verify with:
+#   cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig \
+#     --certificate-identity-regexp 'https://github.com/semirm-dev/kwhy/' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+sboms:
+  - artifacts: archive
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args: ["sign-blob", "--output-certificate=${certificate}", "--output-signature=${signature}", "${artifact}", "--yes"]
+    artifacts: checksum
