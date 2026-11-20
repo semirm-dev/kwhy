@@ -12,6 +12,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/semirm-dev/kwhy/render"
 )
 
 // podStart is the assumed time from scheduling to a started container, before readiness.
@@ -54,6 +56,64 @@ func Live(ctx context.Context, c kubernetes.Interface, is []Impact) error {
 	sortImpacts(is)
 
 	return nil
+}
+
+// Drift finds workloads whose running images differ from the head render while the change doesn't touch them:
+// someone changed them outside git (kubectl set image), and applying head puts the rendered image back, which
+// restarts the pods though the diff shows no image change. It only reads; is are the impacts Diff found.
+func Drift(ctx context.Context, c kubernetes.Interface, head []render.Doc, is []Impact) ([]Impact, error) {
+	changed := map[string]bool{}
+	for _, i := range is {
+		changed[i.Resource] = true
+	}
+
+	var out []Impact
+	for _, d := range head {
+		if !workloads[d.Kind] || changed[name(d)] {
+			continue
+		}
+
+		var live []corev1.Container
+		var pods int32
+		var err error
+		switch d.Kind {
+		case "Deployment":
+			o, e := c.AppsV1().Deployments(d.Namespace).Get(ctx, d.Name, metav1.GetOptions{})
+			if err = e; e == nil {
+				live, pods = o.Spec.Template.Spec.Containers, deref(o.Spec.Replicas)
+			}
+		case "StatefulSet":
+			o, e := c.AppsV1().StatefulSets(d.Namespace).Get(ctx, d.Name, metav1.GetOptions{})
+			if err = e; e == nil {
+				live, pods = o.Spec.Template.Spec.Containers, deref(o.Spec.Replicas)
+			}
+		case "DaemonSet":
+			o, e := c.AppsV1().DaemonSets(d.Namespace).Get(ctx, d.Name, metav1.GetOptions{})
+			if err = e; e == nil {
+				live, pods = o.Spec.Template.Spec.Containers, o.Status.DesiredNumberScheduled
+			}
+		}
+		if apierrors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get %s: %w", name(d), err)
+		}
+
+		rendered := map[string]string{}
+		for _, ctr := range list(get(d.Object, "spec", "template", "spec", "containers")) {
+			rendered[str(ctr, "name")] = str(ctr, "image")
+		}
+		for _, ctr := range live {
+			if want, ok := rendered[ctr.Name]; ok && want != ctr.Image {
+				out = append(out, Impact{Verdict: Restart, Resource: name(d), Pods: int(pods), doc: d,
+					Detail: fmt.Sprintf("live runs %s (changed outside git); applying puts back %s", ctr.Image, want)})
+				break
+			}
+		}
+	}
+
+	return out, nil
 }
 
 // rollout sets the pods a workload restarts from the cluster and estimates how long that takes.

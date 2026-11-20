@@ -116,3 +116,27 @@ spec:
 		}
 	}
 }
+
+// An image changed in the cluster but not in git is put back by the apply: a restart the diff doesn't show.
+func TestDrift(t *testing.T) {
+	const deploy = "kind: Deployment\nmetadata: {name: %s}\nspec: {replicas: 2, template: {spec: {containers: [{name: c, image: %s}]}}}\n"
+	live := func(name, image string) *appsv1.Deployment {
+		return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}, Spec: appsv1.DeploymentSpec{
+			Replicas: new(int32(3)), Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: image}}}}}}
+	}
+	c := fake.NewClientset(live("api", "app:1-hotfix"), live("web", "web:2"), live("same", "s:1"))
+
+	base := docs(t, fmt.Sprintf(deploy, "api", "app:1")+"---"+fmt.Sprintf(deploy, "web", "web:1")+"---"+fmt.Sprintf(deploy, "same", "s:1"))
+	head := docs(t, fmt.Sprintf(deploy, "api", "app:1")+"---"+fmt.Sprintf(deploy, "web", "web:3")+"---"+fmt.Sprintf(deploy, "same", "s:1"))
+	is := change.Diff(base, head)
+
+	drift, err := change.Drift(t.Context(), c, head, is)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// web changes in git, so it's already a restart; same matches; only api drifted.
+	if len(drift) != 1 || drift[0].Resource != "Deployment default/api" || drift[0].Pods != 3 ||
+		drift[0].Detail != "live runs app:1-hotfix (changed outside git); applying puts back app:1" {
+		t.Errorf("drift = %+v", drift)
+	}
+}

@@ -377,6 +377,11 @@ func changeCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("--context: %w", err)
 				}
+				drift, err := change.Drift(ctx, c, h, is)
+				if err != nil {
+					return err
+				}
+				is = append(is, drift...)
 				if err := change.Live(ctx, c, is); err != nil {
 					return err
 				}
