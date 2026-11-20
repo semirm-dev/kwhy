@@ -36,3 +36,15 @@ signs:
     certificate: "${artifact}.pem"
     args: ["sign-blob", "--output-certificate=${certificate}", "--output-signature=${signature}", "${artifact}", "--yes"]
     artifacts: checksum
+# Homebrew (`brew install semirm-dev/tap/kwhy`): needs a semirm-dev/homebrew-tap repo and a HOMEBREW_TAP_TOKEN
+# secret that can push to it; skipped until that secret exists.
+homebrew_casks:
+  - name: kwhy
+    homepage: https://github.com/semirm-dev/kwhy
+    description: Why a pod is Pending, a value is set, or a change restarts things
+    license: Apache-2.0
+    repository:
+      owner: semirm-dev
+      name: homebrew-tap
+      token: '{{ index .Env "HOMEBREW_TAP_TOKEN" }}'
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
