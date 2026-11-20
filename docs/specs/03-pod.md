@@ -36,11 +36,11 @@ kwhy pod <name|pod/name|deploy/name|sts/name|job/name> [-n ns] [--context ctx] [
   CSINodes, CSIDrivers, VolumeAttachments and CSIStorageCapacities once; builds the scheduler snapshot and serves the
   rest to the plugins' listers from an in-memory fake clientset, so plugins never touch the cluster.
 - Accepts a workload (`deploy/x`, `sts/x`, `job/x`): picks its oldest pod not yet on a node, or checks a new pod
-  from its template if none is waiting. A pod already on a node gets one line ("scheduled on X") and exit 0.
+  from its template if none is waiting. A pod already on a node gets one line ("scheduled on X"), in JSON `"scheduled": "X"` without plugins or nodes, and exit 0.
 - **v0.4.1 (built 2026-11-20):** the source link. With `--chart` (plus `-f`, `--set`, `--version`, `--release`
   as deployed), kwhy renders the chart, finds the workload that owns the pod (a ReplicaSet is followed to its
   Deployment), and runs `kwhy value` on the pod spec fields the failing checks read: requests for the resources
-  a node lacks, tolerations, node selector and affinity, pod (anti-)affinity, spread constraints, host ports,
+  a node lacks (or the limit, when the container sets no request: Kubernetes copies it), tolerations, node selector and affinity, pod (anti-)affinity, spread constraints, host ports,
   volumes. Only fields set by a values leaf get a `Source:` line. The release defaults to the pod's
   `app.kubernetes.io/instance` label; the render uses the cluster's version for `.Capabilities`.
   `pod/` never imports `value/`: `pod.Reads` says which fields a check reads, `cmd/kwhy` joins the two.

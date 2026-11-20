@@ -262,6 +262,8 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 | `-f, --values FILE`, `--set K=V`, `--version V` | as the release was deployed (with `--chart`) |
 | `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
 
+A pod already on a node gets one line (`ns/x is scheduled on node-1 (Running).`), or in JSON `"scheduled": "node-1"`.
+
 Exit codes: `0` ok (also for a pod that is already scheduled), `1` runtime error, `2` usage error.
 
 ## Known limits
@@ -274,7 +276,7 @@ Exit codes: `0` ok (also for a pod that is already scheduled), `1` runtime error
 - `pod` runs the default scheduler profile compiled into kwhy (v1.37) and warns when the cluster is more than one
   minor version away or the pod names another scheduler. Custom profiles and scheduler plugins aren't seen.
 - `pod` doesn't support pods with resource claims (DRA) and doesn't consider preemption or nominated pods.
-- `pod --chart` links requests, not limits Kubernetes defaults a request from, and only fields a values leaf sets.
+- `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
 
 ## Development
 

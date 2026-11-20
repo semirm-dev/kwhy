@@ -33,7 +33,7 @@ Spike code and inputs are in `docs/spikes/`.
 ## Shared design decisions
 
 - **Go, single static binary `kwhy`**, standalone first. It doesn't need kubectl: `value` and `change` are offline, and `pod` reads kubeconfig via client-go (`--context`, `--namespace`).
-- **Distribution:** GitHub Releases binaries and Homebrew (goreleaser, from v0.2). No `go install …@version`: importing the scheduler for `pod` needs `replace` directives, which `go install` refuses (dropped 2026-11-20). Krew from v0.4 when `pod` ships: the same binary installed as `kubectl-kwhy`.
+- **Distribution:** GitHub Releases binaries (goreleaser, from v0.2); Homebrew once a tap exists. No `go install …@version`: importing the scheduler for `pod` needs `replace` directives, which `go install` refuses (dropped 2026-11-20). Krew from v0.4 when `pod` ships: the same binary installed as `kubectl-kwhy`.
 - **Use the real libraries in-process**: Helm v4 (`helm.sh/helm/v4`), Kustomize (`sigs.k8s.io/kustomize/api/krusty`),
   kube-scheduler framework. Never shell out to `helm`/`kubectl` in the product (the spikes did, for speed).
 - **Three output formats** for every command: human (default), `--output markdown` (PR comments),
@@ -49,7 +49,6 @@ render/                Helm rendering to documents with Source info (shared by v
 value/                 tracing (markers, perturbation), merge replay
 change/                git worktree checkouts, base/head diff, impact rules, report
 pod/                   cluster snapshot, per-filter scheduler runs
-internal/k8s/          tiny helpers shared by change and pod (GVK keys, pod template access)
 docs/specs, docs/spikes
 ```
 
@@ -71,5 +70,5 @@ it moves to its own Go module without changing the CLI.
 
 1. Name: **kwhy**. Standalone binary `kwhy` first; Krew plugin `kwhy` (`kubectl-kwhy`) from v0.4.
 2. License: **Apache-2.0**.
-3. Versions: **Helm v4 only**; Kubernetes **N-2** for `pod` (default, revisit before v0.4).
+3. Versions: **Helm v4 only**; Kubernetes **N-2** for `pod`: its parity suite runs on 1.35–1.37 in CI (settled 2026-11-20).
 4. Repo: **github.com/semirm-dev/kwhy**.

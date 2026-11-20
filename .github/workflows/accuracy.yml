@@ -6,11 +6,12 @@ on:
 jobs:
   accuracy:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      # The full suite takes ~40m locally and longer on these 4-core runners, so 30m timed out (2026-11-20).
       # TestLatencyArgoCD runs locally only: its 5s gate is measured on 8 cores, these runners have 4.
-      - run: go test -tags accuracy -run TestAccuracy -timeout 30m ./value/
+      - run: go test -tags accuracy -run TestAccuracy -timeout 110m ./value/
