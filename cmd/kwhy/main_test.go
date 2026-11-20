@@ -39,6 +39,8 @@ func TestRunExitCodes(t *testing.T) {
 		{"change not a range", []string{"change", "main", "--chart", "c"}, 2},
 		{"change empty head", []string{"change", "main..", "--chart", "c"}, 2},
 		{"change missing chart", []string{"change", "main..feature"}, 2},
+		{"change chart and manifests", []string{"change", "main..feature", "--chart", "c", "--manifests", "m"}, 2},
+		{"change manifests with values", []string{"change", "main..feature", "--manifests", "m", "--set", "a=1"}, 2},
 		{"change bad output", []string{"change", "main..feature", "--chart", "c", "-o", "yaml"}, 2},
 		{"pod missing name", []string{"pod"}, 2},
 		{"pod two names", []string{"pod", "a", "b"}, 2},
@@ -162,5 +164,44 @@ func TestRunChange(t *testing.T) {
 	cmd.Dir = repo
 	if wt, _ := cmd.Output(); strings.Count(string(wt), "\n") != 1 {
 		t.Errorf("worktrees left behind:\n%s", wt)
+	}
+}
+
+func TestRunChangeManifests(t *testing.T) {
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	deploy := func(image string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(repo, "k8s"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		y := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\nspec:\n  replicas: 2\n  selector: {matchLabels: {app: api}}\n" +
+			"  template:\n    metadata: {labels: {app: api}}\n    spec: {containers: [{name: api, image: " + image + "}]}\n"
+		if err := os.WriteFile(filepath.Join(repo, "k8s", "api.yaml"), []byte(y), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	deploy("acme/api:1.0")
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-qm", "base")
+	git("checkout", "-qb", "feature")
+	deploy("acme/api:2.0")
+	git("commit", "-qam", "head")
+	git("checkout", "-q", "main")
+
+	t.Chdir(repo)
+	var out, errb bytes.Buffer
+	code := run([]string{"change", "main..feature", "--manifests", "k8s", "-n", "shop"}, &out, &errb)
+	if code != 0 || !strings.Contains(out.String(), "Deployment shop/api  2 pods  image") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
 }

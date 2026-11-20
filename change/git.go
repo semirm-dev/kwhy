@@ -18,8 +18,9 @@ import (
 // Source is what to render at each ref. Paths are as seen from the working directory; those inside
 // the git repo are read from the ref's checkout, others (and URLs) as they are.
 type Source struct {
-	Chart  string
-	Values values.Options
+	// Chart is a chart directory; Manifests a directory of plain YAML instead. Values apply to Chart only.
+	Chart, Manifests string
+	Values           values.Options
 }
 
 // Render checks ref out into a temporary git worktree, renders src there and removes the worktree.
@@ -41,6 +42,18 @@ func Render(ctx context.Context, ref string, src Source, o render.Options, helm 
 	}
 	// Background context: the worktree must go even after Ctrl-C.
 	defer git(context.Background(), root, "worktree", "remove", "--force", dir) //nolint:errcheck
+
+	if src.Manifests != "" {
+		ns := o.Namespace
+		if ns == "" {
+			ns = "default"
+		}
+		docs, err := render.ReadManifests(inTree(root, dir, src.Manifests), ns)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", ref, err)
+		}
+		return docs, nil
+	}
 
 	opts := src.Values
 	opts.ValueFiles = make([]string, len(src.Values.ValueFiles))

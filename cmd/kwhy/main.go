@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -272,8 +273,11 @@ func changeCmd() *cobra.Command {
 				return usageError{fmt.Errorf("want <base>..<head>, got %q", args[0])}
 			}
 
-			if src.Chart == "" {
-				return usageError{errors.New("--chart is required")}
+			if (src.Chart == "") == (src.Manifests == "") {
+				return usageError{errors.New("give exactly one of --chart or --manifests")}
+			}
+			if src.Manifests != "" && !reflect.ValueOf(src.Values).IsZero() {
+				return usageError{errors.New("values flags apply to --chart only")}
 			}
 
 			if _, err := common.ParseKubeVersion(kubeVersion); err != nil {
@@ -340,6 +344,7 @@ func changeCmd() *cobra.Command {
 
 	f := cmd.Flags()
 	f.StringVar(&src.Chart, "chart", "", "chart directory in the repo")
+	f.StringVar(&src.Manifests, "manifests", "", "directory of plain YAML manifests in the repo, instead of --chart")
 	valuesFlags(f, &src.Values, "; files in the repo are read at each ref")
 	f.StringVar(&release, "release", "rel", "release name")
 	f.StringVarP(&namespace, "namespace", "n", "default", "release namespace")

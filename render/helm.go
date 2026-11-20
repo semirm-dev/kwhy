@@ -217,6 +217,13 @@ func appendDoc(docs *[]Doc, src, manifest, namespace string) error {
 		return nil
 	}
 
+	*docs = append(*docs, newDoc(src, obj, namespace))
+
+	return nil
+}
+
+// newDoc wraps a decoded object; namespace is used when the object has none.
+func newDoc(src string, obj map[string]any, namespace string) Doc {
 	d := Doc{Source: src, Object: obj, Namespace: namespace}
 	d.Kind, _ = obj["kind"].(string)
 
@@ -227,9 +234,7 @@ func appendDoc(docs *[]Doc, src, manifest, namespace string) error {
 		}
 	}
 
-	*docs = append(*docs, d)
-
-	return nil
+	return d
 }
 
 func source(manifest string) string {
