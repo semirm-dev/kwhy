@@ -33,7 +33,7 @@ Spike code and inputs are in `docs/spikes/`.
 ## Shared design decisions
 
 - **Go, single static binary `kwhy`**, standalone first. It doesn't need kubectl: `value` and `change` are offline, and `pod` reads kubeconfig via client-go (`--context`, `--namespace`).
-- **Distribution:** `go install`, GitHub Releases binaries and Homebrew (goreleaser, from v0.2). Krew from v0.4 when `pod` ships: the same binary installed as `kubectl-kwhy`.
+- **Distribution:** GitHub Releases binaries and Homebrew (goreleaser, from v0.2). No `go install …@version`: importing the scheduler for `pod` needs `replace` directives, which `go install` refuses (dropped 2026-11-20). Krew from v0.4 when `pod` ships: the same binary installed as `kubectl-kwhy`.
 - **Use the real libraries in-process**: Helm v4 (`helm.sh/helm/v4`), Kustomize (`sigs.k8s.io/kustomize/api/krusty`),
   kube-scheduler framework. Never shell out to `helm`/`kubectl` in the product (the spikes did, for speed).
 - **Three output formats** for every command: human (default), `--output markdown` (PR comments),

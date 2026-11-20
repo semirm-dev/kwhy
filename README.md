@@ -159,14 +159,23 @@ scheduler reports. It says what's wrong; fixing it stays with you:
 
 <img src="docs/demo/pod.svg" alt="kwhy pod showing every failing check on every node for a Pending pod" width="100%">
 
+How it differs from other tools for Pending pods:
+
+| | kwhy | Tools that re-implement the checks (e.g. kubectl-why-pending) | LLM explainers (e.g. k8sgpt) | `kubectl describe` event |
+|---|---|---|---|---|
+| Where the answer comes from | the scheduler's own code, compiled in | hand-written copy of the rules | a model's reading of events | the scheduler |
+| Matches the real scheduler | yes, checked against `FailedScheduling` events on kind | until the rules drift | not guaranteed | yes |
+| Failing checks per node | all of them | depends on the tool | — | first one only, summarised |
+| New scheduler rules | come with a Kubernetes version bump | rewritten by hand | — | yes |
+| Line in your values that set the field (v0.4.1) | yes, through `kwhy value` | no | no | no |
+
+The other tools are useful in their own ways. kubectl-why-pending, for example, suggests fixes, which kwhy
+deliberately doesn't do.
+
 ## Install
 
 Download the archive for your platform (macOS, Linux or Windows; amd64 or arm64) from
-[GitHub Releases](https://github.com/semirm-dev/kwhy/releases), unpack it and put `kwhy` on your `PATH`. Or build it:
-
-```sh
-go install github.com/semirm-dev/kwhy/cmd/kwhy@latest
-```
+[GitHub Releases](https://github.com/semirm-dev/kwhy/releases), unpack it and put `kwhy` on your `PATH`.
 
 Single static binary, offline by default, no telemetry. Homebrew and Krew as `kubectl kwhy` (v0.4) come later.
 
