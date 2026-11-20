@@ -159,3 +159,24 @@ func TestAddLogs(t *testing.T) {
 		t.Errorf("logs: crash %v, pull %v, earlier oom %v; want only the crash", ps[0].Logs, ps[1].Logs, ps[2].Logs)
 	}
 }
+
+func TestDiagnoseNode(t *testing.T) {
+	n := node("n1", "4", "8Gi", nil)
+	n.Status.Conditions = []v1.NodeCondition{
+		{Type: v1.NodeReady, Status: v1.ConditionUnknown, Reason: "NodeStatusUnknown", Message: "Kubelet stopped posting node status."},
+		{Type: v1.NodeDiskPressure, Status: v1.ConditionTrue, Message: "disk full"},
+		{Type: v1.NodeMemoryPressure, Status: v1.ConditionFalse},
+	}
+	p := running(ok("app"), ok("sidecar"))
+
+	ps := diagnose(t, p, n)
+	if len(ps) != 1 || ps[0].Kind != pod.NodeBad || ps[0].Reason != "NodeStatusUnknown" ||
+		ps[0].Detail != "node n1: Ready=Unknown (Kubelet stopped posting node status.); DiskPressure=True (disk full)" {
+		t.Errorf("problems = %+v", ps)
+	}
+
+	// A node kwhy can't read (RBAC, gone) is no problem.
+	if ps := diagnose(t, p); len(ps) != 0 {
+		t.Errorf("no node: %+v", ps)
+	}
+}

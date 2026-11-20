@@ -22,6 +22,7 @@ const (
 	Probe   = "probe"   // a readiness, liveness or startup probe fails
 	Evicted = "evicted" // the kubelet evicted the pod
 	Sandbox = "sandbox" // the node can't create the pod's sandbox (network, runtime)
+	NodeBad = "node"    // the pod's node isn't Ready or is under pressure
 	Other   = "other"   // not running or not ready for a reason not listed above
 )
 
@@ -82,11 +83,40 @@ func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem
 		}
 	}
 
+	if pr, ok := nodeProblem(ctx, c, p.Spec.NodeName); ok {
+		ps = append(ps, pr)
+	}
+
 	if len(ps) == 0 && !ready(p) {
 		ps = append(ps, Problem{Kind: Other, Reason: string(p.Status.Phase), Detail: "not ready; kubelet reports no reason"})
 	}
 
 	return ps, nil
+}
+
+// nodeProblem names the node's condition when it isn't Ready or is under pressure. Best effort: many users can't
+// read nodes, so any error means no problem.
+func nodeProblem(ctx context.Context, c kubernetes.Interface, name string) (Problem, bool) {
+	n, err := c.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return Problem{}, false
+	}
+
+	var bad []string
+	reason := ""
+	for _, cond := range n.Status.Conditions {
+		notReady := cond.Type == v1.NodeReady && cond.Status != v1.ConditionTrue
+		pressure := cond.Type != v1.NodeReady && cond.Status == v1.ConditionTrue && strings.HasSuffix(string(cond.Type), "Pressure")
+		if notReady || pressure {
+			bad = append(bad, fmt.Sprintf("%s=%s (%s)", cond.Type, cond.Status, cond.Message))
+			reason = or(reason, cond.Reason)
+		}
+	}
+	if len(bad) == 0 {
+		return Problem{}, false
+	}
+
+	return Problem{Kind: NodeBad, Reason: reason, Detail: "node " + name + ": " + strings.Join(bad, "; ")}, true
 }
 
 // container returns the problem of one container, if it has one.
