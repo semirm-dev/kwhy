@@ -40,6 +40,9 @@ func TestRunExitCodes(t *testing.T) {
 		{"change empty head", []string{"change", "main..", "--chart", "c"}, 2},
 		{"change missing chart", []string{"change", "main..feature"}, 2},
 		{"change bad output", []string{"change", "main..feature", "--chart", "c", "-o", "yaml"}, 2},
+		{"pod missing name", []string{"pod"}, 2},
+		{"pod two names", []string{"pod", "a", "b"}, 2},
+		{"pod bad output", []string{"pod", "x", "-o", "yaml"}, 2},
 		{"change bad fail-on", []string{"change", "main..feature", "--chart", "c", "--fail-on", "fail,nope"}, 2},
 	}
 	for _, tt := range tests {

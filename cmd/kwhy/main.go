@@ -14,9 +14,12 @@ import (
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v4/pkg/chart/common"
 	"helm.sh/helm/v4/pkg/cli"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 
 	"github.com/semirm-dev/kwhy/change"
+	"github.com/semirm-dev/kwhy/pod"
 	"github.com/semirm-dev/kwhy/render"
 	"github.com/semirm-dev/kwhy/value"
 )
@@ -38,6 +41,10 @@ var (
 
 	changeWriters = map[string]func(io.Writer, []change.Impact) error{
 		"human": change.WriteHuman, "markdown": change.WriteMarkdown, "json": change.WriteJSON,
+	}
+
+	podWriters = map[string]func(io.Writer, *corev1.Pod, pod.Result) error{
+		"human": pod.WriteHuman, "markdown": pod.WriteMarkdown, "json": pod.WriteJSON,
 	}
 )
 
@@ -77,7 +84,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
-	root.AddCommand(valueCmd(), changeCmd(), notYet("pod", "Why a pod is not scheduled (v0.4)"))
+	root.AddCommand(valueCmd(), changeCmd(), podCmd())
 
 	err := root.Execute()
 	if err == nil {
@@ -342,14 +349,75 @@ func changeCmd() *cobra.Command {
 	return cmd
 }
 
-func notYet(name, short string) *cobra.Command {
-	return &cobra.Command{
-		Use:   name,
-		Short: short,
-		RunE: func(*cobra.Command, []string) error {
-			return fmt.Errorf("%s: not implemented yet", name)
+func podCmd() *cobra.Command {
+	var namespace, output string
+
+	helm := cli.New()
+
+	cmd := &cobra.Command{
+		Use:   "pod <name|pod/name|deploy/name|sts/name|job/name>",
+		Short: "Why a pod is not scheduled: every scheduler check on every node",
+		Example: `  kwhy pod api-7d9f-x2x -n shop
+  kwhy pod deploy/api -n shop --context prod -o markdown`,
+		Args: usageArgs(1, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if podWriters[output] == nil {
+				return usageError{fmt.Errorf("--output must be human, markdown or json, got %q", output)}
+			}
+
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer stop()
+
+			klog.SetOutput(io.Discard) // the scheduler framework logs through klog
+			klog.LogToStderr(false)
+
+			cfg, err := helm.RESTClientGetter().ToRESTConfig()
+			if err != nil {
+				return fmt.Errorf("kubeconfig: %w", err)
+			}
+			c, err := kubernetes.NewForConfig(cfg)
+			if err != nil {
+				return fmt.Errorf("kubeconfig: %w", err)
+			}
+
+			if namespace == "" {
+				namespace = helm.Namespace()
+			}
+
+			p, err := pod.Target(ctx, c, namespace, args[0])
+			if err != nil {
+				return err
+			}
+
+			if p.Spec.NodeName != "" {
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s/%s is scheduled on %s (%s).\n", p.Namespace, p.Name, p.Spec.NodeName, p.Status.Phase)
+				return err
+			}
+
+			cl, err := pod.Snapshot(ctx, c)
+			if err != nil {
+				return err
+			}
+
+			for _, w := range pod.Warnings(cl, p) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "kwhy: warning:", w)
+			}
+
+			r, err := pod.Evaluate(ctx, cl, p)
+			if err != nil {
+				return err
+			}
+
+			return podWriters[output](cmd.OutOrStdout(), p, r)
 		},
 	}
+
+	f := cmd.Flags()
+	f.StringVarP(&namespace, "namespace", "n", "", "namespace (default: the kube context's)")
+	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
+	f.StringVar(&helm.KubeContext, "context", "", "kube context to read from (read-only)")
+
+	return cmd
 }
 
 // usageArgs is cobra.RangeArgs with a wrong count exiting 2.
