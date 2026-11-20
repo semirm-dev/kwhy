@@ -12,8 +12,13 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// WriteHuman writes the node × check matrix for a terminal.
+// WriteHuman writes the node × check matrix for a terminal, or one line for a pod already on a node.
 func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
+	if p.Spec.NodeName != "" {
+		_, err := fmt.Fprintln(w, scheduled(p))
+		return err
+	}
+
 	var b strings.Builder
 	b.WriteString(title(p, r) + "\n")
 
@@ -46,8 +51,13 @@ func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 	return err
 }
 
-// WriteMarkdown writes the matrix as a Markdown table.
+// WriteMarkdown writes the matrix as a Markdown table, or one line for a pod already on a node.
 func WriteMarkdown(w io.Writer, p *v1.Pod, r Result) error {
+	if p.Spec.NodeName != "" {
+		_, err := fmt.Fprintf(w, "**%s**\n", scheduled(p))
+		return err
+	}
+
 	var b strings.Builder
 	b.WriteString("**" + title(p, r) + "**\n")
 
@@ -75,7 +85,8 @@ func WriteMarkdown(w io.Writer, p *v1.Pod, r Result) error {
 	return err
 }
 
-// WriteJSON writes the result as kwhy.pod/v1 JSON, every node listed on its own.
+// WriteJSON writes the result as kwhy.pod/v1 JSON, every node listed on its own. A pod already on a node has
+// "scheduled" set to that node and no plugins or nodes.
 func WriteJSON(w io.Writer, p *v1.Pod, r Result) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -85,10 +96,15 @@ func WriteJSON(w io.Writer, p *v1.Pod, r Result) error {
 		Namespace string   `json:"namespace"`
 		Pod       string   `json:"pod"`
 		Template  bool     `json:"template"`
-		Plugins   []string `json:"plugins"`
-		Nodes     []Node   `json:"nodes"`
+		Scheduled string   `json:"scheduled,omitempty"`
+		Plugins   []string `json:"plugins,omitempty"`
+		Nodes     []Node   `json:"nodes,omitempty"`
 		Sources   []Source `json:"sources,omitempty"`
-	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, r.Plugins, r.Nodes, r.Sources})
+	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, p.Spec.NodeName, r.Plugins, r.Nodes, r.Sources})
+}
+
+func scheduled(p *v1.Pod) string {
+	return fmt.Sprintf("%s/%s is scheduled on %s (%s).", p.Namespace, p.Name, p.Spec.NodeName, p.Status.Phase)
 }
 
 type group struct {

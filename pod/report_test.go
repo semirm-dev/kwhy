@@ -3,6 +3,7 @@ package pod_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -111,5 +112,31 @@ func TestWriteSources(t *testing.T) {
 	pod.WriteHuman(&b, p, r)
 	if want := "Source:\n  NodeResourcesFit  .spec.containers[0].resources.requests.cpu = 2  ← resources.requests.cpu (values-prod.yaml:31)\n"; !strings.Contains(b.String(), want) {
 		t.Errorf("human:\n%s\nwant %q", b.String(), want)
+	}
+}
+
+func TestWriteScheduled(t *testing.T) {
+	p := newPod("api-1", "n1", "1", "1Gi")
+	p.Status.Phase = v1.PodRunning
+
+	var human, md, js bytes.Buffer
+	if err := errors.Join(pod.WriteHuman(&human, p, pod.Result{}), pod.WriteMarkdown(&md, p, pod.Result{}),
+		pod.WriteJSON(&js, p, pod.Result{})); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := human.String(); got != "ml/api-1 is scheduled on n1 (Running).\n" {
+		t.Errorf("human = %q", got)
+	}
+	if got := md.String(); got != "**ml/api-1 is scheduled on n1 (Running).**\n" {
+		t.Errorf("markdown = %q", got)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal(js.Bytes(), &out); err != nil {
+		t.Fatalf("json: %v\n%s", err, js.String())
+	}
+	if out["schema"] != "kwhy.pod/v1" || out["scheduled"] != "n1" || out["nodes"] != nil {
+		t.Errorf("json = %v", out)
 	}
 }

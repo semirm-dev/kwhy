@@ -395,8 +395,7 @@ func podCmd() *cobra.Command {
 			}
 
 			if p.Spec.NodeName != "" {
-				_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s/%s is scheduled on %s (%s).\n", p.Namespace, p.Name, p.Spec.NodeName, p.Status.Phase)
-				return err
+				return podWriters[output](cmd.OutOrStdout(), p, pod.Result{})
 			}
 
 			cl, err := pod.Snapshot(ctx, c)
