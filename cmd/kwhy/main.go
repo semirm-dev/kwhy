@@ -13,8 +13,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"helm.sh/helm/v4/pkg/chart/common"
 	"helm.sh/helm/v4/pkg/cli"
+	"helm.sh/helm/v4/pkg/cli/values"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -130,7 +132,7 @@ func valueChartCmd() *cobra.Command {
 	var (
 		chartVersion, release, namespace string
 		output, kubeVersion              string
-		files, sets                      []string
+		vals                             values.Options
 		all                              bool
 		chunk                            int
 	)
@@ -177,7 +179,7 @@ func valueChartCmd() *cobra.Command {
 				return err
 			}
 
-			v, err := value.LoadValues(c, files, sets)
+			v, err := value.LoadValues(c, vals)
 			if err != nil {
 				return err
 			}
@@ -233,8 +235,7 @@ func valueChartCmd() *cobra.Command {
 
 	f := cmd.Flags()
 	f.StringVar(&chartVersion, "version", "", "chart version (for repo and oci charts)")
-	f.StringArrayVarP(&files, "values", "f", nil, "values file (repeatable, later wins)")
-	f.StringArrayVar(&sets, "set", nil, "set a value: key=value (repeatable, wins over files)")
+	valuesFlags(f, &vals, "")
 	f.StringVar(&release, "release", "rel", "release name")
 	f.StringVarP(&namespace, "namespace", "n", "default", "release namespace")
 	f.StringVar(&kubeVersion, "kube-version", render.KubeVersion, "Kubernetes version for .Capabilities.KubeVersion")
@@ -339,8 +340,7 @@ func changeCmd() *cobra.Command {
 
 	f := cmd.Flags()
 	f.StringVar(&src.Chart, "chart", "", "chart directory in the repo")
-	f.StringArrayVarP(&src.Values, "values", "f", nil, "values file (repeatable, later wins); files in the repo are read at each ref")
-	f.StringArrayVar(&src.Sets, "set", nil, "set a value: key=value (repeatable, wins over files)")
+	valuesFlags(f, &src.Values, "; files in the repo are read at each ref")
 	f.StringVar(&release, "release", "rel", "release name")
 	f.StringVarP(&namespace, "namespace", "n", "default", "release namespace")
 	f.StringVar(&kubeVersion, "kube-version", render.KubeVersion, "Kubernetes version for .Capabilities.KubeVersion")
@@ -478,8 +478,7 @@ func podCmd() *cobra.Command {
 	f.Int64Var(&logs, "logs", 0, "last N log lines of a crashed or OOM-killed container's last run (logs may contain secrets)")
 	f.StringVar(&src.chart, "chart", "", "chart that deploys the pod: also show which values line sets each field a failing check reads")
 	f.StringVar(&src.version, "version", "", "chart version, for repo and OCI charts")
-	f.StringArrayVarP(&src.files, "values", "f", nil, "values file or URL (repeatable, later wins), as deployed")
-	f.StringArrayVar(&src.sets, "set", nil, "set a value: key=value (repeatable, wins over files), as deployed")
+	valuesFlags(f, &src.values, ", as deployed")
 	f.StringVar(&src.release, "release", "", "Helm release name (default: the pod's app.kubernetes.io/instance label)")
 
 	return cmd
@@ -488,7 +487,7 @@ func podCmd() *cobra.Command {
 // podChart is how the pod's chart was deployed.
 type podChart struct {
 	chart, version, release string
-	files, sets             []string
+	values                  values.Options
 }
 
 // podSources finds, with kwhy value, the values lines that set the fields p's failing checks read. It renders the
@@ -513,7 +512,7 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 		return nil, err
 	}
 
-	v, err := value.LoadValues(ch, src.files, src.sets)
+	v, err := value.LoadValues(ch, src.values)
 	if err != nil {
 		return nil, err
 	}
@@ -633,6 +632,16 @@ func containerIndex(spec map[string]any, name string, init bool) int {
 	}
 
 	return -1
+}
+
+// valuesFlags registers Helm's values flags: -f and the --set family, applied in Helm's order.
+func valuesFlags(f *pflag.FlagSet, o *values.Options, note string) {
+	f.StringArrayVarP(&o.ValueFiles, "values", "f", nil, "values file or URL (repeatable, later wins)"+note)
+	f.StringArrayVar(&o.Values, "set", nil, "set a value: key=value (repeatable, wins over files)"+note)
+	f.StringArrayVar(&o.StringValues, "set-string", nil, "set a STRING value: key=value (repeatable)"+note)
+	f.StringArrayVar(&o.JSONValues, "set-json", nil, "set a JSON value: key=json or a JSON object (repeatable)"+note)
+	f.StringArrayVar(&o.FileValues, "set-file", nil, "set a value from a file's content: key=path (repeatable)"+note)
+	f.StringArrayVar(&o.LiteralValues, "set-literal", nil, "set a literal STRING value, no escaping: key=value (repeatable)"+note)
 }
 
 // usageArgs is cobra.RangeArgs with a wrong count exiting 2.

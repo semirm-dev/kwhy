@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"helm.sh/helm/v4/pkg/cli"
+	"helm.sh/helm/v4/pkg/cli/values"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -39,7 +40,7 @@ func TestPodSources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	src := podChart{chart: mini, release: "rel", files: []string{prod}}
+	src := podChart{chart: mini, release: "rel", values: values.Options{ValueFiles: []string{prod}}}
 	got, err := podSources(t.Context(), c, p, r, src, "v1.37.0", cli.New())
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +53,7 @@ func TestPodSources(t *testing.T) {
 	}
 
 	// Only a limit: Kubernetes defaults the request to it, so the limit is the source.
-	limitOnly := podChart{chart: mini, release: "rel", sets: []string{"resources.requests=null", "resources.limits.memory=2Gi"}}
+	limitOnly := podChart{chart: mini, release: "rel", values: values.Options{Values: []string{"resources.requests=null", "resources.limits.memory=2Gi"}}}
 	got, err = podSources(t.Context(), c, p, r, limitOnly, "v1.37.0", cli.New())
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +65,7 @@ func TestPodSources(t *testing.T) {
 	}
 
 	// Request and limit: only the request is the source.
-	both := podChart{chart: mini, release: "rel", files: []string{prod}, sets: []string{"resources.limits.memory=4Gi"}}
+	both := podChart{chart: mini, release: "rel", values: values.Options{ValueFiles: []string{prod}, Values: []string{"resources.limits.memory=4Gi"}}}
 	got, err = podSources(t.Context(), c, p, r, both, "v1.37.0", cli.New())
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +89,7 @@ func TestPodSourcesProblem(t *testing.T) {
 		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "rel-api", Controller: new(true)}}}}
 	r := pod.Result{Problems: []pod.Problem{{Container: "api", Kind: pod.OOM}}}
 
-	src := podChart{chart: mini, release: "rel", files: []string{prod}, sets: []string{"resources.limits.memory=4Gi"}}
+	src := podChart{chart: mini, release: "rel", values: values.Options{ValueFiles: []string{prod}, Values: []string{"resources.limits.memory=4Gi"}}}
 	got, err := podSources(t.Context(), c, p, r, src, "v1.37.0", cli.New())
 	if err != nil {
 		t.Fatal(err)

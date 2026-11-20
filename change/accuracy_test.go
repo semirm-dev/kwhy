@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"helm.sh/helm/v4/pkg/cli"
+	helmvalues "helm.sh/helm/v4/pkg/cli/values"
 
 	"github.com/semirm-dev/kwhy/change"
 	"github.com/semirm-dev/kwhy/render"
@@ -43,7 +44,7 @@ func renderChart(t *testing.T, path, values string) []render.Doc {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := value.LoadValues(c, []string{values}, nil)
+	v, err := value.LoadValues(c, helmvalues.Options{ValueFiles: []string{values}})
 	if err != nil {
 		t.Fatal(err)
 	}

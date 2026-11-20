@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"helm.sh/helm/v4/pkg/cli"
+	"helm.sh/helm/v4/pkg/cli/values"
 
 	"github.com/semirm-dev/kwhy/render"
 	"github.com/semirm-dev/kwhy/value"
@@ -131,6 +132,48 @@ func TestSetFlags(t *testing.T) {
 		if got := lookup(t, v, tt.path...).Chain[0]; got.File != "--set "+sets[tt.line] || got.Line != tt.line {
 			t.Errorf("%s winner = %+v, want --set flag %d", value.PathString(tt.path), got, tt.line)
 		}
+	}
+}
+
+// Every --set flag kind is a source, applied in Helm's order (json, set, string, file, literal) whatever the
+// order on the command line, and the winner always equals what Helm merged.
+func TestSetFlagKinds(t *testing.T) {
+	c, err := render.LoadChart(mini, "", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	file := writeFiles(t, [2]string{"level.txt", "debug"})[0]
+	v, err := value.LoadValues(c, values.Options{
+		JSONValues:    []string{`replicaCount=7`, `{"auth":{"user":"root"}}`},
+		Values:        []string{"replicaCount=8", "image.tag=9.9"},
+		StringValues:  []string{"image.tag=10"},
+		FileValues:    []string{"config.logLevel=" + file},
+		LiteralValues: []string{"ingress.host=a,b{c}"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tt := range []struct {
+		path  []any
+		file  string
+		value any
+	}{
+		{[]any{"replicaCount"}, "--set replicaCount=8", int64(8)},
+		{[]any{"auth", "user"}, `--set-json {"auth":{"user":"root"}}`, "root"},
+		{[]any{"image", "tag"}, "--set-string image.tag=10", "10"},
+		{[]any{"config", "logLevel"}, "--set-file config.logLevel=" + file, "debug"},
+		{[]any{"ingress", "host"}, "--set-literal ingress.host=a,b{c}", "a,b{c}"},
+	} {
+		l := lookup(t, v, tt.path...)
+		if got := l.Chain[0]; got.File != tt.file || !reflect.DeepEqual(l.Value, tt.value) {
+			t.Errorf("%s: winner %+v value %#v, want %s = %#v", value.PathString(tt.path), got, l.Value, tt.file, tt.value)
+		}
+	}
+
+	if chain := lookup(t, v, "replicaCount").Chain; len(chain) < 2 || chain[1].File != "--set-json replicaCount=7" {
+		t.Errorf("replicaCount chain %+v: --set should override --set-json", chain)
 	}
 }
 
@@ -597,7 +640,7 @@ func loadValues(t *testing.T, files, sets []string) *value.Values {
 		t.Fatal(err)
 	}
 
-	v, err := value.LoadValues(c, files, sets)
+	v, err := value.LoadValues(c, values.Options{ValueFiles: files, Values: sets})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +711,7 @@ func trace(t *testing.T, chart string, files ...string) (*value.Index, *value.Va
 		t.Fatal(err)
 	}
 
-	v, err := value.LoadValues(c, files, nil)
+	v, err := value.LoadValues(c, values.Options{ValueFiles: files})
 	if err != nil {
 		t.Fatal(err)
 	}

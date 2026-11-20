@@ -18,8 +18,8 @@ import (
 // Source is what to render at each ref. Paths are as seen from the working directory; those inside
 // the git repo are read from the ref's checkout, others (and URLs) as they are.
 type Source struct {
-	Chart        string
-	Values, Sets []string
+	Chart  string
+	Values values.Options
 }
 
 // Render checks ref out into a temporary git worktree, renders src there and removes the worktree.
@@ -42,9 +42,18 @@ func Render(ctx context.Context, ref string, src Source, o render.Options, helm 
 	// Background context: the worktree must go even after Ctrl-C.
 	defer git(context.Background(), root, "worktree", "remove", "--force", dir) //nolint:errcheck
 
-	files := make([]string, len(src.Values))
-	for i, f := range src.Values {
-		files[i] = inTree(root, dir, f)
+	opts := src.Values
+	opts.ValueFiles = make([]string, len(src.Values.ValueFiles))
+	for i, f := range src.Values.ValueFiles {
+		opts.ValueFiles[i] = inTree(root, dir, f)
+	}
+	opts.FileValues = make([]string, len(src.Values.FileValues))
+	for i, s := range src.Values.FileValues {
+		// shortcut: rewrites a single key=path; a comma-separated list is read from the working directory.
+		if k, p, ok := strings.Cut(s, "="); ok && !strings.Contains(s, ",") {
+			s = k + "=" + inTree(root, dir, p)
+		}
+		opts.FileValues[i] = s
 	}
 
 	c, err := render.LoadChart(inTree(root, dir, src.Chart), "", helm)
@@ -52,7 +61,7 @@ func Render(ctx context.Context, ref string, src Source, o render.Options, helm 
 		return nil, fmt.Errorf("%s: %w", ref, err)
 	}
 
-	user, err := (&values.Options{ValueFiles: files, Values: src.Sets}).MergeValues(getter.All(helm))
+	user, err := opts.MergeValues(getter.All(helm))
 	if err != nil {
 		return nil, fmt.Errorf("%s: merge values: %w", ref, err)
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"helm.sh/helm/v4/pkg/cli"
+	"helm.sh/helm/v4/pkg/cli/values"
 
 	"github.com/semirm-dev/kwhy/render"
 )
@@ -31,7 +32,7 @@ func TestAccuracy(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			v, err := LoadValues(c, []string{filepath.Join(dir, name+".prod.yaml")}, nil)
+			v, err := LoadValues(c, values.Options{ValueFiles: []string{filepath.Join(dir, name+".prod.yaml")}})
 			if err != nil {
 				t.Fatal(err)
 			}

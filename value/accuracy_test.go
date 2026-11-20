@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"helm.sh/helm/v4/pkg/cli"
+	"helm.sh/helm/v4/pkg/cli/values"
 
 	"github.com/semirm-dev/kwhy/render"
 	"github.com/semirm-dev/kwhy/value"
@@ -45,7 +46,7 @@ func explainArgoCD(tb testing.TB) {
 		tb.Fatal(err)
 	}
 
-	v, err := value.LoadValues(c, []string{filepath.Join(dir, "argo-cd.prod.yaml")}, nil)
+	v, err := value.LoadValues(c, values.Options{ValueFiles: []string{filepath.Join(dir, "argo-cd.prod.yaml")}})
 	if err != nil {
 		tb.Fatal(err)
 	}

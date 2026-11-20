@@ -3,6 +3,7 @@ package value
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -27,11 +28,9 @@ type Values struct {
 	Leaves []Leaf         // every scalar leaf of the coalesced values, sorted by path
 }
 
-// LoadValues merges chart defaults, values files and --set flags as Helm does, and records the
-// override chain of every leaf.
-func LoadValues(c *render.Chart, files, sets []string) (*Values, error) {
-	opts := values.Options{ValueFiles: files, Values: sets}
-
+// LoadValues merges chart defaults, values files and the --set flags (--set-json, --set, --set-string,
+// --set-file, --set-literal) as Helm does, and records the override chain of every leaf.
+func LoadValues(c *render.Chart, opts values.Options) (*Values, error) {
 	// Helm's own merge, so User never disagrees with Helm.
 	user, err := opts.MergeValues(getter.All(cli.New()))
 	if err != nil {
@@ -43,7 +42,7 @@ func LoadValues(c *render.Chart, files, sets []string) (*Values, error) {
 		return nil, err
 	}
 
-	layers, subcharts, err := loadLayers(c, user, files, sets)
+	layers, subcharts, err := loadLayers(c, user, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +146,7 @@ func PathString(path []any) string {
 }
 
 // loadLayers returns every values source, lowest precedence first, and the subchart mount points.
-func loadLayers(c *render.Chart, user map[string]any, files, sets []string) ([]layer, [][]any, error) {
+func loadLayers(c *render.Chart, user map[string]any, opts values.Options) ([]layer, [][]any, error) {
 	defaults, err := c.ValuesFiles(user)
 	if err != nil {
 		return nil, nil, err
@@ -174,7 +173,7 @@ func loadLayers(c *render.Chart, user map[string]any, files, sets []string) ([]l
 	}
 
 	providers := getter.All(cli.New())
-	for _, f := range files {
+	for _, f := range opts.ValueFiles {
 		data, err := readFile(f, providers)
 		if err != nil {
 			return nil, nil, err
@@ -188,13 +187,39 @@ func loadLayers(c *render.Chart, user map[string]any, files, sets []string) ([]l
 		layers = append(layers, l)
 	}
 
-	for i, s := range sets {
-		tree := map[string]any{}
-		if err := strvals.ParseInto(s, tree); err != nil {
-			return nil, nil, fmt.Errorf("parse --set %s: %w", s, err)
-		}
+	// The flag kinds in the order Helm's MergeValues applies them, whatever order they were typed in.
+	readValue := func(rs []rune) (any, error) {
+		data, err := readFile(string(rs), providers)
+		return string(data), err
+	}
+	flags := []struct {
+		name  string
+		items []string
+		parse func(s string, tree map[string]any) error
+	}{
+		{"--set-json", opts.JSONValues, func(s string, tree map[string]any) error {
+			if t := strings.TrimSpace(s); strings.HasPrefix(t, "{") {
+				return json.Unmarshal([]byte(t), &tree)
+			}
+			return strvals.ParseJSON(s, tree)
+		}},
+		{"--set", opts.Values, strvals.ParseInto},
+		{"--set-string", opts.StringValues, strvals.ParseIntoString},
+		{"--set-file", opts.FileValues, func(s string, tree map[string]any) error { return strvals.ParseIntoFile(s, tree, readValue) }},
+		{"--set-literal", opts.LiteralValues, strvals.ParseLiteralInto},
+	}
 
-		layers = append(layers, layer{file: "--set " + s, tree: tree, line: i})
+	i := 0
+	for _, f := range flags {
+		for _, s := range f.items {
+			tree := map[string]any{}
+			if err := f.parse(s, tree); err != nil {
+				return nil, nil, fmt.Errorf("parse %s %s: %w", f.name, s, err)
+			}
+
+			layers = append(layers, layer{file: f.name + " " + s, tree: tree, line: i})
+			i++
+		}
 	}
 
 	return layers, subcharts, nil
