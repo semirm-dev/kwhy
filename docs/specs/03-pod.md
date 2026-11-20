@@ -37,7 +37,13 @@ kwhy pod <name|pod/name|deploy/name|sts/name|job/name> [-n ns] [--context ctx] [
   rest to the plugins' listers from an in-memory fake clientset, so plugins never touch the cluster.
 - Accepts a workload (`deploy/x`, `sts/x`, `job/x`): picks its oldest pod not yet on a node, or checks a new pod
   from its template if none is waiting. A pod already on a node gets one line ("scheduled on X") and exit 0.
-- **v0.4.1:** the source link (`Source:` line, through `kwhy value`), moved out of v0.4 (2026-11-20).
+- **v0.4.1 (built 2026-11-20):** the source link. With `--chart` (plus `-f`, `--set`, `--version`, `--release`
+  as deployed), kwhy renders the chart, finds the workload that owns the pod (a ReplicaSet is followed to its
+  Deployment), and runs `kwhy value` on the pod spec fields the failing checks read: requests for the resources
+  a node lacks, tolerations, node selector and affinity, pod (anti-)affinity, spread constraints, host ports,
+  volumes. Only fields set by a values leaf get a `Source:` line. The release defaults to the pod's
+  `app.kubernetes.io/instance` label; the render uses the cluster's version for `.Capabilities`.
+  `pod/` never imports `value/`: `pod.Reads` says which fields a check reads, `cmd/kwhy` joins the two.
 
 **Non-goals (v0.4):** DRA resource claims (detect and say unsupported), secondary schedulers with custom
 plugins, scoring/placement ("why did it land on node X"), preemption and nominated pods. Cut on 2026-11-20:
@@ -63,7 +69,11 @@ plugins' own words, never paraphrased. Resource cells carry numbers (requested/a
 and memory. Nodes with identical results are grouped (`cpu-* (9)`, or `9 nodes` without a common prefix).
 JSON (`kwhy.pod/v1`) lists every node ungrouped, with all failing checks and the scheduler's first.
 
-v0.4.1 adds `Source: cpu request 2 ← resources.requests.cpu, values-prod.yaml:31 (kwhy value)`.
+With `--chart` (v0.4.1) a `Source:` block follows, one line per field a failing check reads:
+```
+Source:
+  NodeResourcesFit  .spec.containers[0].resources.requests.memory = 2Gi  ← resources.requests.memory (values-prod.yaml:4)
+```
 
 ## Design (validated in `docs/spikes/pod`)
 

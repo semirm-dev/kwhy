@@ -31,7 +31,7 @@ inputs:
     description: Head ref (default the PR's merge commit, so the comment shows what merging does).
     default: ${{ github.sha }}
   version:
-    description: kwhy release to use, e.g. v0.4.0 (default the latest).
+    description: kwhy release to use, e.g. v0.4.1 (default the latest).
     default: ""
   comment:
     description: Post or update one PR comment with the result.

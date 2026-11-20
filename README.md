@@ -141,7 +141,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with: {fetch-depth: 0}   # kwhy needs both refs
-      - uses: semirm-dev/kwhy@v0.4.0
+      - uses: semirm-dev/kwhy@v0.4.1
         with:
           chart: charts/api
           values: values-prod.yaml
@@ -179,6 +179,16 @@ node affinity/selector, 1 node(s) had untolerated taint(s)`), so fixing the sele
 next. Columns are the checks that fail somewhere; `cpu 0.1/32 +40` is requested/allocatable on the node plus the
 pod's request. Nodes with identical results share a row (`cpu-* (9)`).
 
+With `--chart` (v0.4.1) and the values the release was deployed with, it also names the values line behind each
+field a failing check reads. Real output, for the test chart installed with Helm on kind:
+
+```console
+$ kwhy pod deploy/rel-api -n demo --chart testdata/charts/mini -f testdata/values-prod.yaml --set resources.requests.cpu=40 --release rel
+...
+Source:
+  NodeResourcesFit  .spec.containers[0].resources.requests.cpu = 40  ← resources.requests.cpu (--set resources.requests.cpu=40)
+```
+
 It reads the cluster once with get and list only (nodes, pods, namespaces, volumes, claims, storage and CSI objects),
 then runs the default scheduler profile in-process: once as the scheduler would, and once per filter plugin so
 none stops the others. For a workload (`deploy/`, `sts/`, `job/`) it picks the oldest pod waiting for a node, or
@@ -192,7 +202,7 @@ How it differs from other tools for Pending pods:
 | Matches the real scheduler | yes, checked against the scheduler's own message on kind (1.35–1.37) | until the rules drift | not guaranteed | yes |
 | Failing checks per node | all of them | depends on the tool | — | first one only, summarised |
 | New scheduler rules | come with a Kubernetes version bump | rewritten by hand | — | yes |
-| Line in your values that set the field (v0.4.1) | yes, through `kwhy value` | no | no | no |
+| Line in your values that set the field | yes, with `--chart` (through `kwhy value`) | no | no | no |
 
 The other tools are useful in their own ways. kubectl-why-pending, for example, suggests fixes, which kwhy
 deliberately doesn't do.
@@ -248,6 +258,9 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 | `-n, --namespace NS` | namespace (default: the kube context's) |
 | `--context NAME` | kube context to read from, read-only |
 | `-o, --output` | `human` (default), `markdown` or `json` (`"schema": "kwhy.pod/v1"`, every node with all failing checks and the scheduler's first) |
+| `--chart CHART` | chart that deploys the pod (directory, `.tgz`, `oci://` or `repo/chart`): adds the values line behind each field a failing check reads |
+| `-f, --values FILE`, `--set K=V`, `--version V` | as the release was deployed (with `--chart`) |
+| `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
 
 Exit codes: `0` ok (also for a pod that is already scheduled), `1` runtime error, `2` usage error.
 
@@ -261,7 +274,7 @@ Exit codes: `0` ok (also for a pod that is already scheduled), `1` runtime error
 - `pod` runs the default scheduler profile compiled into kwhy (v1.37) and warns when the cluster is more than one
   minor version away or the pod names another scheduler. Custom profiles and scheduler plugins aren't seen.
 - `pod` doesn't support pods with resource claims (DRA) and doesn't consider preemption or nominated pods.
-- `pod` doesn't yet point at the values line that set a failing field; that's v0.4.1.
+- `pod --chart` links requests, not limits Kubernetes defaults a request from, and only fields a values leaf sets.
 
 ## Development
 

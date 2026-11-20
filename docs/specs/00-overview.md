@@ -64,7 +64,7 @@ it moves to its own Go module without changing the CLI.
 | v0.2 | `value chart` subcommand; release binaries (goreleaser; Homebrew once a tap exists). Kustomize shelved (2026-11-20) until Helm is tested and polished | Helm tested and polished |
 | v0.3 | `change` (Helm only; built 2026-11-20): `--fail-on`, `json`, `--context`, GitHub Action. One chart per run; `.kwhy.yaml` and several charts dropped until needed | Rules suite green on kind in CI |
 | v0.4 | `pod` (built 2026-11-20); Krew manifest (`kubectl-kwhy`) attached to releases, krew-index PR manual | Parity test against the real scheduler on kind |
-| v0.4.1 | `pod` source link: the values line that set a failing field, through `value` | |
+| v0.4.1 | `pod --chart` (built 2026-11-20): the values line that set each field a failing check reads, through `value` | |
 | later | `value kustomize` (redesign; first attempt on branch `feat/v0.2-kustomize`), Argo CD / Flux app discovery, MCP server, Terraform for `value`, remote Kustomize bases (fetched, opt-in) | |
 
 ## Decisions (2026-11-18)
