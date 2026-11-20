@@ -207,8 +207,8 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 
 - `lookup` returns empty, as with `helm template` (offline).
 - Kustomize is not supported yet.
-- `change` is a proof of concept: one local chart, no `--fail-on`, `json` or `--context` yet, and DaemonSet
-  pod counts are unknown offline ("one pod per node").
+- `change` handles one local chart per run. Without `--context`, DaemonSet pod counts are unknown
+  ("one pod per node").
 - Every run traces the whole chart again; nothing is cached between runs (~20s on kube-prometheus-stack).
 
 ## Development
