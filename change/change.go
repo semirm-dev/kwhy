@@ -4,6 +4,7 @@ package change
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -25,13 +26,14 @@ const (
 	Delayed  Verdict = "delayed"
 	PickedUp Verdict = "picked up"
 	WillFail Verdict = "will fail"
+	Orphaned Verdict = "no endpoints"
 	Data     Verdict = "data"
 	Create   Verdict = "create"
 	Delete   Verdict = "delete"
 )
 
 var (
-	order = []Verdict{Restart, Ordered, Scale, Resize, Recreate, Hook, NoEffect, Delayed, PickedUp, WillFail, Data, Create, Delete}
+	order = []Verdict{Restart, Ordered, Scale, Resize, Recreate, Hook, NoEffect, Delayed, PickedUp, WillFail, Orphaned, Data, Create, Delete}
 
 	workloads = map[string]bool{"Deployment": true, "StatefulSet": true, "DaemonSet": true}
 
@@ -100,6 +102,18 @@ func Diff(base, head []render.Doc) []Impact {
 		if _, ok := h[k]; !ok {
 			out = append(out, deleted(bd))
 		}
+	}
+
+	// A Service that selected pods rendered here before, and selects none after: its traffic stops. Pods from
+	// outside the render are unknown, so a Service that selected none before is never flagged.
+	for k, hd := range h {
+		bd, ok := b[k]
+		sel, _ := get(hd.Object, "spec", "selector").(obj)
+		if !ok || hd.Kind != "Service" || len(sel) == 0 || !selects(bd, base) || selects(hd, head) {
+			continue
+		}
+		out = append(out, Impact{Verdict: Orphaned, Resource: name(hd), doc: hd,
+			Detail: "selector " + labels(sel) + " matches no pods after this change: traffic to it stops"})
 	}
 
 	sortImpacts(out)
@@ -307,6 +321,54 @@ func name(d render.Doc) string {
 	}
 
 	return d.Kind + " " + d.Namespace + "/" + d.Name
+}
+
+// selects reports whether the Service svc selects the pods of a workload, Job or Pod in docs.
+func selects(svc render.Doc, docs []render.Doc) bool {
+	sel, _ := get(svc.Object, "spec", "selector").(obj)
+	if len(sel) == 0 {
+		return false
+	}
+
+	for _, d := range docs {
+		if d.Namespace != svc.Namespace {
+			continue
+		}
+
+		var lbls obj
+		switch {
+		case workloads[d.Kind] || d.Kind == "Job" || d.Kind == "ReplicaSet":
+			lbls, _ = get(d.Object, "spec", "template", "metadata", "labels").(obj)
+		case d.Kind == "Pod":
+			lbls, _ = get(d.Object, "metadata", "labels").(obj)
+		}
+		if len(lbls) > 0 && matches(sel, lbls) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matches(sel, lbls obj) bool {
+	for k, v := range sel {
+		if fmt.Sprint(lbls[k]) != fmt.Sprint(v) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// labels formats a selector as k=v,k=v in key order.
+func labels(sel obj) string {
+	keys := slices.Sorted(maps.Keys(sel))
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = fmt.Sprintf("%s=%v", k, sel[k])
+	}
+
+	return strings.Join(parts, ",")
 }
 
 // hook reports whether Helm or Argo CD runs the object as a hook, which recreates it instead of patching.

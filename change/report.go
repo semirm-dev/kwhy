@@ -11,7 +11,7 @@ import (
 
 var icons = map[Verdict]string{
 	Restart: "↻", Ordered: "⏱", Scale: "⇅", Resize: "⤢", Recreate: "⟲", Hook: "⚙", NoEffect: "!", Delayed: "~", PickedUp: "✓",
-	WillFail: "✗", Data: "⚠", Create: "+", Delete: "-",
+	WillFail: "✗", Orphaned: "⊘", Data: "⚠", Create: "+", Delete: "-",
 }
 
 // WriteHuman writes impacts for a terminal.

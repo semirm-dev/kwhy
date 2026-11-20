@@ -68,7 +68,7 @@ func TestKind(t *testing.T) {
 	})
 
 	// Every verdict kubectl can show must be checked by some fixture. Hooks and Argo replace need Helm and Argo.
-	for _, v := range []change.Verdict{change.Restart, change.Ordered, change.Scale, change.Resize, change.NoEffect,
+	for _, v := range []change.Verdict{change.Restart, change.Ordered, change.Scale, change.Resize, change.NoEffect, change.Orphaned,
 		change.Delayed, change.PickedUp, change.WillFail, change.Data} {
 		if !slices.Contains(seen, v) {
 			t.Errorf("no fixture checks %q", v)
@@ -213,6 +213,20 @@ func (k kind) check(i change.Impact, before map[string][]string, failed map[stri
 		if n := gone(); n != 0 {
 			t.Errorf("%s: predicted no effect, %d pods restarted", i.Resource, n)
 		}
+	case change.Orphaned:
+		svc := app
+		k.eventually(i.Resource+" has no endpoints", time.Minute, func() bool {
+			l, err := k.c.DiscoveryV1().EndpointSlices(k.ns).List(t.Context(), metav1.ListOptions{LabelSelector: "kubernetes.io/service-name=" + svc})
+			if err != nil {
+				return false
+			}
+			for _, es := range l.Items {
+				if len(es.Endpoints) > 0 {
+					return false
+				}
+			}
+			return true
+		})
 	default:
 		return false
 	}

@@ -385,3 +385,42 @@ func TestWriteMarkdownLimit(t *testing.T) {
 		t.Error("failure not shown above the collapsed list")
 	}
 }
+
+func TestDiffServiceSelector(t *testing.T) {
+	const app = `
+kind: Deployment
+metadata: {name: api}
+spec: {template: {metadata: {labels: {app: %s, tier: web}}, spec: {containers: [{name: c, image: app:1}]}}}
+---
+kind: Service
+metadata: {name: api}
+spec: {selector: {app: %s}, ports: [{port: 80}]}
+`
+	for _, tc := range []struct {
+		name       string
+		base, head string
+		want       []string
+	}{
+		{"selector renamed", fmt.Sprintf(app, "api", "api"), fmt.Sprintf(app, "api", "api-v2"),
+			[]string{"no endpoints Service default/api selector app=api-v2 matches no pods"}},
+		{"pod labels renamed", fmt.Sprintf(app, "api", "api"), fmt.Sprintf(app, "api-v2", "api"),
+			[]string{"restart Deployment default/api", "no endpoints Service default/api selector app=api matches no pods"}},
+		{"pods from outside the render", fmt.Sprintf(app, "x", "other"), fmt.Sprintf(app, "x", "other2"), nil},
+		{"still selected", fmt.Sprintf(app, "api", "api"), fmt.Sprintf(app, "api", "api") + "\n---\nkind: ConfigMap\nmetadata: {name: c}\n", []string{"create ConfigMap default/c"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			for _, i := range change.Diff(docs(t, tc.base), docs(t, tc.head)) {
+				got = append(got, strings.TrimSpace(string(i.Verdict)+" "+i.Resource+" "+i.Detail))
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+			for i, w := range tc.want {
+				if !strings.HasPrefix(got[i], w) {
+					t.Errorf("impact %d = %q, want prefix %q", i, got[i], w)
+				}
+			}
+		})
+	}
+}
