@@ -9,7 +9,7 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 
 | Command | Question | Works on | Status |
 |---|---|---|---|
-| `kwhy value` | Where does this rendered value come from? (Helm, Kustomize) | Git repo, offline | v0.9 |
+| `kwhy value` | Where does this rendered value come from? (Helm; Kustomize experimental) | Git repo, offline | v0.9 |
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.3 |
 | `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.6 |
 
@@ -54,7 +54,10 @@ $ kwhy value chart <chart> deploy/api --all ...                 # every field of
 $ kwhy value chart <chart> deploy/api <path> ... -o markdown    # for PR comments; -o json for CI and agents
 ```
 
-### Kustomize (v0.9)
+### Kustomize (v0.9, experimental)
+
+> **Experimental:** tested on 7 public overlays, not yet nightly like Helm's 10 charts. Answers are designed never
+> to name a wrong line, but expect gaps (no override chains, no remote bases or `helmCharts:`). Feedback welcome.
 
 `kwhy value kustomize <overlay> <kind>/<name> [<path>|--all]` names the kustomization entry, and the line, that
 sets a field of the built output. Real output on the test fixture (`testdata/kustomize/fixture`):
@@ -116,7 +119,6 @@ One field, end to end, on an 8-core M1 Pro:
 
 Nearly all of it is tracing the whole chart, which every run repeats, so a second question about the
 same chart costs the same again.
-Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
 ## `kwhy change`: what will this PR do? (v0.3–v0.8)
 
@@ -335,7 +337,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 |---|---|
 | `<base>..<head>` (argument) | the two git refs to compare, e.g. `main..feature` |
 | `--chart DIR` | chart directory in the repo (this or `--manifests`) |
-| `--manifests DIR` | directory of plain YAML, or a Kustomize overlay (built with Kustomize's library), in the repo, read at each ref |
+| `--manifests DIR` | directory of plain YAML, or a Kustomize overlay (experimental, built with Kustomize's library), in the repo, read at each ref |
 | `--config FILE` | several targets: `targets: [{chart or manifests, values, set, setString, setJSON, release, namespace}]`; `.kwhy.yaml` is used when no source flag is given |
 | `--apps DIR` | Argo CD `Application`s and Flux `HelmRelease`s under DIR: render every app they point at in this repo |
 | `-f, --values FILE` | values file or URL, repeatable, later wins; files in the repo are read at each ref |
@@ -361,7 +363,7 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 | `--no-cache` | with `--chart`: trace the chart again instead of reusing the cached trace |
 | `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
 | `--scheduler-config FILE` | the cluster's `KubeSchedulerConfiguration`: run the profile named by the pod's `schedulerName` instead of the default one (out-of-tree plugins can't run and fail by name) |
-| `--kustomize DIR`, `--root DIR` | the overlay that deploys the pod (and the directory holding its stack, default the git root): adds the entry and line behind each field a failing check reads |
+| `--kustomize DIR`, `--root DIR` | (experimental) the overlay that deploys the pod (and the directory holding its stack, default the git root): adds the entry and line behind each field a failing check reads |
 | `--logs N` | last N log lines of a crashed or OOM-killed container's last run (default 0: none; logs may contain secrets, so they're never read unless asked) |
 
 A healthy pod gets one line (`ns/x is on node-1, Running and ready.`); JSON has `"scheduled"` and `"problems"`
@@ -372,7 +374,8 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 ## Known limits
 
 - `lookup` returns empty, as with `helm template` (offline).
-- Kustomize: remote bases, `helmCharts:` and plugins aren't supported; `value kustomize` names no override chain.
+- Kustomize support is experimental: remote bases, `helmCharts:` and plugins aren't supported, and
+  `value kustomize` names no override chain.
 - `change --apps` reads Argo CD and Flux definitions from the working tree, not from each ref, and skips apps from
   other repos, Helm repositories and Flux `valuesFrom`. Without `--context`, DaemonSet pod counts are
   unknown ("one pod per node").
@@ -381,7 +384,7 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 - `pod` runs the scheduler compiled into kwhy (v1.37) and warns when the cluster is more than one minor version
   away. A custom profile needs `--scheduler-config`; out-of-tree scheduler plugins can't run.
 - `pod`'s preemption hint ignores PodDisruptionBudgets and nominated pods. Pods with DRA resource claims run the
-  real `DynamicResources` plugin over the cluster's ResourceSlices (v0.8). What's missing across all three commands is in the [backlog](docs/plans/2026-11-20-backlog.md).
+  real `DynamicResources` plugin over the cluster's ResourceSlices (v0.8). What's missing across all three commands is in the [backlog](docs/plans/backlog.md).
 - `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
 
 ## Development
@@ -401,7 +404,7 @@ value/       values leaves, override chains, tracing, cache; Kustomize leave-one
 change/      base/head render, targets (.kwhy.yaml, Argo CD, Flux), impact rules, live refinement, report
 pod/         cluster snapshot, every filter per node, pod and controller diagnosis, report;
              the only package importing k8s.io/kubernetes
-docs/        specs, plans (backlog: docs/plans/2026-11-20-backlog.md), spikes
+docs/        specs, plans/backlog.md (what's next), spikes
 ```
 
 Design: [overview](docs/specs/00-overview.md) · [value](docs/specs/01-value.md) ·

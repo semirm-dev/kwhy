@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pins k8s.io/kubernetes and the staging modules it requires as v0.0.0 (see docs/plans/2026-11-20-v0.4-pod.md, D1).
+# Pins k8s.io/kubernetes and the staging modules it requires as v0.0.0 (why: docs/plans/backlog.md, "No go install").
 # Usage: scripts/k8s-replace.sh v1.37.2   (run from anywhere; edits the repo's go.mod)
 set -euo pipefail
 v=${1:?usage: $0 v1.MINOR.PATCH}

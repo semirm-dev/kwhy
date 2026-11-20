@@ -28,9 +28,7 @@ kwhy change <base>..<head> --chart <dir> [-f values.yaml ...] [--set k=v ...] [-
   StorageClass expansion and rollout time estimates (`change/live.go`).
 - `--fail-on` exits 3; `-o json` is `kwhy.change/v1`; markdown stays under GitHub's comment limit.
 - GitHub Action (`action.yml`) that posts or updates one PR comment (markdown output).
-- One chart per run. Several `--chart`s and `.kwhy.yaml` were dropped (2026-11-20) until someone needs them.
-  Kustomize is shelved (see the overview). Auto-discovery of Argo CD `Application` and Flux `HelmRelease`
-  comes later.
+- One chart per run (several apps per run since v0.8, below).
 
 **v0.7 (built 2026-11-20):** `--manifests DIR` for plain YAML instead of a chart (a Kustomize directory is
 refused), Helm's `--set-string`/`--set-json`/`--set-file`/`--set-literal`, a `no endpoints` verdict for a Service
@@ -44,9 +42,9 @@ manifests directories with their values, release and namespace; `--apps DIR` bui
 destination namespace) and Flux `HelmRelease`s (`chart` from a `GitRepository`, `valuesFiles`, `values`,
 `releaseName`, `targetNamespace`). Other repos, Helm repositories, `$ref` value files, Flux `valuesFrom` and
 Kustomize are skipped with a warning. All targets' documents go through one diff. A path missing at a ref renders
-as nothing, so a new app is `create`. Plan: `docs/plans/2026-11-20-v0.8-change-apps.md`.
+as nothing, so a new app is `create`.
 
-**v0.9 (built 2026-11-20):** Kustomize overlays in `--manifests` (built with Kustomize's library), Argo CD apps
+**v0.9 (built 2026-11-20, experimental):** Kustomize overlays in `--manifests` (built with Kustomize's library), Argo CD apps
 pointing at an overlay, and Flux `Kustomization` objects in `--apps`.
 
 **Non-goals:** applying anything, validating against admission webhooks/policies (Kyverno etc.), cost

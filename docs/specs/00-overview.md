@@ -45,7 +45,7 @@ Spike code and inputs are in `docs/spikes/`.
 
 ```
 cmd/kwhy/              wiring only: flags → features
-render/                Helm rendering to documents with Source info (shared by value, change; Kustomize shelved)
+render/                Helm rendering to documents with Source info (shared by value, change), plain manifests and Kustomize builds
 value/                 tracing (markers, perturbation), merge replay
 change/                git worktree checkouts, base/head diff, impact rules, report
 pod/                   cluster snapshot, per-filter scheduler runs
@@ -68,8 +68,9 @@ it moves to its own Go module without changing the CLI.
 | v0.6 | `pod`: controller problems (create, rollout, job), terminating, `ds/`, autoscaler events, preemption hint (built 2026-11-20) | |
 | v0.7 | `value`/`change`: all Helm `--set*` flags, trace cache, `change --manifests`, `no endpoints`, surge vs quota, Action on all runners (built 2026-11-20) | |
 | v0.8 | `change` for several apps (`.kwhy.yaml`, Argo CD, Flux), `pod --scheduler-config`, `kwhy mcp`, signed releases with SBOMs (built 2026-11-20) | |
-| next | see `docs/plans/2026-11-20-backlog.md` | |
-| later | `value kustomize` (redesign; first attempt on branch `feat/v0.2-kustomize`), Argo CD / Flux app discovery, MCP server, Terraform for `value`, remote Kustomize bases (fetched, opt-in) | |
+| next | see `docs/plans/backlog.md` | |
+| v0.9 | Kustomize, experimental: `value kustomize`, `change` on overlays, `pod --kustomize` (built 2026-11-20) | |
+| later | Terraform for `value`; the rest in `docs/plans/backlog.md` | |
 
 ## Decisions (2026-11-18)
 

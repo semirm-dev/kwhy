@@ -35,7 +35,7 @@ in the override chain, applied in Helm's order. Traces and answers are cached in
 chart's files, the merged values, the options and the kwhy binary (`--no-cache` to skip): argo-cd's second
 question about the same field takes 0.2s instead of 9s.
 
-**Kustomize:** shelved (2026-11-20), see below.
+**Kustomize:** experimental since v0.9, see below.
 
 **Non-goals (v0.x):** Terraform/HCL, Jsonnet, cdk8s, live cluster objects (use `kubectl blame` for
 "who changed it in the cluster"), editing chart templates.
@@ -103,13 +103,13 @@ expected to be roughly 10× faster; that's a performance target for v0.1, not ye
 
 ## Kustomize, validated in `docs/spikes/kustomize`
 
-**Built 2026-11-20 (v0.9), redesigned** (`docs/plans/2026-11-20-v0.9-value-kustomize.md`): the spike's rules 1–5,
+**Built 2026-11-20 (v0.9), experimental, redesigned**: the spike's rules 1–5,
 no override chains, and a line guard (a line is named only when it shows the value; else the entry). Public
 overlays: 39,316 fields, 0 wrong lines, 6 entry- or file-only (`value/kustomize_accuracy_test.go`).
 
-Shelved on 2026-11-20 until Helm is tested and polished; to be redesigned. The first implementation
-is on branch `feat/v0.2-kustomize`: leave-one-out attribution kept hitting cases that name a wrong line
-(override chains, generator order, deleted documents, name collisions). The notes below describe that attempt.
+History: a first implementation (shelved 2026-11-20) kept naming wrong lines through override chains,
+generator order, deleted documents and name collisions; v0.9 keeps its leave-one-out builds and drops chains. The
+notes below are the design both share.
 
 Markers do not apply: patches are literal YAML, not templates. **Leave-one-out builds** instead: build
 the overlay with `krusty` on an in-memory copy, then once more per entry of every kustomization in the
