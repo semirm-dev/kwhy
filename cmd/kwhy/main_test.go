@@ -32,6 +32,7 @@ func TestRunExitCodes(t *testing.T) {
 		{"value chart path and all", []string{"value", "chart", "c", "deploy/api", ".spec.replicas", "--all"}, 2},
 		{"value chart bad output", []string{"value", "chart", "c", "deploy/api", "--all", "-o", "yaml"}, 2},
 		{"value chart bad chunk size", []string{"value", "chart", "c", "deploy/api", "--all", "--chunk-size", "0"}, 2},
+		{"value chart bad kube version", []string{"value", "chart", "c", "deploy/api", "--all", "--kube-version", "nope"}, 2},
 		{"value chart flags after args", []string{"value", "chart", "c", "deploy/api", ".spec.replicas", "-f", "a.yaml", "-f", "b.yaml"}, 1},
 		{"change", []string{"change"}, 1},
 	}

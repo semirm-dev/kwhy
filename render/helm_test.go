@@ -43,6 +43,28 @@ func TestRenderModernKubeVersion(t *testing.T) {
 	}
 }
 
+func TestRenderKubeVersion(t *testing.T) {
+	dir := copyMini(t, map[string]string{"templates/kv.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: kv\ndata:\n  kv: {{ .Capabilities.KubeVersion.Version }}\n"})
+	c := load(t, dir)
+
+	for in, want := range map[string]string{"": render.DefaultKubeVersion, "1.31.2": "v1.31.2"} {
+		docs, err := c.Render(t.Context(), nil, render.Options{KubeVersion: in})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var got any
+		for _, d := range docs {
+			if d.Name == "kv" {
+				got = d.Object["data"].(map[string]any)["kv"]
+			}
+		}
+		if got != want {
+			t.Errorf("KubeVersion %q rendered %v, want %s", in, got, want)
+		}
+	}
+}
+
 func TestRenderUserValues(t *testing.T) {
 	docs, err := load(t, mini).Render(t.Context(), map[string]any{"ingress": map[string]any{"enabled": true}}, render.Options{})
 	if err != nil {

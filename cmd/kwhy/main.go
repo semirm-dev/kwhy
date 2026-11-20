@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"helm.sh/helm/v4/pkg/chart/common"
 	"helm.sh/helm/v4/pkg/cli"
 
 	"github.com/semirm-dev/kwhy/render"
@@ -130,6 +131,7 @@ func pathError(err error, docs []render.Doc, doc int, path string) error {
 func valueChartCmd() *cobra.Command {
 	var (
 		version, release, namespace, output string
+		kubeVersion                         string
 		files, sets                         []string
 		all                                 bool
 		chunk                               int
@@ -151,6 +153,10 @@ func valueChartCmd() *cobra.Command {
 
 			if chunk < 1 {
 				return usageError{fmt.Errorf("--chunk-size must be at least 1, got %d", chunk)}
+			}
+
+			if _, err := common.ParseKubeVersion(kubeVersion); err != nil {
+				return usageError{fmt.Errorf("--kube-version: %w", err)}
 			}
 
 			if writers[output] == nil {
@@ -178,7 +184,7 @@ func valueChartCmd() *cobra.Command {
 			}
 
 			// Check the resource and path on one render before tracing, so a typo fails fast.
-			o := render.Options{Release: release, Namespace: namespace}
+			o := render.Options{Release: release, Namespace: namespace, KubeVersion: kubeVersion}
 			docs, err := c.Render(ctx, v.User, o)
 			if err != nil {
 				return err
@@ -232,6 +238,7 @@ func valueChartCmd() *cobra.Command {
 	f.StringArrayVar(&sets, "set", nil, "set a value: key=value (repeatable, wins over files)")
 	f.StringVar(&release, "release", "rel", "release name")
 	f.StringVarP(&namespace, "namespace", "n", "default", "release namespace")
+	f.StringVar(&kubeVersion, "kube-version", render.DefaultKubeVersion, "Kubernetes version for .Capabilities.KubeVersion")
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.BoolVar(&all, "all", false, "explain every field of the resource")
 	f.IntVar(&chunk, "chunk-size", value.ChunkSize, "values leaves marked per tracing render (tuning)")

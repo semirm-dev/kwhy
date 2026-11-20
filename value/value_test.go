@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -28,16 +30,41 @@ var update = flag.Bool("update", false, "rewrite golden files")
 func TestChainOverride(t *testing.T) {
 	l := lookup(t, loadValues(t, []string{prod}, nil), "replicaCount")
 
-	want := []value.Source{{prod, 1, float64(3)}, {"mini/values.yaml", 1, float64(1)}}
+	want := []value.Source{{prod, 1, float64(3), false}, {"mini/values.yaml", 1, float64(1), true}}
 	if l.Value != float64(3) || !reflect.DeepEqual(l.Chain, want) {
 		t.Fatalf("leaf = %+v, want chain %+v", l, want)
+	}
+}
+
+func TestValuesURL(t *testing.T) {
+	srv := httptest.NewServer(http.FileServer(http.Dir("../testdata")))
+	defer srv.Close()
+
+	url := srv.URL + "/values-prod.yaml"
+	l := lookup(t, loadValues(t, []string{url}, nil), "replicaCount")
+	if want := (value.Source{url, 1, float64(3), false}); l.Chain[0] != want {
+		t.Fatalf("chain[0] = %+v, want %+v", l.Chain[0], want)
+	}
+}
+
+// A chain that never reaches a chart file has no default entry.
+func TestHumanNoDefaultInUserChain(t *testing.T) {
+	a := value.Answer{Resource: "Deployment/rel-api", Field: value.Field{Path: ".spec.replicas"}, Value: 3, Kind: value.Direct,
+		Leaves: []value.Leaf{{Path: []any{"x"}, Value: 3, Chain: []value.Source{{"b.yaml", 1, 3, false}, {"a.yaml", 1, 2, false}}}}}
+
+	var b bytes.Buffer
+	if err := value.WriteHuman(&b, []value.Answer{a}); err != nil {
+		t.Fatal(err)
+	}
+	if out := b.String(); strings.Contains(out, "default") || !strings.Contains(out, "└─ overrides") {
+		t.Fatalf("output:\n%s", out)
 	}
 }
 
 func TestSubchartDefaultChain(t *testing.T) {
 	l := lookup(t, loadValues(t, []string{prod}, nil), "sub", "greeting")
 
-	want := []value.Source{{prod, 8, "hi"}, {"mini/charts/sub/values.yaml", 1, "hello"}}
+	want := []value.Source{{prod, 8, "hi", false}, {"mini/charts/sub/values.yaml", 1, "hello", true}}
 	if !reflect.DeepEqual(l.Chain, want) {
 		t.Fatalf("chain = %+v, want %+v", l.Chain, want)
 	}
@@ -59,7 +86,7 @@ func TestListsReplace(t *testing.T) {
 	v := loadValues(t, files, nil)
 
 	l := lookup(t, v, "ports", 0, "p")
-	if want := []value.Source{{files[1], 2, float64(3)}}; !reflect.DeepEqual(l.Chain, want) {
+	if want := []value.Source{{files[1], 2, float64(3), false}}; !reflect.DeepEqual(l.Chain, want) {
 		t.Fatalf("chain = %+v, want %+v (lists replace, never override item by item)", l.Chain, want)
 	}
 
@@ -71,7 +98,7 @@ func TestListsReplace(t *testing.T) {
 func TestAnchors(t *testing.T) {
 	l := lookup(t, loadValues(t, []string{anchors}, nil), "resources", "requests", "memory")
 
-	if l.Value != "4Gi" || l.Chain[0] != (value.Source{anchors, 2, "4Gi"}) {
+	if l.Value != "4Gi" || l.Chain[0] != (value.Source{anchors, 2, "4Gi", false}) {
 		t.Fatalf("leaf = %+v, want winner at the anchor line 2", l)
 	}
 }
@@ -80,11 +107,11 @@ func TestMergeKeys(t *testing.T) {
 	files := writeFiles(t, [2]string{"merge.yaml", "defaults: &d\n  size: 1Gi\n  tier: low\ndb:\n  <<: *d\n  tier: high\n"})
 	v := loadValues(t, files, nil)
 
-	if got := lookup(t, v, "db", "size").Chain[0]; got != (value.Source{files[0], 2, "1Gi"}) {
+	if got := lookup(t, v, "db", "size").Chain[0]; got != (value.Source{files[0], 2, "1Gi", false}) {
 		t.Fatalf("merged size = %+v, want line 2", got)
 	}
 
-	if got := lookup(t, v, "db", "tier").Chain[0]; got != (value.Source{files[0], 6, "high"}) {
+	if got := lookup(t, v, "db", "tier").Chain[0]; got != (value.Source{files[0], 6, "high", false}) {
 		t.Fatalf("explicit key over merge = %+v, want line 6", got)
 	}
 }

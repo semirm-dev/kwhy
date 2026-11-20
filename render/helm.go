@@ -99,6 +99,14 @@ func (c *Chart) Render(ctx context.Context, user map[string]any, o Options) ([]D
 	if o.Namespace == "" {
 		o.Namespace = "default"
 	}
+	if o.KubeVersion == "" {
+		o.KubeVersion = DefaultKubeVersion
+	}
+
+	kv, err := common.ParseKubeVersion(o.KubeVersion)
+	if err != nil {
+		return nil, fmt.Errorf("kube version: %w", err)
+	}
 
 	ch, err := c.load()
 	if err != nil {
@@ -110,9 +118,7 @@ func (c *Chart) Render(ctx context.Context, user map[string]any, o Options) ([]D
 	install.ReleaseName = o.Release
 	install.Namespace = o.Namespace
 	install.IncludeCRDs = true
-	// Helm assumes v1.20 under go test and the client-go version otherwise; pin it so both agree.
-	// shortcut: fixed to client-go v0.37's version, bump with client-go or add --kube-version if users need it.
-	install.KubeVersion = &common.KubeVersion{Version: "v1.37.0", Major: "1", Minor: "37"}
+	install.KubeVersion = kv
 
 	r, err := install.RunWithContext(ctx, ch, user)
 	if err != nil {
@@ -160,9 +166,16 @@ func (c *Chart) load() (*chart.Chart, error) {
 	return ch, nil
 }
 
-// Options are the release settings a render runs with. Empty fields default to "rel" and "default".
+// DefaultKubeVersion is the Kubernetes version charts see when Options.KubeVersion is empty. Helm
+// assumes v1.20 under go test and the client-go version otherwise; pinning it makes both agree.
+// Bump it with client-go.
+const DefaultKubeVersion = "v1.37.0"
+
+// Options are the release settings a render runs with. Empty fields default to "rel", "default"
+// and DefaultKubeVersion.
 type Options struct {
 	Release, Namespace string
+	KubeVersion        string // as for helm --kube-version, e.g. "1.31" or "v1.31.2"
 }
 
 // Doc is one rendered Kubernetes document.

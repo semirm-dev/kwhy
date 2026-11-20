@@ -4,6 +4,7 @@ package value
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -84,15 +85,17 @@ type Leaf struct {
 
 // Source is one place that sets a values leaf.
 type Source struct {
-	File  string `json:"file"` // values file as the user gave it, a chart file like "mini/values.yaml", or "--set k=v"
-	Line  int    `json:"line"` // 1-based line; for --set the flag index
-	Value any    `json:"value"`
+	File    string `json:"file"` // values file as the user gave it, a chart file like "mini/values.yaml", or "--set k=v"
+	Line    int    `json:"line"` // 1-based line; for --set the flag index
+	Value   any    `json:"value"`
+	Default bool   `json:"default,omitempty"` // a chart or subchart values.yaml, not a user file or --set
 }
 
 // layer is one values source, in precedence order, with the line of every leaf it sets.
 type layer struct {
 	file  string
 	mount []any // where the tree sits in the coalesced values; set for subchart defaults
+	chart bool  // a chart's own values.yaml
 	tree  map[string]any
 	lines map[string]int // PathString relative to mount → line; nil for --set
 	line  int            // --set flag index
@@ -149,6 +152,7 @@ func loadLayers(c *render.Chart, user map[string]any, files, sets []string) ([]l
 			return nil, nil, err
 		}
 
+		l.chart = true
 		for _, m := range f.Mount {
 			l.mount = append(l.mount, m)
 		}
@@ -160,9 +164,9 @@ func loadLayers(c *render.Chart, user map[string]any, files, sets []string) ([]l
 		layers = append(layers, l)
 	}
 
-	// shortcut: local files only; MergeValues above also accepts URLs, which then fail here.
+	providers := getter.All(cli.New())
 	for _, f := range files {
-		data, err := os.ReadFile(f)
+		data, err := readFile(f, providers)
 		if err != nil {
 			return nil, nil, fmt.Errorf("read values: %w", err)
 		}
@@ -185,6 +189,31 @@ func loadLayers(c *render.Chart, user map[string]any, files, sets []string) ([]l
 	}
 
 	return layers, subcharts, nil
+}
+
+// readFile reads a values file or URL the way Helm's -f does.
+// shortcut: a URL is fetched twice (here and in MergeValues); fine unless it changes between fetches.
+func readFile(name string, p getter.Providers) ([]byte, error) {
+	u, err := url.Parse(name)
+	if err != nil {
+		return nil, fmt.Errorf("read values: %w", err)
+	}
+
+	g, err := p.ByScheme(u.Scheme)
+	if err != nil {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			return nil, fmt.Errorf("read values: %w", err)
+		}
+		return data, nil
+	}
+
+	data, err := g.Get(name, getter.WithURL(name))
+	if err != nil {
+		return nil, fmt.Errorf("read values: %w", err)
+	}
+
+	return data.Bytes(), nil
 }
 
 // walk calls fn for every non-null scalar under node.
@@ -234,7 +263,7 @@ func chain(layers []layer, path []any) []Source {
 			if l.lines != nil {
 				line = l.lines[PathString(rel)]
 			}
-			out = append(out, Source{File: l.file, Line: line, Value: val})
+			out = append(out, Source{File: l.file, Line: line, Value: val, Default: l.chart})
 		}
 
 		if stop {

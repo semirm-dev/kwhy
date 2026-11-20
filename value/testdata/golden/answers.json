@@ -23,7 +23,8 @@
             {
               "file": "mini/values.yaml",
               "line": 1,
-              "value": 1
+              "value": 1,
+              "default": true
             }
           ]
         }
@@ -48,7 +49,8 @@
             {
               "file": "mini/values.yaml",
               "line": 3,
-              "value": "ghcr.io/acme/api"
+              "value": "ghcr.io/acme/api",
+              "default": true
             }
           ]
         },
@@ -62,7 +64,8 @@
             {
               "file": "mini/values.yaml",
               "line": 4,
-              "value": ""
+              "value": "",
+              "default": true
             }
           ]
         }
@@ -87,7 +90,8 @@
             {
               "file": "mini/values.yaml",
               "line": 9,
-              "value": "admin"
+              "value": "admin",
+              "default": true
             }
           ]
         }
@@ -136,7 +140,8 @@
             {
               "file": "mini/values.yaml",
               "line": 1,
-              "value": 1
+              "value": 1,
+              "default": true
             }
           ]
         }
@@ -166,7 +171,8 @@
             {
               "file": "mini/values.yaml",
               "line": 13,
-              "value": false
+              "value": false,
+              "default": true
             }
           ]
         }

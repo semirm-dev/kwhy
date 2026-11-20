@@ -125,9 +125,10 @@ Single static binary, offline by default, no telemetry. Homebrew and Krew as `ku
 |---|---|
 | `<chart>` (first argument) | chart directory, `.tgz`, `oci://` reference or `repo/chart` |
 | `--version V` | chart version, for repo and OCI charts |
-| `-f, --values FILE` | values file, repeatable, later wins |
+| `-f, --values FILE` | values file or URL, repeatable, later wins |
 | `--set K=V` | set a value, repeatable, wins over files |
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |
+| `--kube-version V` | Kubernetes version charts see in `.Capabilities` (default `v1.37.0`) |
 | `-o, --output` | `human` (default), `markdown` or `json` |
 | `--all` | every field of the resource instead of one path |
 | `--chunk-size N` | values leaves marked per tracing render (default 10; tuning only) |
@@ -139,7 +140,6 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
 - `lookup` returns empty, as with `helm template` (offline).
 - Kustomize is not supported yet.
-- `-f` takes local files only for now (Helm also accepts URLs).
 - Every run traces the whole chart again; nothing is cached between runs (~20s on kube-prometheus-stack).
 
 ## Development

@@ -28,10 +28,14 @@ func WriteHuman(w io.Writer, as []Answer) error {
 			l := a.Leaves[0]
 			fmt.Fprintf(&b, "%s  %s  %s\n", val, source(l.Chain[0]), PathString(l.Path))
 			for j, s := range l.Chain[1:] {
-				// shortcut: the last entry is labelled default even when it is a lower user file; Source doesn't know which files are the chart's.
-				label := "├─ overrides"
+				label := "├─ "
 				if j == len(l.Chain)-2 {
-					label = "└─ default"
+					label = "└─ "
+				}
+				if s.Default {
+					label += "default"
+				} else {
+					label += "overrides"
 				}
 				rows = append(rows, fmt.Sprintf("%s\t%s\t= %v", label, source(s), s.Value))
 			}
