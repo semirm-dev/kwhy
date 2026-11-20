@@ -200,3 +200,21 @@ func lastSeen(e v1.Event) time.Time {
 
 	return e.EventTime.Time
 }
+
+// AddLogs fills Logs of each current crash or OOM problem with the last n lines of the container's previous
+// instance. Logs are best effort: when kubelet has none, the line says why.
+func AddLogs(ctx context.Context, c kubernetes.Interface, p *v1.Pod, ps []Problem, n int64) {
+	for i := range ps {
+		pr := &ps[i]
+		if pr.Earlier || pr.Kind != Crash && pr.Kind != OOM {
+			continue
+		}
+
+		raw, err := c.CoreV1().Pods(p.Namespace).GetLogs(p.Name, &v1.PodLogOptions{Container: pr.Container, Previous: true, TailLines: &n}).DoRaw(ctx)
+		if err != nil {
+			pr.Logs = []string{"(no logs: " + err.Error() + ")"}
+			continue
+		}
+		pr.Logs = strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	}
+}

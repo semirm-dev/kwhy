@@ -147,3 +147,15 @@ func TestDiagnoseOrderAndHealthy(t *testing.T) {
 		t.Errorf("two failing containers: %+v", ps)
 	}
 }
+
+func TestAddLogs(t *testing.T) {
+	p := running(ok("app"), ok("sidecar"))
+	ps := []pod.Problem{{Container: "app", Kind: pod.Crash}, {Container: "app", Kind: pod.Pull}, {Container: "sidecar", Kind: pod.OOM, Earlier: true}}
+
+	pod.AddLogs(t.Context(), fake.NewClientset(p), p, ps, 20)
+
+	// The fake client answers every log request with "fake logs".
+	if !slices.Equal(ps[0].Logs, []string{"fake logs"}) || ps[1].Logs != nil || ps[2].Logs != nil {
+		t.Errorf("logs: crash %v, pull %v, earlier oom %v; want only the crash", ps[0].Logs, ps[1].Logs, ps[2].Logs)
+	}
+}

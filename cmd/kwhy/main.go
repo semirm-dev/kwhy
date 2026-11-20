@@ -354,6 +354,7 @@ func podCmd() *cobra.Command {
 	var (
 		namespace, output string
 		src               podChart
+		logs              int64
 	)
 
 	helm := cli.New()
@@ -368,6 +369,10 @@ func podCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if podWriters[output] == nil {
 				return usageError{fmt.Errorf("--output must be human, markdown or json, got %q", output)}
+			}
+
+			if logs < 0 {
+				return usageError{fmt.Errorf("--logs must be 0 or more, got %d", logs)}
 			}
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -402,6 +407,10 @@ func podCmd() *cobra.Command {
 				ps, err := pod.Diagnose(ctx, c, p)
 				if err != nil {
 					return err
+				}
+
+				if logs > 0 {
+					pod.AddLogs(ctx, c, p, ps, logs)
 				}
 
 				r := pod.Result{Problems: ps}
@@ -444,6 +453,7 @@ func podCmd() *cobra.Command {
 	f.StringVarP(&namespace, "namespace", "n", "", "namespace (default: the kube context's)")
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.StringVar(&helm.KubeContext, "context", "", "kube context to read from (read-only)")
+	f.Int64Var(&logs, "logs", 0, "last N log lines of a crashed or OOM-killed container's previous run (logs may contain secrets)")
 	f.StringVar(&src.chart, "chart", "", "chart that deploys the pod: also show which values line sets each field a failing check reads")
 	f.StringVar(&src.version, "version", "", "chart version, for repo and OCI charts")
 	f.StringArrayVarP(&src.files, "values", "f", nil, "values file or URL (repeatable, later wins), as deployed")
