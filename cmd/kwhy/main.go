@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -41,7 +42,7 @@ var (
 	failVerdicts = map[string]change.Verdict{
 		"fail": change.WillFail, "data-loss": change.Data, "restart": change.Restart, "ordered": change.Ordered,
 		"scale": change.Scale, "resize": change.Resize, "recreate": change.Recreate, "runs-as-hook": change.Hook, "no-effect": change.NoEffect,
-		"delayed": change.Delayed, "picked-up": change.PickedUp, "create": change.Create, "delete": change.Delete,
+		"delayed": change.Delayed, "picked-up": change.PickedUp, "no-endpoints": change.Orphaned, "create": change.Create, "delete": change.Delete,
 	}
 
 	changeWriters = map[string]func(io.Writer, []change.Impact) error{
@@ -134,7 +135,7 @@ func valueChartCmd() *cobra.Command {
 		chartVersion, release, namespace string
 		output, kubeVersion              string
 		vals                             values.Options
-		all                              bool
+		all, noCache                     bool
 		chunk                            int
 	)
 
@@ -207,7 +208,8 @@ func valueChartCmd() *cobra.Command {
 				fields = append(fields, value.Field{Doc: doc, Path: p})
 			}
 
-			idx, err := value.Trace(ctx, c, v, o, chunk)
+			cache := value.OpenCache(c, v, o, chunk, traceCache(noCache))
+			idx, err := cache.Trace(ctx, c, v, o, chunk)
 			if err != nil {
 				return err
 			}
@@ -223,7 +225,7 @@ func valueChartCmd() *cobra.Command {
 
 			var as []value.Answer
 			for _, f := range fields {
-				a, err := value.Explain(ctx, idx, c, v, o, f)
+				a, err := cache.Explain(ctx, idx, c, v, o, f)
 				if err != nil {
 					return err
 				}
@@ -243,6 +245,7 @@ func valueChartCmd() *cobra.Command {
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.BoolVar(&all, "all", false, "explain every field of the resource")
 	f.IntVar(&chunk, "chunk-size", value.ChunkSize, "values leaves marked per tracing render (tuning)")
+	f.BoolVar(&noCache, "no-cache", false, "trace the chart again instead of reusing the last trace of the same chart and values")
 
 	// Only Helm's chart lookup flags: value is offline, so the cluster flags don't apply.
 	f.StringVar(&helm.RepositoryConfig, "repository-config", helm.RepositoryConfig, "path to Helm's repositories file")
@@ -484,6 +487,7 @@ func podCmd() *cobra.Command {
 	f.StringVar(&src.chart, "chart", "", "chart that deploys the pod: also show which values line sets each field a failing check reads")
 	f.StringVar(&src.version, "version", "", "chart version, for repo and OCI charts")
 	valuesFlags(f, &src.values, ", as deployed")
+	f.BoolVar(&src.noCache, "no-cache", false, "with --chart: trace the chart again instead of reusing the last trace")
 	f.StringVar(&src.release, "release", "", "Helm release name (default: the pod's app.kubernetes.io/instance label)")
 
 	return cmd
@@ -491,6 +495,7 @@ func podCmd() *cobra.Command {
 
 // podChart is how the pod's chart was deployed.
 type podChart struct {
+	noCache                 bool
 	chart, version, release string
 	values                  values.Options
 }
@@ -595,14 +600,15 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 	}
 	slices.SortFunc(wants, func(a, b want) int { return strings.Compare(a.field.Path, b.field.Path) })
 
-	idx, err := value.Trace(ctx, ch, v, o, value.ChunkSize)
+	cache := value.OpenCache(ch, v, o, value.ChunkSize, traceCache(src.noCache))
+	idx, err := cache.Trace(ctx, ch, v, o, value.ChunkSize)
 	if err != nil {
 		return nil, err
 	}
 
 	var out []pod.Source
 	for _, w := range wants {
-		a, err := value.Explain(ctx, idx, ch, v, o, w.field)
+		a, err := cache.Explain(ctx, idx, ch, v, o, w.field)
 		if err != nil {
 			return nil, err
 		}
@@ -637,6 +643,16 @@ func containerIndex(spec map[string]any, name string, init bool) int {
 	}
 
 	return -1
+}
+
+// traceCache is where traces are kept between runs, "" (no cache) with --no-cache or without a user cache dir.
+func traceCache(off bool) string {
+	dir, err := os.UserCacheDir()
+	if off || err != nil {
+		return ""
+	}
+
+	return filepath.Join(dir, "kwhy", "trace")
 }
 
 // valuesFlags registers Helm's values flags: -f and the --set family, applied in Helm's order.

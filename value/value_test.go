@@ -766,3 +766,79 @@ func kindAnswers(t *testing.T) []value.Answer {
 
 	return as
 }
+
+// A cached trace answers the same as a fresh one, and a changed value traces again.
+func TestCacheTrace(t *testing.T) {
+	c, err := render.LoadChart(mini, "", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	o := render.Options{}
+
+	trace := func(sets ...string) *value.Index {
+		t.Helper()
+		v, err := value.LoadValues(c, values.Options{ValueFiles: []string{prod}, Values: sets})
+		if err != nil {
+			t.Fatal(err)
+		}
+		idx, err := value.OpenCache(c, v, o, value.ChunkSize, dir).Trace(t.Context(), c, v, o, value.ChunkSize)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return idx
+	}
+
+	first := trace()
+	files, _ := filepath.Glob(filepath.Join(dir, "*.gob"))
+	if len(files) != 1 {
+		t.Fatalf("cache files = %v, want 1", files)
+	}
+
+	second := trace()
+	if !reflect.DeepEqual(first.Hits, second.Hits) || !reflect.DeepEqual(first.Fields, second.Fields) ||
+		!reflect.DeepEqual(first.Docs, second.Docs) {
+		t.Error("cached index differs from the traced one")
+	}
+
+	trace("replicaCount=9")
+	if files, _ := filepath.Glob(filepath.Join(dir, "*.gob")); len(files) != 2 {
+		t.Errorf("changed values: cache files = %d, want 2", len(files))
+	}
+}
+
+// A cached answer equals a fresh one.
+func TestCacheExplain(t *testing.T) {
+	c, err := render.LoadChart(mini, "", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := value.LoadValues(c, values.Options{ValueFiles: []string{prod}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := render.Options{}
+	k := value.OpenCache(c, v, o, value.ChunkSize, t.TempDir())
+
+	idx, err := k.Trace(t.Context(), c, v, o, value.ChunkSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := value.SelectDoc(idx.Docs, "deploy/api", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := value.Field{Doc: doc, Path: ".spec.replicas"}
+
+	fresh, err := k.Explain(t.Context(), idx, c, v, o, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := k.Explain(t.Context(), idx, c, v, o, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fresh, again) || again.Kind != value.Direct {
+		t.Errorf("cached answer %+v, fresh %+v", again, fresh)
+	}
+}

@@ -15,6 +15,18 @@ const (
 	prod = "../../testdata/values-prod.yaml"
 )
 
+// TestMain keeps trace caches out of the user's cache directory.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "kwhy-cache-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_CACHE_HOME", dir) //nolint:errcheck
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 func TestRunExitCodes(t *testing.T) {
 	tests := []struct {
 		name string

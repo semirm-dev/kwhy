@@ -3,7 +3,12 @@ package render
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -159,6 +164,28 @@ func (c *Chart) Render(ctx context.Context, user map[string]any, o Options) ([]D
 	}
 
 	return docs, nil
+}
+
+// Digest is a hash of every file of the chart (directory or archive), to key caches on.
+func (c *Chart) Digest() (string, error) {
+	h := sha256.New()
+	err := filepath.WalkDir(c.path, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00", filepath.ToSlash(strings.TrimPrefix(path, c.path)), len(data))
+		h.Write(data)
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("digest chart: %w", err)
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // shortcut: reloads from disk on every call; cache the archive bytes if Task 7 shows it is slow.
