@@ -9,7 +9,7 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 
 | Command | Question | Works on | Status |
 |---|---|---|---|
-| `kwhy value` | Where does this rendered value come from? | Git repo, offline | v0.1 |
+| `kwhy value` | Where does this rendered value come from? (Helm, Kustomize) | Git repo, offline | v0.9 |
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.3 |
 | `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.6 |
 
@@ -53,6 +53,27 @@ Other forms:
 $ kwhy value chart <chart> deploy/api --all ...                 # every field of the resource with its source
 $ kwhy value chart <chart> deploy/api <path> ... -o markdown    # for PR comments; -o json for CI and agents
 ```
+
+### Kustomize (v0.9)
+
+`kwhy value kustomize <overlay> <kind>/<name> [<path>|--all]` names the kustomization entry, and the line, that
+sets a field of the built output. Real output on the test fixture (`testdata/kustomize/fixture`):
+
+```console
+$ kwhy value kustomize overlays/prod deploy/api '.spec.template.spec.containers[name=api].resources.requests.memory'
+2Gi  overlays/prod/memory.yaml:12  patches[0] path=memory.yaml
+     template  base/deployment.yaml
+$ kwhy value kustomize overlays/prod cm/api-config '.data.LOG_LEVEL'
+warn  overlays/prod/kustomization.yaml:26  configMapGenerator[0].literals LOG_LEVEL=warn
+```
+
+It builds the overlay with Kustomize's own library, then once more per entry of every kustomization in the stack
+with that entry removed: the entry whose removal changes a field wrote it. A line is named only when it shows the
+field's value; otherwise kwhy names the entry (its own line) and says the field's line couldn't be confirmed. It
+never guesses a line, and it doesn't claim an override order between patches. On 7 public overlays (podinfo,
+flux2 example, microservices-demo, argo-cd plain and HA; `go test -tags accuracy -run TestOverlayAccuracy`, after
+`scripts/fetch-overlays.sh`), 39,316 fields: 39,310 with a confirmed line, 6 with the entry or file only, 0 wrong.
+argo-cd HA (50 entries) answers in ~8s. Remote bases, `helmCharts:` and plugins stop with a message naming them.
 
 ### How it works
 
@@ -314,7 +335,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 |---|---|
 | `<base>..<head>` (argument) | the two git refs to compare, e.g. `main..feature` |
 | `--chart DIR` | chart directory in the repo (this or `--manifests`) |
-| `--manifests DIR` | directory of plain YAML in the repo, read at each ref; a Kustomize directory is refused |
+| `--manifests DIR` | directory of plain YAML, or a Kustomize overlay (built with Kustomize's library), in the repo, read at each ref |
 | `--config FILE` | several targets: `targets: [{chart or manifests, values, set, setString, setJSON, release, namespace}]`; `.kwhy.yaml` is used when no source flag is given |
 | `--apps DIR` | Argo CD `Application`s and Flux `HelmRelease`s under DIR: render every app they point at in this repo |
 | `-f, --values FILE` | values file or URL, repeatable, later wins; files in the repo are read at each ref |
@@ -340,6 +361,7 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 | `--no-cache` | with `--chart`: trace the chart again instead of reusing the cached trace |
 | `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
 | `--scheduler-config FILE` | the cluster's `KubeSchedulerConfiguration`: run the profile named by the pod's `schedulerName` instead of the default one (out-of-tree plugins can't run and fail by name) |
+| `--kustomize DIR`, `--root DIR` | the overlay that deploys the pod (and the directory holding its stack, default the git root): adds the entry and line behind each field a failing check reads |
 | `--logs N` | last N log lines of a crashed or OOM-killed container's last run (default 0: none; logs may contain secrets, so they're never read unless asked) |
 
 A healthy pod gets one line (`ns/x is on node-1, Running and ready.`); JSON has `"scheduled"` and `"problems"`
@@ -350,9 +372,9 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 ## Known limits
 
 - `lookup` returns empty, as with `helm template` (offline).
-- Kustomize is not supported yet.
+- Kustomize: remote bases, `helmCharts:` and plugins aren't supported; `value kustomize` names no override chain.
 - `change --apps` reads Argo CD and Flux definitions from the working tree, not from each ref, and skips apps from
-  other repos, Helm repositories, Flux `valuesFrom` and Kustomize. Without `--context`, DaemonSet pod counts are
+  other repos, Helm repositories and Flux `valuesFrom`. Without `--context`, DaemonSet pod counts are
   unknown ("one pod per node").
 - The first question about a chart traces it whole (~20s on kube-prometheus-stack); repeats with the same chart
   and values come from the cache (argo-cd: 9s → 0.2s).

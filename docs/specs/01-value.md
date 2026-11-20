@@ -101,7 +101,11 @@ Spike results, 40 sampled leaves per chart checked against perturbation ground t
 The spike rendered via the `helm` CLI (2–28s per chart, dominated by process start). In-process rendering is
 expected to be roughly 10× faster; that's a performance target for v0.1, not yet measured.
 
-## Kustomize (shelved), validated in `docs/spikes/kustomize`
+## Kustomize, validated in `docs/spikes/kustomize`
+
+**Built 2026-11-20 (v0.9), redesigned** (`docs/plans/2026-11-20-v0.9-value-kustomize.md`): the spike's rules 1–5,
+no override chains, and a line guard (a line is named only when it shows the value; else the entry). Public
+overlays: 39,316 fields, 0 wrong lines, 6 entry- or file-only (`value/kustomize_accuracy_test.go`).
 
 Shelved on 2026-11-20 until Helm is tested and polished; to be redesigned. The first implementation
 is on branch `feat/v0.2-kustomize`: leave-one-out attribution kept hitting cases that name a wrong line

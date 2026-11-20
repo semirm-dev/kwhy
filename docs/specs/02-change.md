@@ -46,6 +46,9 @@ destination namespace) and Flux `HelmRelease`s (`chart` from a `GitRepository`, 
 Kustomize are skipped with a warning. All targets' documents go through one diff. A path missing at a ref renders
 as nothing, so a new app is `create`. Plan: `docs/plans/2026-11-20-v0.8-change-apps.md`.
 
+**v0.9 (built 2026-11-20):** Kustomize overlays in `--manifests` (built with Kustomize's library), Argo CD apps
+pointing at an overlay, and Flux `Kustomization` objects in `--apps`.
+
 **Non-goals:** applying anything, validating against admission webhooks/policies (Kyverno etc.), cost
 estimates.
 
