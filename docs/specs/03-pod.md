@@ -28,31 +28,42 @@ This is the most crowded of the three features, so it ships last (v0.4) and lean
 
 ## Scope
 
-**v0.4:**
+**v0.4 (built 2026-11-20):**
 ```
-kwhy pod <name|kind/name> [-n ns] [--context ctx] [--output human|markdown|json]
+kwhy pod <name|pod/name|deploy/name|sts/name|job/name> [-n ns] [--context ctx] [--output human|markdown|json]
 ```
-- Read-only. Lists nodes, pods (all namespaces, for allocated resources), PVs, PVCs, StorageClasses,
-  CSINodes; builds the scheduler snapshot.
-- Accepts a workload (`deploy/x`): picks one Pending pod from it, or renders its template if none exists.
+- Read-only. Lists nodes, pods (all namespaces, for allocated resources), namespaces, PVs, PVCs, StorageClasses,
+  CSINodes, CSIDrivers, VolumeAttachments and CSIStorageCapacities once; builds the scheduler snapshot and serves the
+  rest to the plugins' listers from an in-memory fake clientset, so plugins never touch the cluster.
+- Accepts a workload (`deploy/x`, `sts/x`, `job/x`): picks its oldest pod not yet on a node, or checks a new pod
+  from its template if none is waiting. A pod already on a node gets one line ("scheduled on X") and exit 0.
+- **v0.4.1:** the source link (`Source:` line, through `kwhy value`), moved out of v0.4 (2026-11-20).
 
 **Non-goals (v0.4):** DRA resource claims (detect and say unsupported), secondary schedulers with custom
-plugins, scoring/placement ("why did it land on node X").
+plugins, scoring/placement ("why did it land on node X"), preemption and nominated pods. Cut on 2026-11-20:
+Cluster Autoscaler/Karpenter detection and `--scheduler-config` (a hint, not a diagnosis; warnings cover the rest).
 
 ## Output (human)
 
 ```
-Pending 14m · 0 of 12 nodes fit · every check, every node
+ml/train-b977cbd9c-8ct8w Pending 3s · 0 of 3 nodes fit · every check, every node
 
-NODE       CPU            MEMORY          TAINTS          AFFINITY  VOLUME
-gpu-a1     ✗ 7.5/8 +2     ✓               ✓               ✓         ✓
-gpu-a2     ✓              ✗ 61/64 +16Gi   ✓               ✗ zone b  ✓
-cpu-* (9)  ✓              ✓               ✗ nvidia.com    ✗ gpu     ✓
+NODE                    TaintToleration  NodeAffinity  NodeResourcesFit
+kwhy-pod-control-plane  ✗                ✗             ✗ cpu 0.95/32 +40
+kwhy-pod-worker         ✓                ✓             ✗ cpu 0.1/32 +40
+kwhy-pod-worker2        ✓                ✗             ✗ cpu 0.1/32 +40
 
-Source: cpu request 2 ← resources.requests.cpu, values-prod.yaml:31 (kwhy value)
+Reasons:
+  TaintToleration: node(s) had untolerated taint(s)
+  NodeAffinity: node(s) didn't match Pod's node affinity/selector
+  NodeResourcesFit: Insufficient cpu
 ```
-Nodes with identical results are grouped (`cpu-* (9)`). Cells carry numbers
-(requested/allocatable), not just plugin messages.
+One column per filter plugin that fails on some node, named as the scheduler names it, so the reasons are the
+plugins' own words, never paraphrased. Resource cells carry numbers (requested/allocatable +pod's request) for cpu
+and memory. Nodes with identical results are grouped (`cpu-* (9)`, or `9 nodes` without a common prefix).
+JSON (`kwhy.pod/v1`) lists every node ungrouped, with all failing checks and the scheduler's first.
+
+v0.4.1 adds `Source: cpu request 2 ← resources.requests.cpu, values-prod.yaml:31 (kwhy value)`.
 
 ## Design (validated in `docs/spikes/pod`)
 
@@ -65,20 +76,27 @@ Nodes with identical results are grouped (`cpu-* (9)`). Cells carry numbers
 - **All filters:** `RunFilterPlugins` returns on the first failure, so build one framework per filter
   plugin (`Filter.Enabled=[name]`, `Disabled=[*]`), run PreFilter, then Filter on every node. The spike
   shows the gain: on `gpu-a2` the scheduler reported only NodeAffinity, but NodeResourcesFit also failed.
-- **Autoscaler awareness:** if Cluster Autoscaler/Karpenter events show a scale-up for this pod, say
-  "a node is being added" before the matrix.
-- **Version skew:** warn when the cluster's minor version differs from the compiled scheduler by more than
-  one; warn when `pod.spec.schedulerName` isn't `default-scheduler`; accept
-  `--scheduler-config <KubeSchedulerConfiguration>` for clusters with custom profiles.
+- **PreFilter per plugin too** (found while building): the spike restricted only Filter, so every framework ran
+  every PreFilter and one plugin's rejection (a missing claim in VolumeBinding) was blamed on all 13 filters.
+  Each framework enables only its own plugin's PreFilter, or none. A PreFilter result that leaves a node out gets
+  the scheduler's own `node(s) didn't satisfy plugin(s) [...]` status.
+- **Framework options:** besides the snapshot, client and informer factory, `NodeVolumeLimits` needs the shared
+  CSI manager (`nodevolumelimits.NewCSIManager`), or it panics on any pod with volumes.
+- **Version skew:** warn when the cluster's minor version differs from the compiled scheduler (read from the
+  binary's build info) by more than one; warn when `pod.spec.schedulerName` isn't `default-scheduler`.
 
-Spike numbers: 52 MB binary (compressible with `-ldflags="-s -w"` + UPX if needed), 0.7s for 4 nodes with
-every default filter plugin. Needs a benchmark at 1,000 nodes / 30,000 pods before v0.4.
+Spike numbers: 52 MB binary, 0.7s for 4 nodes with every default filter plugin. In kwhy (with Helm): the
+stripped linux/amd64 binary grew from 81.8 MB to 130 MB. `BenchmarkEvaluate` (1,000 nodes, 30,000 pods,
+anti-affinity, spread, tolerations): 0.28s on 32 cores, 0.42s on 2. A run against a 3-node kind cluster: ~0.1s.
 
 ## Acceptance criteria (v0.4)
 
 - **Parity test on kind:** for a fixture set of unschedulable pods (resources, taints, affinity,
-  anti-affinity, topology spread, ports, volume zone), the first failing plugin per node in kwhy equals
-  the plugin named in the real `FailedScheduling` event.
+  anti-affinity, topology spread, ports, volume zone), the first failing check per node in kwhy equals the
+  real scheduler's. The scheduler's message (`PodScheduled` condition, same text as the `FailedScheduling`
+  event) names reasons, not plugins, so the test rebuilds its `0/N nodes are available: ...` histogram from
+  kwhy's first check per node and compares the text. Passing on kind 1.35.8 and 1.37.0 (`pod/kind_test.go`,
+  `.github/workflows/pod.yml`).
 - Every node row shows all failing checks.
 - 1,000 nodes in under 5s.
 

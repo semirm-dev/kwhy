@@ -11,11 +11,11 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 |---|---|---|---|
 | `kwhy value` | Where does this rendered value come from? | Git repo, offline | v0.1 |
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.3 |
-| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | planned, v0.4 |
+| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.4 |
 
 > **Status:** early development. `kwhy value` works today and is checked nightly against 10 public charts.
-> `kwhy change` works for Helm charts and every rule is checked against a real cluster in CI. The `pod` example
-> shows planned output from the [specs](docs/specs).
+> `kwhy change` works for Helm charts and every rule is checked against a real cluster in CI. `kwhy pod` works on
+> live clusters and is checked against the real scheduler on kind in CI (Kubernetes 1.35–1.37).
 
 ## `kwhy value`: where does this value come from?
 
@@ -152,19 +152,44 @@ It posts one comment per PR and updates it on every push, comparing the PR's bas
 Inputs: `chart`, `values` and `set` (one per line), `release`, `namespace`, `kube-version`, `fail-on`, `base`,
 `head`, `version` (kwhy release, default latest), `comment`. Linux runners only.
 
-## `kwhy pod`: why is it Pending? (planned, v0.4)
+## `kwhy pod`: why is it Pending? (v0.4)
 
 Runs the real kube-scheduler filters on every node and shows every failing check, not just the first one the
-scheduler reports. It says what's wrong; fixing it stays with you:
+scheduler reports. It says what's wrong; fixing it stays with you.
 
-<img src="docs/demo/pod.svg" alt="kwhy pod showing every failing check on every node for a Pending pod" width="100%">
+Real output, for a Deployment asking for a gpu node and 40 CPUs on a 3-node kind cluster:
+
+```console
+$ kwhy pod deploy/train -n ml --context kind-kwhy-pod
+ml/train-b977cbd9c-8ct8w Pending 3s · 0 of 3 nodes fit · every check, every node
+
+NODE                    TaintToleration  NodeAffinity  NodeResourcesFit
+kwhy-pod-control-plane  ✗                ✗             ✗ cpu 0.95/32 +40
+kwhy-pod-worker         ✓                ✓             ✗ cpu 0.1/32 +40
+kwhy-pod-worker2        ✓                ✗             ✗ cpu 0.1/32 +40
+
+Reasons:
+  TaintToleration: node(s) had untolerated taint(s)
+  NodeAffinity: node(s) didn't match Pod's node affinity/selector
+  NodeResourcesFit: Insufficient cpu
+```
+
+The scheduler's own event for this pod names one reason per node (`1 Insufficient cpu, 1 node(s) didn't match Pod's
+node affinity/selector, 1 node(s) had untolerated taint(s)`), so fixing the selector would only reveal the CPU problem
+next. Columns are the checks that fail somewhere; `cpu 0.1/32 +40` is requested/allocatable on the node plus the
+pod's request. Nodes with identical results share a row (`cpu-* (9)`).
+
+It reads the cluster once with get and list only (nodes, pods, namespaces, volumes, claims, storage and CSI objects),
+then runs the default scheduler profile in-process: once as the scheduler would, and once per filter plugin so
+none stops the others. For a workload (`deploy/`, `sts/`, `job/`) it picks the oldest pod waiting for a node, or
+checks a new pod from the template when none is waiting.
 
 How it differs from other tools for Pending pods:
 
 | | kwhy | Tools that re-implement the checks (e.g. kubectl-why-pending) | LLM explainers (e.g. k8sgpt) | `kubectl describe` event |
 |---|---|---|---|---|
 | Where the answer comes from | the scheduler's own code, compiled in | hand-written copy of the rules | a model's reading of events | the scheduler |
-| Matches the real scheduler | yes, checked against `FailedScheduling` events on kind | until the rules drift | not guaranteed | yes |
+| Matches the real scheduler | yes, checked against the scheduler's own message on kind (1.35–1.37) | until the rules drift | not guaranteed | yes |
 | Failing checks per node | all of them | depends on the tool | — | first one only, summarised |
 | New scheduler rules | come with a Kubernetes version bump | rewritten by hand | — | yes |
 | Line in your values that set the field (v0.4.1) | yes, through `kwhy value` | no | no | no |
@@ -177,7 +202,10 @@ deliberately doesn't do.
 Download the archive for your platform (macOS, Linux or Windows; amd64 or arm64) from
 [GitHub Releases](https://github.com/semirm-dev/kwhy/releases), unpack it and put `kwhy` on your `PATH`.
 
-Single static binary, offline by default, no telemetry. Homebrew and Krew as `kubectl kwhy` (v0.4) come later.
+As a kubectl plugin (`kubectl kwhy ...`): each release from v0.4 attaches a Krew manifest, `kwhy.yaml`. Until kwhy is
+in the Krew index, install it with `kubectl krew install --manifest=kwhy.yaml`.
+
+Single static binary, offline by default, no telemetry. Homebrew comes later.
 
 ## Flags (`kwhy value chart`)
 
@@ -212,6 +240,17 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
 Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usage error, `3` a `--fail-on` verdict occurred.
 
+## Flags (`kwhy pod`)
+
+| Flag | Meaning |
+|---|---|
+| `<name>` (argument) | a pod (`x`, `pod/x`) or a workload (`deploy/x`, `sts/x`, `job/x`) |
+| `-n, --namespace NS` | namespace (default: the kube context's) |
+| `--context NAME` | kube context to read from, read-only |
+| `-o, --output` | `human` (default), `markdown` or `json` (`"schema": "kwhy.pod/v1"`, every node with all failing checks and the scheduler's first) |
+
+Exit codes: `0` ok (also for a pod that is already scheduled), `1` runtime error, `2` usage error.
+
 ## Known limits
 
 - `lookup` returns empty, as with `helm template` (offline).
@@ -219,6 +258,10 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 - `change` handles one local chart per run. Without `--context`, DaemonSet pod counts are unknown
   ("one pod per node").
 - Every run traces the whole chart again; nothing is cached between runs (~20s on kube-prometheus-stack).
+- `pod` runs the default scheduler profile compiled into kwhy (v1.37) and warns when the cluster is more than one
+  minor version away or the pod names another scheduler. Custom profiles and scheduler plugins aren't seen.
+- `pod` doesn't support pods with resource claims (DRA) and doesn't consider preemption or nominated pods.
+- `pod` doesn't yet point at the values line that set a failing field; that's v0.4.1.
 
 ## Development
 
@@ -233,8 +276,8 @@ cmd/kwhy/    CLI wiring (cobra): flags in, features out
 render/      Helm rendering in-process, shared by value and change
 value/       values leaves, override chains, tracing (v0.1)
 change/      base/head render, impact rules, live refinement, report (v0.3)
-pod/         v0.4, the only package importing k8s.io/kubernetes
-docs/        specs, v0.1 plan, spikes
+pod/         cluster snapshot, every filter per node, report (v0.4); the only package importing k8s.io/kubernetes
+docs/        specs, plans, spikes
 ```
 
 Design: [overview](docs/specs/00-overview.md) · [value](docs/specs/01-value.md) ·
