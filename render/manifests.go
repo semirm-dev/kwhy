@@ -31,7 +31,7 @@ func ReadManifests(dir, namespace string) ([]Doc, error) {
 
 		switch strings.ToLower(d.Name()) {
 		case "kustomization.yaml", "kustomization.yml", "kustomization":
-			return fmt.Errorf("%s is a Kustomize directory, which kwhy doesn't support yet", filepath.Dir(path))
+			return fmt.Errorf("%s is a Kustomize overlay inside a plain manifests directory; point at the overlay itself", filepath.Dir(path))
 		}
 		if ext := filepath.Ext(path); ext != ".yaml" && ext != ".yml" {
 			return nil

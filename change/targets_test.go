@@ -119,6 +119,11 @@ metadata: {name: redis, namespace: flux-system}
 spec:
   chart: {spec: {chart: redis, sourceRef: {kind: HelmRepository, name: bitnami}}}
 ---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: infra-ks, namespace: flux-system}
+spec: {path: ./k8s/infra, targetNamespace: infra, sourceRef: {kind: GitRepository, name: flux-system}}
+---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata: {name: flux-system, namespace: flux-system}
@@ -136,8 +141,14 @@ spec: {url: ssh://git@github.com/acme/platform}
 	for _, tg := range ts {
 		byRelease[tg.Release] = tg
 	}
-	if len(ts) != 3 {
-		t.Fatalf("targets = %+v, want argo api, argo infra, flux api", ts)
+	if len(ts) != 5 {
+		t.Fatalf("targets = %+v, want argo api, infra and prod, flux api and infra", ts)
+	}
+	if prod := byRelease["prod"]; prod.Manifests != "overlays/prod" {
+		t.Errorf("argo kustomize overlay = %+v", prod)
+	}
+	if fk := byRelease["infra-ks"]; fk.Manifests != "k8s/infra" || fk.Namespace != "infra" {
+		t.Errorf("flux kustomization = %+v", fk)
 	}
 
 	argo := byRelease["api-argo"]
@@ -162,7 +173,6 @@ spec: {url: ssh://git@github.com/acme/platform}
 
 	got := strings.Join(warns, "\n")
 	for _, w := range []string{
-		"Application prod: overlays/prod is a Kustomize directory",
 		"Application redis: chart redis from a Helm repository",
 		"Application elsewhere: source https://github.com/other/repo, not this repo",
 		"HelmRelease api: valuesFrom",

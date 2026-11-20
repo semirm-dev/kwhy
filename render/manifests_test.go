@@ -42,7 +42,33 @@ func TestReadManifests(t *testing.T) {
 	}
 
 	write("overlay/kustomization.yaml", "resources: [../app]\n")
-	if _, err := render.ReadManifests(dir, "shop"); err == nil || !strings.Contains(err.Error(), "Kustomize directory") {
+	if _, err := render.ReadManifests(dir, "shop"); err == nil || !strings.Contains(err.Error(), "Kustomize overlay") {
 		t.Errorf("kustomize dir: err = %v", err)
+	}
+}
+
+func TestKustomize(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"base/kustomization.yaml": "resources: [deploy.yaml]\n",
+		"base/deploy.yaml":        "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\nspec: {replicas: 1}\n",
+		"prod/kustomization.yaml": "resources: [../base]\nnamePrefix: prod-\nnamespace: shop\nreplicas: [{name: api, count: 3}]\n",
+	} {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	docs, err := render.Kustomize(filepath.Join(dir, "prod"), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 1 || docs[0].Name != "prod-api" || docs[0].Namespace != "shop" ||
+		docs[0].Object["spec"].(map[string]any)["replicas"] != 3 {
+		t.Errorf("docs = %+v", docs)
 	}
 }

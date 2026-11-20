@@ -92,6 +92,20 @@ func Discover(dir, remote, tmp string) (ts []Target, warnings []string, err erro
 				}
 			}
 
+		case o["kind"] == "Kustomization" && strings.HasPrefix(apiVersion, "kustomize.toolkit.fluxcd.io/"):
+			id := "Kustomization " + name
+			ref := str(o, "spec", "sourceRef", "name")
+			if kind := str(o, "spec", "sourceRef", "kind"); kind != "GitRepository" {
+				warnings = append(warnings, fmt.Sprintf("%s: source is a %s, not this repo: skipped", id, kind))
+				continue
+			}
+			if url, ok := gitRepos[ref]; ok && remote != "" && !sameRepo(url, remote) {
+				warnings = append(warnings, fmt.Sprintf("%s: GitRepository %s is %s, not this repo: skipped", id, ref, url))
+				continue
+			}
+			ts = append(ts, Target{Source: Source{Manifests: filepath.Clean(or(str(o, "spec", "path"), "."))}, Release: name,
+				Namespace: or(str(o, "spec", "targetNamespace"), "default")})
+
 		case o["kind"] == "HelmRelease" && strings.HasPrefix(apiVersion, "helm.toolkit.fluxcd.io/"):
 			id := "HelmRelease " + name
 			spec := get(o, "spec", "chart", "spec")
@@ -155,9 +169,7 @@ func argoTarget(s any, name, ns, remote, id string, write func(string, any) (str
 
 	t := Target{Release: name, Namespace: or(ns, "default")}
 	switch {
-	case isKustomize(path):
-		return nil, fmt.Sprintf("%s: %s is a Kustomize directory, which kwhy doesn't support yet: skipped", id, path), nil
-	case !isChart(path) && get(s, "helm") == nil:
+	case !isChart(path) && get(s, "helm") == nil: // plain YAML or a Kustomize overlay
 		t.Manifests = path
 		return &t, "", nil
 	}

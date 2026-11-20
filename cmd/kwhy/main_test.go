@@ -280,3 +280,44 @@ func TestRunChangeTargets(t *testing.T) {
 		t.Errorf("--chart to a missing path: code %d, want 2", code)
 	}
 }
+
+func TestRunChangeKustomize(t *testing.T) {
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, content string) {
+		t.Helper()
+		p := filepath.Join(repo, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("base/kustomization.yaml", "resources: [deploy.yaml]\n")
+	write("base/deploy.yaml", "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\nspec:\n  replicas: 1\n  selector: {matchLabels: {app: api}}\n"+
+		"  template: {metadata: {labels: {app: api}}, spec: {containers: [{name: c, image: app:1}]}}\n")
+	write("prod/kustomization.yaml", "resources: [../base]\nnamespace: shop\nreplicas: [{name: api, count: 2}]\n")
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-qm", "base")
+	git("checkout", "-qb", "feature")
+	write("prod/kustomization.yaml", "resources: [../base]\nnamespace: shop\nreplicas: [{name: api, count: 5}]\n")
+	git("commit", "-qam", "head")
+	git("checkout", "-q", "main")
+	t.Chdir(repo)
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"change", "main..feature", "--manifests", "prod"}, &out, &errb); code != 0 ||
+		!strings.Contains(out.String(), "Deployment shop/api") || !strings.Contains(out.String(), "2 → 5") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+}

@@ -56,7 +56,11 @@ func Render(ctx context.Context, ref string, src Source, o render.Options, helm 
 		if ns == "" {
 			ns = "default"
 		}
-		docs, err := render.ReadManifests(path, ns)
+		read := render.ReadManifests
+		if isKustomize(path) {
+			read = render.Kustomize
+		}
+		docs, err := read(path, ns)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", ref, err)
 		}
