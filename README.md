@@ -121,7 +121,8 @@ It renders the chart at both refs (temporary `git worktree` checkouts, removed a
 of plain YAML with `--manifests DIR`, or every app at once (v0.8): the targets of a `.kwhy.yaml`, or the Argo CD
 `Application`s and Flux `HelmRelease`s under `--apps DIR` that point into this repo (with their value files,
 parameters, inline values, release name and namespace; anything it can't render from the repo is skipped with a
-warning naming it). An app added or removed in the PR shows as `create` or `delete`. Then it and classifies every changed object: `restart`, `ordered`, `scale`,
+warning naming it). An app added or removed in the PR shows as `create` or `delete`.
+It classifies every changed object: `restart`, `ordered`, `scale`,
 `resize` (PVC growth), `recreate` (Argo `Replace`/`Force`), `runs as hook`, `no effect` / `delayed` /
 `picked up` for ConfigMap and Secret consumers, `will fail` for immutable fields, `no endpoints` for a Service
 whose selector stops matching its pods, `data` for deletes that lose stored data, and `create` / `delete`.
