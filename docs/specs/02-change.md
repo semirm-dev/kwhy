@@ -38,6 +38,14 @@ whose selector matched rendered pods before and none after (checked on kind: its
 `--context` a note when a Deployment's surge pods exceed the namespace's ResourceQuota. The Action takes
 `manifests` and runs on Linux, macOS and Windows.
 
+**v0.8 (built 2026-11-20):** several apps per run. `--config FILE` (default `.kwhy.yaml`) lists charts and
+manifests directories with their values, release and namespace; `--apps DIR` builds the same list from Argo CD
+`Application`s (`source`/`sources`, `helm.valueFiles`, `parameters`, `values`/`valuesObject`, `releaseName`,
+destination namespace) and Flux `HelmRelease`s (`chart` from a `GitRepository`, `valuesFiles`, `values`,
+`releaseName`, `targetNamespace`). Other repos, Helm repositories, `$ref` value files, Flux `valuesFrom` and
+Kustomize are skipped with a warning. All targets' documents go through one diff. A path missing at a ref renders
+as nothing, so a new app is `create`. Plan: `docs/plans/2026-11-20-v0.8-change-apps.md`.
+
 **Non-goals:** applying anything, validating against admission webhooks/policies (Kyverno etc.), cost
 estimates.
 

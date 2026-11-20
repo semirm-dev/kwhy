@@ -97,7 +97,7 @@ Nearly all of it is tracing the whole chart, which every run repeats, so a secon
 same chart costs the same again.
 Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
-## `kwhy change`: what will this PR do? (v0.3–v0.7)
+## `kwhy change`: what will this PR do? (v0.3–v0.8)
 
 Diff tools show the full rendered diff. `kwhy change` says what the diff *does*, as one short PR comment
 (target output):
@@ -118,7 +118,10 @@ kwhy: --fail-on: will fail Job kwhy-demo/migrate
 ```
 
 It renders the chart at both refs (temporary `git worktree` checkouts, removed afterwards), or reads a directory
-of plain YAML with `--manifests DIR`, and classifies every changed object: `restart`, `ordered`, `scale`,
+of plain YAML with `--manifests DIR`, or every app at once (v0.8): the targets of a `.kwhy.yaml`, or the Argo CD
+`Application`s and Flux `HelmRelease`s under `--apps DIR` that point into this repo (with their value files,
+parameters, inline values, release name and namespace; anything it can't render from the repo is skipped with a
+warning naming it). An app added or removed in the PR shows as `create` or `delete`. Then it and classifies every changed object: `restart`, `ordered`, `scale`,
 `resize` (PVC growth), `recreate` (Argo `Replace`/`Force`), `runs as hook`, `no effect` / `delayed` /
 `picked up` for ConfigMap and Secret consumers, `will fail` for immutable fields, `no endpoints` for a Service
 whose selector stops matching its pods, `data` for deletes that lose stored data, and `create` / `delete`.
@@ -152,7 +155,7 @@ jobs:
 ```
 
 It posts one comment per PR and updates it on every push, comparing the PR's base with the merge commit.
-Inputs: `chart` or `manifests`, `values` and `set` (one per line), `release`, `namespace`, `kube-version`,
+Inputs: `chart`, `manifests`, `config` or `apps` (none: `.kwhy.yaml`), `values` and `set` (one per line), `release`, `namespace`, `kube-version`,
 `fail-on`, `base`, `head`, `version` (kwhy release, default latest), `comment`. Linux, macOS and Windows runners.
 
 ## `kwhy pod`: why isn't it running? (v0.5)
@@ -297,6 +300,8 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `<base>..<head>` (argument) | the two git refs to compare, e.g. `main..feature` |
 | `--chart DIR` | chart directory in the repo (this or `--manifests`) |
 | `--manifests DIR` | directory of plain YAML in the repo, read at each ref; a Kustomize directory is refused |
+| `--config FILE` | several targets: `targets: [{chart or manifests, values, set, setString, setJSON, release, namespace}]`; `.kwhy.yaml` is used when no source flag is given |
+| `--apps DIR` | Argo CD `Application`s and Flux `HelmRelease`s under DIR: render every app they point at in this repo |
 | `-f, --values FILE` | values file or URL, repeatable, later wins; files in the repo are read at each ref |
 | `--set K=V`, `--set-string`, `--set-json`, `--set-file`, `--set-literal` | as for `helm` (with `--chart`) |
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |
@@ -330,7 +335,8 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 
 - `lookup` returns empty, as with `helm template` (offline).
 - Kustomize is not supported yet.
-- `change` handles one chart or manifests directory per run. Without `--context`, DaemonSet pod counts are
+- `change --apps` reads Argo CD and Flux definitions from the working tree, not from each ref, and skips apps from
+  other repos, Helm repositories, Flux `valuesFrom` and Kustomize. Without `--context`, DaemonSet pod counts are
   unknown ("one pod per node").
 - The first question about a chart traces it whole (~20s on kube-prometheus-stack); repeats with the same chart
   and values come from the cache (argo-cd: 9s → 0.2s).
