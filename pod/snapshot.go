@@ -6,6 +6,7 @@ import (
 	"os"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -91,16 +92,29 @@ func Snapshot(ctx context.Context, c kubernetes.Interface) (*Cluster, error) {
 		"volumeattachments": func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
 			return c.StorageV1().VolumeAttachments().List(ctx, o)
 		},
+		"resourceclaims": func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
+			return c.ResourceV1().ResourceClaims("").List(ctx, o)
+		},
+		"resourceslices": func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
+			return c.ResourceV1().ResourceSlices().List(ctx, o)
+		},
+		"deviceclasses": func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
+			return c.ResourceV1().DeviceClasses().List(ctx, o)
+		},
 		"csistoragecapacities": func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
 			return c.StorageV1().CSIStorageCapacities("").List(ctx, o)
 		},
 	}
 
 	cl := &Cluster{Version: v.GitVersion}
+	dra := map[string]bool{"resourceclaims": true, "resourceslices": true, "deviceclasses": true}
 
 	var objs []runtime.Object
 	for kind, list := range lists {
 		l, _, err := pager.New(list).List(ctx, metav1.ListOptions{})
+		if apierrors.IsNotFound(err) && dra[kind] {
+			continue // a cluster that doesn't serve resource.k8s.io/v1 has no DRA objects
+		}
 		if err != nil {
 			return nil, fmt.Errorf("list %s: %w", kind, err)
 		}

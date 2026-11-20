@@ -2,7 +2,6 @@ package pod
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -15,23 +14,24 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	resourcehelper "k8s.io/component-helpers/resource"
+	resourceslicetracker "k8s.io/dynamic-resource-allocation/resourceslice/tracker"
+	"k8s.io/klog/v2"
 	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config/latest"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/dynamicresources"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodevolumelimits"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	schedmetrics "k8s.io/kubernetes/pkg/scheduler/metrics"
+	"k8s.io/kubernetes/pkg/scheduler/util/assumecache"
 )
 
 const fitPlugin = "NodeResourcesFit"
 
 var (
-	// ErrDRA is returned for pods with resource claims: the DynamicResources plugin needs a DRA manager kwhy doesn't build.
-	ErrDRA = errors.New("pod uses resource claims (DRA), which kwhy pod doesn't support yet")
-
 	registerMetrics sync.Once
 )
 
@@ -71,15 +71,15 @@ type Result struct {
 // node's first failing filter; Evaluate runs each filter plugin in a framework of its own, so a node shows
 // every failing check.
 func Evaluate(ctx context.Context, cl *Cluster, p *v1.Pod) (Result, error) {
-	if len(p.Spec.ResourceClaims) > 0 {
-		return Result{}, ErrDRA
-	}
-
 	registerMetrics.Do(schedmetrics.Register) // NewFramework panics without it
 	snap := cache.NewSnapshot(cl.pods, cl.nodes)
 	inf := informers.NewSharedInformerFactory(cl.client, 0)
+	dra, err := draManager(ctx, cl, inf)
+	if err != nil {
+		return Result{}, err
+	}
 
-	full, err := newFramework(ctx, snap, inf, cl.client, cl.profile, "", false)
+	full, err := newFramework(ctx, snap, inf, cl.client, dra, cl.profile, "", false)
 	if err != nil {
 		return Result{}, err
 	}
@@ -96,7 +96,7 @@ func Evaluate(ctx context.Context, cl *Cluster, p *v1.Pod) (Result, error) {
 
 	each := make([]framework.Framework, len(r.Plugins))
 	for i, name := range r.Plugins {
-		if each[i], err = newFramework(ctx, snap, inf, cl.client, cl.profile, name, pre.Has(name)); err != nil {
+		if each[i], err = newFramework(ctx, snap, inf, cl.client, dra, cl.profile, name, pre.Has(name)); err != nil {
 			return Result{}, err
 		}
 	}
@@ -169,8 +169,12 @@ func Evaluate(ctx context.Context, cl *Cluster, p *v1.Pod) (Result, error) {
 func fitting(ctx context.Context, cl *Cluster, pods []*v1.Pod, p *v1.Pod) ([]string, error) {
 	snap := cache.NewSnapshot(pods, cl.nodes)
 	inf := informers.NewSharedInformerFactory(cl.client, 0)
+	dra, err := draManager(ctx, cl, inf)
+	if err != nil {
+		return nil, err
+	}
 
-	fw, err := newFramework(ctx, snap, inf, cl.client, cl.profile, "", false)
+	fw, err := newFramework(ctx, snap, inf, cl.client, dra, cl.profile, "", false)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +214,7 @@ func priority(p *v1.Pod) int32 {
 // newFramework builds the default profile without DynamicResources. With filter set, the framework runs only
 // that filter plugin, and only its own PreFilter if it has one, so a rejection is never blamed on another plugin.
 func newFramework(ctx context.Context, snap *cache.Snapshot, inf informers.SharedInformerFactory, c kubernetes.Interface,
-	base *config.KubeSchedulerProfile, filter string, preFilter bool) (framework.Framework, error) {
+	dra fwk.SharedDRAManager, base *config.KubeSchedulerProfile, filter string, preFilter bool) (framework.Framework, error) {
 	if base == nil {
 		cfg, err := latest.Default()
 		if err != nil {
@@ -220,11 +224,10 @@ func newFramework(ctx context.Context, snap *cache.Snapshot, inf informers.Share
 	}
 
 	prof := *base
-	// MultiPoint.Disabled doesn't remove a plugin MultiPoint enables, so drop it from the list.
-	prof.Plugins.MultiPoint.Enabled = slices.DeleteFunc(slices.Clone(prof.Plugins.MultiPoint.Enabled),
-		func(p config.Plugin) bool { return p.Name == "DynamicResources" })
 
 	if filter != "" {
+		// Frameworks share one informer factory, and DynamicResources indexes pods under the profile's name.
+		prof.SchedulerName += "/" + filter
 		only := config.PluginSet{Enabled: []config.Plugin{{Name: filter}}, Disabled: []config.Plugin{{Name: "*"}}}
 		prof.Plugins.Filter = only
 		prof.Plugins.PreFilter = config.PluginSet{Disabled: []config.Plugin{{Name: "*"}}}
@@ -237,12 +240,28 @@ func newFramework(ctx context.Context, snap *cache.Snapshot, inf informers.Share
 		frameworkruntime.WithSnapshotSharedLister(snap),
 		frameworkruntime.WithClientSet(c),
 		frameworkruntime.WithInformerFactory(inf),
+		frameworkruntime.WithSharedDRAManager(dra),
 		frameworkruntime.WithSharedCSIManager(nodevolumelimits.NewCSIManager(inf.Storage().V1().CSINodes().Lister())))
 	if err != nil {
 		return nil, fmt.Errorf("scheduler framework %s: %w", filter, err)
 	}
 
 	return f, nil
+}
+
+// draManager builds the scheduler's DRA manager over the claims, slices and device classes of the snapshot, as
+// scheduler.go does, so the DynamicResources plugin can allocate devices for pods with resource claims.
+func draManager(ctx context.Context, cl *Cluster, inf informers.SharedInformerFactory) (fwk.SharedDRAManager, error) {
+	claims := assumecache.NewAssumeCache(klog.FromContext(ctx), inf.Resource().V1().ResourceClaims().Informer(), "ResourceClaim", "", nil)
+	tracker, err := resourceslicetracker.StartTracker(ctx, resourceslicetracker.Options{
+		SliceInformer: inf.Resource().V1().ResourceSlices(),
+		KubeClient:    cl.client,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("resource slice tracker: %w", err)
+	}
+
+	return dynamicresources.NewDRAManager(ctx, claims, tracker, inf), nil
 }
 
 // run does what the scheduler's findNodesThatFitPod does: PreFilter, then Filter on each node PreFilter

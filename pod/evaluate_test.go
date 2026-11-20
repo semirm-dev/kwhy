@@ -1,7 +1,6 @@
 package pod_test
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +8,7 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -135,17 +135,33 @@ func TestEvaluatePreFilterOwnPlugin(t *testing.T) {
 	}
 }
 
+// A pod with a resource claim runs the real DynamicResources plugin: only the node whose ResourceSlice offers a
+// device of the claim's class fits, and a missing claim fails everywhere.
 func TestEvaluateDRA(t *testing.T) {
-	p := newPod("gpu", "", "1", "1Gi")
-	p.Spec.ResourceClaims = []v1.PodResourceClaim{{Name: "gpu"}}
-
-	cl, err := pod.Snapshot(t.Context(), fake.NewClientset())
-	if err != nil {
-		t.Fatal(err)
+	n1 := "n1"
+	objs := []runtime.Object{
+		node("n1", "4", "8Gi", nil), node("n2", "4", "8Gi", nil),
+		&resourcev1.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: "gpu"}},
+		&resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "n1-gpu"}, Spec: resourcev1.ResourceSliceSpec{
+			Driver: "gpu.example.com", NodeName: &n1, Pool: resourcev1.ResourcePool{Name: "n1", ResourceSliceCount: 1},
+			Devices: []resourcev1.Device{{Name: "gpu-0"}}}},
+		&resourcev1.ResourceClaim{ObjectMeta: metav1.ObjectMeta{Name: "train-gpu", Namespace: "ml"}, Spec: resourcev1.ResourceClaimSpec{
+			Devices: resourcev1.DeviceClaim{Requests: []resourcev1.DeviceRequest{{Name: "gpu", Exactly: &resourcev1.ExactDeviceRequest{DeviceClassName: "gpu", AllocationMode: resourcev1.DeviceAllocationModeExactCount, Count: 1}}}}}},
 	}
 
-	if _, err := pod.Evaluate(t.Context(), cl, p); !errors.Is(err, pod.ErrDRA) {
-		t.Errorf("err = %v, want ErrDRA", err)
+	p := newPod("train", "", "1", "1Gi")
+	p.Spec.ResourceClaims = []v1.PodResourceClaim{{Name: "gpu", ResourceClaimName: new("train-gpu")}}
+	nodes := evaluate(t, p, objs...)
+	if len(nodes["n1"].Failed) != 0 || !slices.Equal(plugins(nodes["n2"].Failed), []string{"DynamicResources"}) {
+		t.Errorf("n1 %+v, n2 %+v; want n1 to fit and n2 to fail DynamicResources", nodes["n1"].Failed, nodes["n2"].Failed)
+	}
+
+	p.Spec.ResourceClaims[0].ResourceClaimName = new("missing")
+	nodes = evaluate(t, p, objs...)
+	for _, n := range []string{"n1", "n2"} {
+		if !slices.Contains(plugins(nodes[n].Failed), "DynamicResources") {
+			t.Errorf("missing claim: %s %+v, want DynamicResources to fail", n, nodes[n].Failed)
+		}
 	}
 }
 
