@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: agent}
+spec:
+  selector: {matchLabels: {app: agent}}
+  updateStrategy: {type: OnDelete}
+  template:
+    metadata: {labels: {app: agent}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: c
+          image: busybox:1.37
+          command: [sleep, "3601"]

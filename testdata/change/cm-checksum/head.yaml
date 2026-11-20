@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: cfg}
+data: {MODE: v2}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: api}}
+  template:
+    metadata: {labels: {app: api}, annotations: {checksum/config: "2"}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: c
+          image: busybox:1.37
+          command: [sleep, "3600"]
+          env: [{name: MODE, valueFrom: {configMapKeyRef: {name: cfg, key: MODE}}}]

@@ -62,7 +62,7 @@ it moves to its own Go module without changing the CLI.
 |---|---|---|
 | v0.1 | `value` read-only, Helm only | Correct answers on the 6 spike charts plus 4 more in CI golden tests |
 | v0.2 | `value chart` subcommand; release binaries (goreleaser; Homebrew once a tap exists). Kustomize shelved (2026-11-20) until Helm is tested and polished | Helm tested and polished |
-| v0.3 | `change` (Helm only, offline; proof of concept done 2026-11-20), then `--fail-on`, `json`, `--context`, GitHub Action | Rules suite green on kind in CI |
+| v0.3 | `change` (Helm only; built 2026-11-20): `--fail-on`, `json`, `--context`, GitHub Action. One chart per run; `.kwhy.yaml` and several charts dropped until needed | Rules suite green on kind in CI |
 | v0.4 | `pod`; Krew manifest (`kubectl-kwhy`) | Parity test against real scheduler events on kind |
 | later | `value kustomize` (redesign; first attempt on branch `feat/v0.2-kustomize`), Argo CD / Flux app discovery, MCP server, Terraform for `value`, remote Kustomize bases (fetched, opt-in) | |
 

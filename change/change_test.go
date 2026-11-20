@@ -2,11 +2,13 @@ package change_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 
@@ -226,6 +228,36 @@ func TestDiff(t *testing.T) {
 			want: []string{"create|Service default/new|0|", "delete|Service default/old|0|"},
 		},
 		{
+			name: "pvc grows if the storage class allows",
+			base: fmt.Sprintf("kind: PersistentVolumeClaim\nmetadata: {name: data}\nspec: {accessModes: [%s], resources: {requests: {storage: %s}}}", "ReadWriteOnce", "1Gi"),
+			head: fmt.Sprintf("kind: PersistentVolumeClaim\nmetadata: {name: data}\nspec: {accessModes: [%s], resources: {requests: {storage: %s}}}", "ReadWriteOnce", "2048Mi"),
+			want: []string{"resize|PersistentVolumeClaim default/data|0|1Gi → 2Gi, if the StorageClass allows expansion"},
+		},
+		{
+			name: "pvc shrink fails",
+			base: fmt.Sprintf("kind: PersistentVolumeClaim\nmetadata: {name: data}\nspec: {accessModes: [%s], resources: {requests: {storage: %s}}}", "ReadWriteOnce", "1Gi"),
+			head: fmt.Sprintf("kind: PersistentVolumeClaim\nmetadata: {name: data}\nspec: {accessModes: [%s], resources: {requests: {storage: %s}}}", "ReadWriteOnce", "500Mi"),
+			want: []string{"will fail|PersistentVolumeClaim default/data|0|spec.resources.requests.storage can't shrink"},
+		},
+		{
+			name: "pvc access modes fail",
+			base: fmt.Sprintf("kind: PersistentVolumeClaim\nmetadata: {name: data}\nspec: {accessModes: [%s], resources: {requests: {storage: %s}}}", "ReadWriteOnce", "1Gi"),
+			head: fmt.Sprintf("kind: PersistentVolumeClaim\nmetadata: {name: data}\nspec: {accessModes: [%s], resources: {requests: {storage: %s}}}", "ReadWriteMany", "1Gi"),
+			want: []string{"will fail|PersistentVolumeClaim default/data|0|spec.accessModes is immutable"},
+		},
+		{
+			name: "service to ExternalName is accepted",
+			base: "kind: Service\nmetadata: {name: api}\nspec: {ports: [{port: 80}]}",
+			head: "kind: Service\nmetadata: {name: api}\nspec: {type: ExternalName, externalName: example.com}",
+			want: nil,
+		},
+		{
+			name: "restart warns about mutable tags",
+			base: "kind: Deployment\nmetadata: {name: api}\nspec: {template: {spec: {containers: [{name: a, image: app:1}, {name: b, image: 'reg:5000/side'}, {name: c, image: 'x:latest@sha256:ab'}]}}}",
+			head: "kind: Deployment\nmetadata: {name: api}\nspec: {template: {spec: {containers: [{name: a, image: app:2}, {name: b, image: 'reg:5000/side'}, {name: c, image: 'x:latest@sha256:ab'}]}}}",
+			want: []string{"restart|Deployment default/api|1|image, pulls mutable reg:5000/side"},
+		},
+		{
 			name: "unchanged reports nothing",
 			base: fmt.Sprintf(envCM, "v1"),
 			head: fmt.Sprintf(envCM, "v1"),
@@ -308,4 +340,48 @@ func docs(t *testing.T, s string) []render.Doc {
 	}
 
 	return out
+}
+
+func TestWriteJSON(t *testing.T) {
+	var b bytes.Buffer
+	if err := change.WriteJSON(&b, []change.Impact{{Verdict: change.Restart, Resource: "Deployment prod/api", Pods: 2, Detail: "image"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got struct {
+		Schema  string
+		Impacts []map[string]any
+	}
+	if err := json.Unmarshal(b.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Schema != "kwhy.change/v1" || len(got.Impacts) != 1 || got.Impacts[0]["verdict"] != "restart" || got.Impacts[0]["pods"] != 2.0 {
+		t.Errorf("got %s", b.String())
+	}
+}
+
+func TestWriteMarkdownLimit(t *testing.T) {
+	is := []change.Impact{{Verdict: change.WillFail, Resource: "Job prod/migrate", Detail: "spec.template is immutable"}}
+	for n := range 3000 {
+		is = append(is, change.Impact{Verdict: change.Restart, Resource: fmt.Sprintf("Deployment prod/app-%04d", n), Pods: 1, Detail: "image"})
+	}
+
+	var b bytes.Buffer
+	if err := change.WriteMarkdown(&b, is); err != nil {
+		t.Fatal(err)
+	}
+
+	out := b.String()
+	if n := utf8.RuneCountInString(out); n > 65000 {
+		t.Errorf("%d characters, over the comment limit", n)
+	}
+	for _, want := range []string{"`Job prod/migrate`", "3000 pods restarted · 1 apply error", "<details><summary>3000 more changes</summary>",
+		"`Deployment prod/app-0000`", "more, run `kwhy change` locally", "</details>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if i, j := strings.Index(out, "Job prod/migrate"), strings.Index(out, "<details>"); i > j {
+		t.Error("failure not shown above the collapsed list")
+	}
 }

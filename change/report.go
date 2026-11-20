@@ -1,14 +1,16 @@
 package change
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"text/tabwriter"
+	"time"
 )
 
 var icons = map[Verdict]string{
-	Restart: "↻", Ordered: "⏱", Scale: "⇅", Recreate: "⟲", Hook: "⚙", NoEffect: "!", Delayed: "~", PickedUp: "✓",
+	Restart: "↻", Ordered: "⏱", Scale: "⇅", Resize: "⤢", Recreate: "⟲", Hook: "⚙", NoEffect: "!", Delayed: "~", PickedUp: "✓",
 	WillFail: "✗", Data: "⚠", Create: "+", Delete: "-",
 }
 
@@ -37,31 +39,95 @@ func WriteHuman(w io.Writer, is []Impact) error {
 	return err
 }
 
-// WriteMarkdown writes impacts as a PR comment.
+// maxComment is GitHub's PR comment limit, in characters.
+const maxComment = 65000
+
+// WriteMarkdown writes impacts as a PR comment. Past GitHub's comment limit it keeps failures, data
+// warnings and recreates in view and folds the rest into a collapsed list, cut to fit.
 func WriteMarkdown(w io.Writer, is []Impact) error {
 	if len(is) == 0 {
 		_, err := fmt.Fprintln(w, "**No effect on running workloads.**")
 		return err
 	}
 
-	var b strings.Builder
-	b.WriteString("**Merging this PR will:**\n\n| | Verdict | Resource | Pods | Detail |\n|---|---|---|---|---|\n")
-	for _, i := range is {
-		fmt.Fprintf(&b, "| %s | %s | `%s` | %s | %s |\n", icons[i.Verdict], i.Verdict, i.Resource, pods(i.Pods), i.Detail)
+	const head, tableHead = "**Merging this PR will:**\n\n", "| | Verdict | Resource | Pods | Detail |\n|---|---|---|---|---|\n"
+	foot := ""
+	if s := summary(is); s != "" {
+		foot = "\n" + s + "\n"
 	}
 
-	if s := summary(is); s != "" {
-		fmt.Fprintf(&b, "\n%s\n", s)
+	var b strings.Builder
+	b.WriteString(head + tableHead)
+	for _, i := range is {
+		b.WriteString(row(i))
+	}
+	b.WriteString(foot)
+
+	if b.Len() > maxComment {
+		var top, rest []Impact
+		for _, i := range is {
+			if i.Verdict == WillFail || i.Verdict == Data || i.Verdict == Recreate {
+				top = append(top, i)
+			} else {
+				rest = append(rest, i)
+			}
+		}
+
+		b.Reset()
+		b.WriteString(head)
+		if len(top) > 0 {
+			b.WriteString(tableHead)
+			for _, i := range top {
+				b.WriteString(row(i))
+			}
+		}
+		b.WriteString(foot)
+		fmt.Fprintf(&b, "\n<details><summary>%s</summary>\n\n%s", plural(len(rest), "more change"), tableHead)
+
+		const tail = "\n…and 1000000 more, run `kwhy change` locally for the full list.\n</details>\n"
+		shown := 0
+		for _, i := range rest {
+			r := row(i)
+			if b.Len()+len(r)+len(tail) > maxComment {
+				break
+			}
+			b.WriteString(r)
+			shown++
+		}
+		if n := len(rest) - shown; n > 0 {
+			fmt.Fprintf(&b, "\n…and %d more, run `kwhy change` locally for the full list.\n", n)
+		}
+		b.WriteString("</details>\n")
 	}
 
 	_, err := io.WriteString(w, b.String())
 	return err
 }
 
+// WriteJSON writes impacts as kwhy.change/v1 JSON.
+func WriteJSON(w io.Writer, is []Impact) error {
+	if is == nil {
+		is = []Impact{}
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+
+	return enc.Encode(struct {
+		Schema  string   `json:"schema"`
+		Impacts []Impact `json:"impacts"`
+	}{"kwhy.change/v1", is})
+}
+
+func row(i Impact) string {
+	return fmt.Sprintf("| %s | %s | `%s` | %s | %s |\n", icons[i.Verdict], i.Verdict, i.Resource, pods(i.Pods), i.Detail)
+}
+
 // summary totals restarted pods, apply errors and data warnings, skipping zeros.
 func summary(is []Impact) string {
-	var restarted, failed, data int
+	var restarted, failed, data, seconds int
 	for _, i := range is {
+		seconds = max(seconds, i.Seconds)
 		switch i.Verdict {
 		case Restart, Ordered, Recreate:
 			restarted += i.Pods
@@ -75,6 +141,10 @@ func summary(is []Impact) string {
 	var parts []string
 	if restarted > 0 {
 		parts = append(parts, pods(restarted)+" restarted")
+	}
+	if seconds > 0 {
+		// Workloads roll in parallel, so the change takes as long as the slowest one.
+		parts = append(parts, "est. "+minutes(time.Duration(seconds)*time.Second))
 	}
 	if failed > 0 {
 		parts = append(parts, plural(failed, "apply error"))

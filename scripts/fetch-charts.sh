@@ -20,3 +20,12 @@ pull oci://registry-1.docker.io/bitnamicharts/keycloak --version 25.2.0
 
 # Drop the version from the file name so tests don't change on a bump.
 for f in *-[0-9v]*.tgz; do mv "$f" "$(echo "$f" | sed -E 's/-v?[0-9][^-]*(-[^.]*)?\.tgz$/.tgz/')"; done
+
+# The previous minor of four charts, for change/accuracy_test.go: upgrading to the version above
+# must not predict a false "will fail".
+mkdir -p ../prev && cd ../prev
+pull ingress-nginx --repo https://kubernetes.github.io/ingress-nginx --version 4.14.5
+pull cert-manager --repo https://charts.jetstack.io --version v1.20.5
+pull grafana --repo https://grafana.github.io/helm-charts --version 10.4.3
+pull argo-cd --repo https://argoproj.github.io/argo-helm --version 10.17.2
+for f in *-[0-9v]*.tgz; do mv "$f" "$(echo "$f" | sed -E 's/-v?[0-9][^-]*(-[^.]*)?\.tgz$/.tgz/')"; done

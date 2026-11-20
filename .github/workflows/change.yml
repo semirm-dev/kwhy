@@ -1,0 +1,24 @@
+name: change
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths: [change/**, testdata/change/**, render/**, go.mod, .github/workflows/change.yml]
+  workflow_dispatch:
+jobs:
+  kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Kubernetes N-2..N: the rules suite is the source of truth for kwhy change.
+        node: [v1.35.8, v1.36.4, v1.37.0]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go install sigs.k8s.io/kind@v0.33.0
+      - run: kind create cluster --name kwhy --image kindest/node:${{ matrix.node }} --wait 120s
+      - run: go test -tags kind -run TestKind -timeout 25m ./change/

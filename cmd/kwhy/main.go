@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v4/pkg/chart/common"
 	"helm.sh/helm/v4/pkg/cli"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/semirm-dev/kwhy/change"
 	"github.com/semirm-dev/kwhy/render"
@@ -28,19 +29,29 @@ var (
 		"human": value.WriteHuman, "markdown": value.WriteMarkdown, "json": value.WriteJSON,
 	}
 
+	// failVerdicts maps --fail-on names to verdicts: each verdict with - for spaces, plus fail and data-loss.
+	failVerdicts = map[string]change.Verdict{
+		"fail": change.WillFail, "data-loss": change.Data, "restart": change.Restart, "ordered": change.Ordered,
+		"scale": change.Scale, "resize": change.Resize, "recreate": change.Recreate, "runs-as-hook": change.Hook, "no-effect": change.NoEffect,
+		"delayed": change.Delayed, "picked-up": change.PickedUp, "create": change.Create, "delete": change.Delete,
+	}
+
 	changeWriters = map[string]func(io.Writer, []change.Impact) error{
-		"human": change.WriteHuman, "markdown": change.WriteMarkdown,
+		"human": change.WriteHuman, "markdown": change.WriteMarkdown, "json": change.WriteJSON,
 	}
 )
 
 // usageError marks errors that exit with code 2.
 type usageError struct{ error }
 
+// failOnError marks a change that hit --fail-on: exit code 3.
+type failOnError struct{ error }
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// run returns the exit code: 0 ok, 1 runtime error, 2 usage error.
+// run returns the exit code: 0 ok, 1 runtime error, 2 usage error, 3 --fail-on hit.
 func run(args []string, stdout, stderr io.Writer) int {
 	root := &cobra.Command{
 		Use:           "kwhy",
@@ -76,6 +87,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stderr, "kwhy:", err)
 	if errors.As(err, &usageError{}) {
 		return 2
+	}
+	if errors.As(err, &failOnError{}) {
+		return 3
 	}
 
 	return 1
@@ -232,6 +246,7 @@ func changeCmd() *cobra.Command {
 	var (
 		src                                     change.Source
 		release, namespace, output, kubeVersion string
+		failOn                                  []string
 	)
 
 	helm := cli.New()
@@ -256,7 +271,16 @@ func changeCmd() *cobra.Command {
 			}
 
 			if changeWriters[output] == nil {
-				return usageError{fmt.Errorf("--output must be human or markdown, got %q", output)}
+				return usageError{fmt.Errorf("--output must be human, markdown or json, got %q", output)}
+			}
+
+			fail := map[change.Verdict]bool{}
+			for _, n := range failOn {
+				v, ok := failVerdicts[n]
+				if !ok {
+					return usageError{fmt.Errorf("--fail-on: unknown verdict %q", n)}
+				}
+				fail[v] = true
 			}
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -275,7 +299,32 @@ func changeCmd() *cobra.Command {
 				return err
 			}
 
-			return changeWriters[output](cmd.OutOrStdout(), change.Diff(b, h))
+			is := change.Diff(b, h)
+			if cmd.Flags().Changed("context") {
+				cfg, err := helm.RESTClientGetter().ToRESTConfig()
+				if err != nil {
+					return fmt.Errorf("--context: %w", err)
+				}
+				c, err := kubernetes.NewForConfig(cfg)
+				if err != nil {
+					return fmt.Errorf("--context: %w", err)
+				}
+				if err := change.Live(ctx, c, is); err != nil {
+					return err
+				}
+			}
+
+			if err := changeWriters[output](cmd.OutOrStdout(), is); err != nil {
+				return err
+			}
+
+			for _, i := range is {
+				if fail[i.Verdict] {
+					return failOnError{fmt.Errorf("--fail-on: %s %s", i.Verdict, i.Resource)}
+				}
+			}
+
+			return nil
 		},
 	}
 
@@ -286,7 +335,9 @@ func changeCmd() *cobra.Command {
 	f.StringVar(&release, "release", "rel", "release name")
 	f.StringVarP(&namespace, "namespace", "n", "default", "release namespace")
 	f.StringVar(&kubeVersion, "kube-version", render.KubeVersion, "Kubernetes version for .Capabilities.KubeVersion")
-	f.StringVarP(&output, "output", "o", "human", "output format: human or markdown")
+	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
+	f.StringVar(&helm.KubeContext, "context", "", "kube context to read live replicas, HPAs, node counts and StorageClasses from (read-only)")
+	f.StringSliceVar(&failOn, "fail-on", nil, "exit 3 if any of these verdicts occur: fail, data-loss, restart, ordered, recreate, no-effect, ...")
 
 	return cmd
 }

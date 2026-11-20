@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Secret
+metadata: {name: cfg}
+stringData: {MODE: v1}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: api}}
+  template:
+    metadata: {labels: {app: api}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: c
+          image: busybox:1.37
+          command: [sleep, "3600"]
+          env: [{name: MODE, valueFrom: {secretKeyRef: {name: cfg, key: MODE}}}]

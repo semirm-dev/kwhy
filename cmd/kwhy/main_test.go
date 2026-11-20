@@ -40,6 +40,7 @@ func TestRunExitCodes(t *testing.T) {
 		{"change empty head", []string{"change", "main..", "--chart", "c"}, 2},
 		{"change missing chart", []string{"change", "main..feature"}, 2},
 		{"change bad output", []string{"change", "main..feature", "--chart", "c", "-o", "yaml"}, 2},
+		{"change bad fail-on", []string{"change", "main..feature", "--chart", "c", "--fail-on", "fail,nope"}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -141,6 +142,16 @@ func TestRunChange(t *testing.T) {
 	if code != 0 || !strings.Contains(out.String(), "Deployment default/rel-api  3 pods  image") ||
 		!strings.Contains(out.String(), "3 pods restarted") {
 		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+
+	out.Reset()
+	if code := run([]string{"change", "main..feature", "--chart", "chart", "-f", "prod.yaml", "--fail-on", "fail,data-loss"}, &out, &errb); code != 0 {
+		t.Errorf("--fail-on with no failure: code %d", code)
+	}
+	errb.Reset()
+	if code := run([]string{"change", "main..feature", "--chart", "chart", "-f", "prod.yaml", "--fail-on", "restart", "-o", "json"}, &out, &errb); code != 3 ||
+		!strings.Contains(errb.String(), "--fail-on: restart Deployment default/rel-api") {
+		t.Errorf("--fail-on restart: code %d, stderr %q", code, errb.String())
 	}
 
 	cmd := exec.Command("git", "worktree", "list")

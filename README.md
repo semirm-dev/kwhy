@@ -10,12 +10,12 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 | Command | Question | Works on | Status |
 |---|---|---|---|
 | `kwhy value` | Where does this rendered value come from? | Git repo, offline | v0.1 |
-| `kwhy change` | What will merging this change actually do to running workloads? | Git repo, offline | proof of concept, v0.3 |
+| `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.3 |
 | `kwhy pod` | Why is this pod not running? | Live cluster, read-only | planned, v0.4 |
 
 > **Status:** early development. `kwhy value` works today and is checked nightly against 10 public charts.
-> `kwhy change` is a Helm-only proof of concept. The `change` image and `pod` example show planned output
-> from the [specs](docs/specs).
+> `kwhy change` works for Helm charts and every rule is checked against a real cluster in CI. The `pod` example
+> shows planned output from the [specs](docs/specs).
 
 ## `kwhy value`: where does this value come from?
 
@@ -96,27 +96,61 @@ Nearly all of it is tracing the whole chart, which every run repeats, so a secon
 same chart costs the same again.
 Progress is tracked in the [v0.1 plan](docs/plans/2026-11-18-v0.1-value.md).
 
-## `kwhy change`: what will this PR do? (proof of concept, v0.3)
+## `kwhy change`: what will this PR do? (v0.3)
 
 Diff tools show the full rendered diff. `kwhy change` says what the diff *does*, as one short PR comment
-(planned output; times and live pod counts need `--context`, which isn't built yet):
+(target output):
 
 <img src="docs/demo/change.svg" alt="kwhy change summarising which workloads restart, roll in order, see no effect or fail" width="100%">
 
-What works today, offline, for one Helm chart in a git repo:
+Real output, for a chart deployed to a kind cluster:
 
 ```console
-$ kwhy change main..feature --chart charts/api -f values-prod.yaml
+$ kwhy change main~1..main --chart chart -n kwhy-demo --context kind-kwhy --fail-on fail
 Merging this change will:
-↻ restart  Deployment default/rel-api  3 pods  image
-3 pods restarted
+⏱ ordered    StatefulSet kwhy-demo/postgres                      3 pods  one at a time, ~30s
+! no effect  ConfigMap kwhy-demo/cfg → Deployment kwhy-demo/api          env var: running pods keep the OLD value until they restart
+✗ will fail  Job kwhy-demo/migrate                                       spec.template is immutable
+✗ will fail  StatefulSet kwhy-demo/cache                                 spec.serviceName is immutable
+3 pods restarted · est. 30s · 2 apply errors
+kwhy: --fail-on: will fail Job kwhy-demo/migrate
 ```
 
 It renders the chart at both refs (temporary `git worktree` checkouts, removed afterwards) and classifies every
-changed object: `restart`, `ordered`, `scale`, `recreate` (Argo `Replace`/`Force`), `runs as hook`,
-`no effect` / `delayed` / `picked up` for ConfigMap and Secret consumers, `will fail` for immutable fields,
-`data` for deletes that lose stored data, and `create` / `delete`. `-o markdown` prints a table for a PR comment.
-Pod counts come from the manifests' `replicas`.
+changed object: `restart`, `ordered`, `scale`, `resize` (PVC growth), `recreate` (Argo `Replace`/`Force`),
+`runs as hook`, `no effect` / `delayed` / `picked up` for ConfigMap and Secret consumers, `will fail` for
+immutable fields, `data` for deletes that lose stored data, and `create` / `delete`. Restarts that pull a
+mutable tag (`:latest` or untagged) say so.
+
+Offline, pod counts come from the manifests' `replicas`. `--context` reads the cluster (get and list only) for
+live replica counts, HPA ranges, DaemonSet node counts, whether a claim's StorageClass can expand, and a rollout
+estimate (batches from `maxSurge`/`maxUnavailable`, each ~10s start plus readiness delay and `minReadySeconds`).
+
+Every rule kubectl can observe is checked in CI on kind (Kubernetes N-2..N): `testdata/change/` holds one
+base/head fixture per rule, and the suite applies both and compares the cluster with the prediction. Upgrades of
+ingress-nginx, argo-cd, cert-manager and grafana must not predict a false `will fail`.
+
+### GitHub Action
+
+```yaml
+on: pull_request
+permissions: {contents: read, pull-requests: write}
+jobs:
+  kwhy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0}   # kwhy needs both refs
+      - uses: semirm-dev/kwhy@v0.3.0
+        with:
+          chart: charts/api
+          values: values-prod.yaml
+          fail-on: fail,data-loss
+```
+
+It posts one comment per PR and updates it on every push, comparing the PR's base with the merge commit.
+Inputs: `chart`, `values` and `set` (one per line), `release`, `namespace`, `kube-version`, `fail-on`, `base`,
+`head`, `version` (kwhy release, default latest), `comment`. Linux runners only.
 
 ## `kwhy pod`: why is it Pending? (planned, v0.4)
 
@@ -163,9 +197,11 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `--set K=V` | set a value, repeatable, wins over files |
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |
 | `--kube-version V` | Kubernetes version charts see in `.Capabilities` (default `v1.37.0`) |
-| `-o, --output` | `human` (default) or `markdown` |
+| `-o, --output` | `human` (default), `markdown` (PR comment, kept under GitHub's 65,000 characters) or `json` (`"schema": "kwhy.change/v1"`) |
+| `--fail-on V,...` | exit `3` if any of these verdicts occur: `fail`, `data-loss`, or any verdict with `-` for spaces (`restart`, `no-effect`, ...) |
+| `--context NAME` | kube context to read live state from, read-only (default: offline) |
 
-Run it from inside the git repo.
+Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usage error, `3` a `--fail-on` verdict occurred.
 
 ## Known limits
 
@@ -187,7 +223,7 @@ go test -race ./...
 cmd/kwhy/    CLI wiring (cobra): flags in, features out
 render/      Helm rendering in-process, shared by value and change
 value/       values leaves, override chains, tracing (v0.1)
-change/      base/head render, impact rules, report (v0.3 proof of concept)
+change/      base/head render, impact rules, live refinement, report (v0.3)
 pod/         v0.4, the only package importing k8s.io/kubernetes
 docs/        specs, v0.1 plan, spikes
 ```

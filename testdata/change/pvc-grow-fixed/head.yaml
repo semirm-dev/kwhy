@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: data}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 20Mi}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: user}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: user}}
+  template:
+    metadata: {labels: {app: user}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: c
+          image: busybox:1.37
+          command: [sleep, "3600"]
+          volumeMounts: [{name: d, mountPath: /d}]
+      volumes: [{name: d, persistentVolumeClaim: {claimName: data}}]

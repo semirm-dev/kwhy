@@ -1,0 +1,8 @@
+apiVersion: batch/v1
+kind: Job
+metadata: {name: migrate}
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers: [{name: c, image: busybox:1.37, command: [sleep, "2"]}]

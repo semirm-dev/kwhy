@@ -1,0 +1,115 @@
+name: kwhy change
+description: Comment on a pull request with what merging it does to running workloads.
+branding: {icon: git-pull-request, color: blue}
+
+inputs:
+  chart:
+    description: Chart directory in the repo.
+    required: true
+  values:
+    description: Values files, one per line (later wins).
+    default: ""
+  set:
+    description: key=value overrides, one per line.
+    default: ""
+  release:
+    description: Release name.
+    default: rel
+  namespace:
+    description: Release namespace.
+    default: default
+  kube-version:
+    description: Kubernetes version for .Capabilities.KubeVersion (default kwhy's).
+    default: ""
+  fail-on:
+    description: Fail the job if any of these verdicts occur, comma-separated (e.g. fail,data-loss).
+    default: ""
+  base:
+    description: Base ref (default the PR's base commit).
+    default: ${{ github.event.pull_request.base.sha }}
+  head:
+    description: Head ref (default the PR's merge commit, so the comment shows what merging does).
+    default: ${{ github.sha }}
+  version:
+    description: kwhy release to use, e.g. v0.3.0 (default the latest).
+    default: ""
+  comment:
+    description: Post or update one PR comment with the result.
+    default: "true"
+  github-token:
+    description: Token for downloading kwhy and commenting.
+    default: ${{ github.token }}
+
+outputs:
+  exit-code:
+    description: kwhy's exit code (0 ok, 3 a --fail-on verdict occurred).
+    value: ${{ steps.run.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    # shortcut: Linux runners only; add the darwin/windows archives when someone needs them.
+    - name: Install kwhy
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        arch=amd64; [ "$RUNNER_ARCH" = ARM64 ] && arch=arm64
+        dir="$RUNNER_TEMP/kwhy" && mkdir -p "$dir"
+        gh release download $VERSION -R semirm-dev/kwhy -p "kwhy_*_linux_${arch}.tar.gz" -O "$dir/kwhy.tar.gz" --clobber
+        tar -xzf "$dir/kwhy.tar.gz" -C "$dir" kwhy
+        echo "$dir" >> "$GITHUB_PATH"
+
+    - name: Run kwhy change
+      id: run
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+        HEAD: ${{ inputs.head }}
+        CHART: ${{ inputs.chart }}
+        VALUES: ${{ inputs.values }}
+        SETS: ${{ inputs.set }}
+        RELEASE: ${{ inputs.release }}
+        NAMESPACE: ${{ inputs.namespace }}
+        KUBE_VERSION: ${{ inputs.kube-version }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        if [ -z "$BASE" ] || [ -z "$HEAD" ]; then
+          echo "::error::base and head are required outside pull_request events"; exit 2
+        fi
+        # Both refs must be in the clone: actions/checkout needs fetch-depth: 0.
+        args=(change "$BASE..$HEAD" --chart "$CHART" --release "$RELEASE" -n "$NAMESPACE" -o markdown)
+        while IFS= read -r f; do [ -n "$f" ] && args+=(-f "$f"); done <<< "$VALUES"
+        while IFS= read -r s; do [ -n "$s" ] && args+=(--set "$s"); done <<< "$SETS"
+        [ -n "$KUBE_VERSION" ] && args+=(--kube-version "$KUBE_VERSION")
+        [ -n "$FAIL_ON" ] && args+=(--fail-on "$FAIL_ON")
+
+        code=0
+        kwhy "${args[@]}" > "$RUNNER_TEMP/kwhy.md" || code=$?
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        cat "$RUNNER_TEMP/kwhy.md" >> "$GITHUB_STEP_SUMMARY"
+        # 0 and 3 produce a report worth posting; anything else is an error.
+        [ "$code" = 0 ] || [ "$code" = 3 ] || exit "$code"
+
+    - name: Comment on the PR
+      if: inputs.comment == 'true' && github.event.pull_request.number != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        marker='<!-- kwhy-change -->'
+        body="$(printf '%s\n%s' "$marker" "$(cat "$RUNNER_TEMP/kwhy.md")")"
+        id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$REPO/issues/comments/$id" -f body="$body" > /dev/null
+        else
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null
+        fi
+
+    - name: Apply --fail-on
+      if: steps.run.outputs.exit-code == '3'
+      shell: bash
+      run: echo "::error::kwhy change found a --fail-on verdict" && exit 3

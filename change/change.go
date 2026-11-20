@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/semirm-dev/kwhy/render"
 )
 
@@ -16,6 +18,7 @@ const (
 	Restart  Verdict = "restart"
 	Ordered  Verdict = "ordered"
 	Scale    Verdict = "scale"
+	Resize   Verdict = "resize"
 	Recreate Verdict = "recreate"
 	Hook     Verdict = "runs as hook"
 	NoEffect Verdict = "no effect"
@@ -28,7 +31,7 @@ const (
 )
 
 var (
-	order = []Verdict{Restart, Ordered, Scale, Recreate, Hook, NoEffect, Delayed, PickedUp, WillFail, Data, Create, Delete}
+	order = []Verdict{Restart, Ordered, Scale, Resize, Recreate, Hook, NoEffect, Delayed, PickedUp, WillFail, Data, Create, Delete}
 
 	workloads = map[string]bool{"Deployment": true, "StatefulSet": true, "DaemonSet": true}
 
@@ -39,6 +42,7 @@ var (
 		"Job": {"parallelism": true, "completions": true, "activeDeadlineSeconds": true, "suspend": true, "backoffLimit": true,
 			"ttlSecondsAfterFinished": true, "backoffLimitPerIndex": true, "maxFailedIndexes": true, "podFailurePolicy": true,
 			"successPolicy": true},
+		"PersistentVolumeClaim": {"resources": true, "volumeAttributesClassName": true},
 	}
 
 	clusterScoped = map[string]bool{"Namespace": true, "CustomResourceDefinition": true, "ClusterRole": true,
@@ -51,10 +55,13 @@ type Verdict string
 
 // Impact is one line of the report.
 type Impact struct {
-	Verdict  Verdict
-	Resource string // "Deployment prod/api", or "ConfigMap prod/cfg → Deployment prod/api" for a consumer
-	Pods     int    // pods restarted, for restart, ordered and recreate
-	Detail   string
+	Verdict  Verdict `json:"verdict"`
+	Resource string  `json:"resource"`       // "Deployment prod/api", or "ConfigMap prod/cfg → Deployment prod/api" for a consumer
+	Pods     int     `json:"pods,omitempty"` // pods restarted, for restart, ordered and recreate
+	Detail   string  `json:"detail,omitempty"`
+	Seconds  int     `json:"estimateSeconds,omitempty"` // estimated rollout time, with --context
+
+	doc render.Doc // the head object, for Live
 }
 
 type obj = map[string]any
@@ -95,19 +102,23 @@ func Diff(base, head []render.Doc) []Impact {
 		}
 	}
 
-	slices.SortFunc(out, func(x, y Impact) int {
+	sortImpacts(out)
+
+	return out
+}
+
+func sortImpacts(is []Impact) {
+	slices.SortFunc(is, func(x, y Impact) int {
 		if c := slices.Index(order, x.Verdict) - slices.Index(order, y.Verdict); c != 0 {
 			return c
 		}
 		return strings.Compare(x.Resource, y.Resource)
 	})
-
-	return out
 }
 
 // classify returns the impact of one changed object, if it has one worth reporting.
 func classify(b, h render.Doc) (Impact, bool) {
-	i := Impact{Resource: name(h)}
+	i := Impact{Resource: name(h), doc: h}
 
 	if hook(h.Object) {
 		i.Verdict = Hook
@@ -122,6 +133,15 @@ func classify(b, h render.Doc) (Impact, bool) {
 				i.Pods = replicas(h.Object)
 			}
 		}
+		return i, true
+	}
+
+	if h.Kind == "PersistentVolumeClaim" {
+		from, to := storage(b.Object), storage(h.Object)
+		if from.Cmp(to) == 0 {
+			return i, false
+		}
+		i.Verdict, i.Detail = Resize, from.String()+" → "+to.String()+", if the StorageClass allows expansion"
 		return i, true
 	}
 
@@ -147,6 +167,9 @@ func classify(b, h render.Doc) (Impact, bool) {
 		if !slices.Equal(images(bt), images(ht)) {
 			i.Detail = "image"
 		}
+		if m := mutableTags(ht); len(m) > 0 {
+			i.Detail += ", pulls mutable " + strings.Join(m, ", ")
+		}
 	case slices.Equal(changedSpec(b.Object, h.Object), []string{"replicas"}):
 		i.Verdict, i.Detail = Scale, fmt.Sprintf("%d → %d", replicas(b.Object), replicas(h.Object))
 	default:
@@ -167,6 +190,14 @@ func rejected(b, h render.Doc) string {
 		m, strict := mutable[h.Kind]
 		if (strict && !m[f]) || (workloads[h.Kind] && f == "selector") || (h.Kind == "Service" && f == "clusterIP") {
 			fs = append(fs, "spec."+f)
+		}
+	}
+	if h.Kind == "PersistentVolumeClaim" {
+		if !reflect.DeepEqual(get(b.Object, "spec", "resources", "limits"), get(h.Object, "spec", "resources", "limits")) {
+			fs = append(fs, "spec.resources.limits")
+		}
+		if s := storage(h.Object); s.Cmp(storage(b.Object)) < 0 {
+			return "spec.resources.requests.storage can't shrink"
 		}
 	}
 	if len(fs) == 0 {
@@ -320,6 +351,32 @@ func replicas(o obj) int {
 	}
 
 	return 1
+}
+
+// storage is a claim's requested size; zero if unset or unparsable.
+func storage(o obj) resource.Quantity {
+	q, _ := resource.ParseQuantity(fmt.Sprint(get(o, "spec", "resources", "requests", "storage")))
+	return q
+}
+
+// mutableTags lists the template's images that a rollout pulls anew: tagged latest or untagged, without a digest.
+func mutableTags(tpl any) []string {
+	var out []string
+	for _, field := range []string{"initContainers", "containers"} {
+		for _, c := range list(get(tpl, "spec", field)) {
+			img := str(c, "image")
+			if strings.Contains(img, "@") || str(c, "imagePullPolicy") == "Never" {
+				continue
+			}
+			// The tag follows the last colon after the last slash; a registry port has a slash after it.
+			last := img[strings.LastIndex(img, "/")+1:]
+			if _, tag, ok := strings.Cut(last, ":"); !ok || tag == "latest" {
+				out = append(out, img)
+			}
+		}
+	}
+
+	return out
 }
 
 func images(tpl any) []string {

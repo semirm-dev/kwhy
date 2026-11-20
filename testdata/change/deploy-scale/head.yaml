@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: api}}
+  template:
+    metadata: {labels: {app: api}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: c
+          image: busybox:1.37
+          command: [sleep, "3600"]

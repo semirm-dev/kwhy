@@ -17,28 +17,20 @@ mistakes that cause incidents after a "harmless" merge.
 
 ## Scope
 
-**Proof of concept (built 2026-11-20, Helm only, offline):**
+**v0.3 (built 2026-11-20, Helm only):**
 ```
-kwhy change <base>..<head> --chart <dir> [-f values.yaml ...] [--set k=v ...]
-            [--release rel] [-n ns] [--kube-version v] [-o human|markdown]
+kwhy change <base>..<head> --chart <dir> [-f values.yaml ...] [--set k=v ...] [--release rel] [-n ns]
+            [--kube-version v] [--context <kube-context>] [-o human|markdown|json] [--fail-on fail,data-loss]
 ```
 - Renders base and head with the shared `render/` engine in `git worktree` checkouts in a temp dir,
   removed afterwards. Chart and values paths inside the repo are read at each ref.
-- Every rule in the tables below except the "not yet built" list, with unit tests per rule
-  (`change/change_test.go`).
-- Not yet: the kind suite, the real-chart regression set, the 65k comment limit.
-
-**Next, in this order:** `--fail-on` exit codes, `-o json`, `--context`. Then the GitHub Action.
-
-**v0.3 target:**
-```
-kwhy change <base>..<head> [--chart <dir> ...] [--config .kwhy.yaml] [--context <kube-context>]
-            [--output human|markdown|json] [--fail-on fail,data-loss]
-```
-- What to render comes from `--chart` (chart dir + values files) or `.kwhy.yaml`. Kustomize is shelved
-  (see the overview). Auto-discovery of Argo CD `Application` and Flux `HelmRelease` comes later.
-- `--context` (optional, read-only) adds live replica counts, HPA ranges and rollout time estimates.
-- GitHub Action that posts or updates one PR comment (markdown output).
+- `--context` (optional, read-only: get and list) adds live replica counts, HPA ranges, DaemonSet node counts,
+  StorageClass expansion and rollout time estimates (`change/live.go`).
+- `--fail-on` exits 3; `-o json` is `kwhy.change/v1`; markdown stays under GitHub's comment limit.
+- GitHub Action (`action.yml`) that posts or updates one PR comment (markdown output).
+- One chart per run. Several `--chart`s and `.kwhy.yaml` were dropped (2026-11-20) until someone needs them.
+  Kustomize is shelved (see the overview). Auto-discovery of Argo CD `Application` and Flux `HelmRelease`
+  comes later.
 
 **Non-goals:** applying anything, validating against admission webhooks/policies (Kyverno etc.), cost
 estimates.
@@ -53,7 +45,7 @@ Merging this PR will:
              env var: running pods keep the OLD value until they restart
 ✗ will fail  StatefulSet prod/cache  spec.serviceName is immutable
 ⚠ data       StatefulSet prod/redis  deleted, and its PVCs with it
-15 pods restarted · est. 11 min · 1 apply error · 1 data warning
+15 pods restarted · est. 9m · 1 apply error · 1 data warning
 ```
 
 ## Rules
@@ -72,7 +64,7 @@ Merging this PR will:
 | Job `spec.template` changed | `will fail` (immutable) | API rejected |
 | StatefulSet field outside the mutable set changed | `will fail` | API rejected `serviceName` |
 
-**Found by the real-chart run, required in v0.3:**
+**Found by the real-chart run (built, guarded by `change/accuracy_test.go`):**
 - **Hooks are recreated, not patched.** Objects with `helm.sh/hook` (any delete policy) or
   `argocd.argoproj.io/hook` run as hooks, so a changed hook Job is `runs as hook`, not `will fail`.
   The spike flagged ingress-nginx's admission Jobs as failing; that was wrong.
@@ -80,33 +72,38 @@ Merging this PR will:
   immutable-field failures into delete+recreate: report `recreate` instead of `will fail`.
 - Deduplicate consumers (grafana's Secret was reported twice).
 
-**Built in the proof of concept, unit-tested, not yet validated on kind:**
-- Immutable: workload `spec.selector`; Service `clusterIP`; ConfigMap/Secret with `immutable: true`.
-- `data` warnings: deleting a PVC, a StatefulSet whose `persistentVolumeClaimRetentionPolicy.whenDeleted`
-  is `Delete`, or a Namespace; CRD deletions (cascade to all custom resources). A diff can't see PVCs
-  created from `volumeClaimTemplates`, so it warns on the StatefulSet, never on `data-<sts>-0`.
-- `updateStrategy: OnDelete` (StatefulSet, DaemonSet): `no effect` until pods are deleted, and consumers of
-  a changed ConfigMap/Secret keep the old data.
-- StatefulSet `rollingUpdate.partition`: only ordinals ≥ partition roll; at or above `replicas`, `no effect`.
-- Projected volumes and `secretKeyRef` consumers.
-- DaemonSet template change: "one pod per node", no count offline.
+**Validated on kind 1.35 and 1.37 by the rules suite (`change/kind_test.go`, `testdata/change/`, 23 fixtures):**
+- Everything in the first table, plus: immutable workload `spec.selector`, Service `clusterIP`, ConfigMap with
+  `immutable: true`; `OnDelete` (StatefulSet, DaemonSet); StatefulSet `partition`; DaemonSet restart one pod
+  per node; `secretKeyRef` and projected-volume consumers; StatefulSet deletion with
+  `persistentVolumeClaimRetentionPolicy.whenDeleted: Delete` takes its claims.
+- PVC: any spec change except `resources.requests` (and `volumeAttributesClassName`) is rejected; storage can't
+  shrink; growing needs a bound claim and a StorageClass with `allowVolumeExpansion`. Offline it's `resize`
+  "if the StorageClass allows expansion"; `--context` turns it into `will fail` when the class can't expand or
+  the claim isn't bound.
+- **Service type to or from `ExternalName` is accepted** (the API drops or allocates the clusterIP), so it's
+  not a rule. Pinned by a unit test.
+- Not checkable with kubectl, unit-tested only: hooks (Helm runs them), Argo `Replace`/`Force` (Argo does),
+  deleting a PVC or Namespace, CRD deletion.
 
-**Specified, not yet built:**
-- Service type changes from/to `ExternalName`; PVC spec except `resources.requests.storage` increases
-  (and only if the StorageClass has `allowVolumeExpansion`).
-- DaemonSet node count with `--context`, respecting `maxUnavailable`.
-- Image-only changes with mutable tags (`:latest` + `Always` restarts on any rollout, invisible in the
-  diff: warn).
-- Rollout estimate (with `--context`): replicas (HPA current, not manifest), `maxSurge`/`maxUnavailable`,
-  `minReadySeconds`, readiness probe timing, StatefulSet `podManagementPolicy`.
+**Also built:**
+- Restarts that pull a mutable tag (`:latest` or untagged, no digest) say so: the rollout may change the code
+  even when the diff doesn't show it.
+- Rollout estimate (with `--context`): pods from the HPA's current replicas, else the live object;
+  batches from `maxSurge`/`maxUnavailable` (StatefulSet: `maxUnavailable`, default 1); each batch takes ~10s
+  start plus the slowest readiness probe's `initialDelaySeconds + periodSeconds × successThreshold` plus
+  `minReadySeconds`. Workloads roll in parallel, so the summary shows the slowest. `podManagementPolicy` only
+  affects scaling, not rolling updates, so the estimate ignores it.
 
-## Acceptance criteria (v0.3)
+## Acceptance criteria (v0.3) — met 2026-11-20
 
-- A kind-based CI suite with one fixture per rule (spike fixtures as the start). Each rule's prediction
-  is checked against the cluster after `kubectl apply`. The suite is the source of truth for rules.
-- Real-chart regression set: chart version bumps for ingress-nginx, argo-cd, cert-manager, grafana with no
-  false `will fail` (the hook bug must stay fixed).
-- Markdown output stays under 65,000 characters (GitHub comment limit) with a collapsed full list.
+- A kind-based CI suite with one fixture per rule (`.github/workflows/change.yml`, Kubernetes 1.35–1.37).
+  Each rule's prediction (with `--context` against the same cluster) is checked against the cluster after
+  `kubectl apply`. The suite is the source of truth for rules.
+- Real-chart regression set: upgrades from the previous minor of ingress-nginx, argo-cd, cert-manager and
+  grafana with no false `will fail` (`TestAccuracyUpgrades`, in `ci.yml`; charts in `testdata/charts/prev`).
+- Markdown output stays under 65,000 characters: past it, failures, data warnings and recreates stay in view and
+  the rest folds into a collapsed list, cut to fit.
 - `--fail-on` exit codes for CI.
 
 ## Risks
