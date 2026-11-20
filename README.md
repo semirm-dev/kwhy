@@ -295,7 +295,7 @@ Download the archive for your platform (macOS, Linux or Windows; amd64 or arm64)
 As a kubectl plugin (`kubectl kwhy ...`): each release from v0.4 attaches a Krew manifest, `kwhy.yaml`. Until kwhy is
 in the Krew index, install it with `kubectl krew install --manifest=kwhy.yaml`.
 
-Single static binary, offline by default, no telemetry. Homebrew comes later.
+Single static binary, offline by default, no telemetry. Homebrew (`brew install --cask semirm-dev/tap/kwhy`) once the tap repo exists.
 
 Releases from v0.8 carry an SBOM per archive and a keyless cosign signature of `checksums.txt`:
 
