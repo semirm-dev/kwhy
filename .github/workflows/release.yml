@@ -20,3 +20,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The Krew manifest for the krew-index PR (goreleaser writes it with skip_upload).
+      - run: gh release upload "$GITHUB_REF_NAME" dist/krew/kwhy.yaml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
