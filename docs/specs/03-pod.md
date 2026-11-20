@@ -45,9 +45,9 @@ kwhy pod <name|pod/name|deploy/name|sts/name|job/name> [-n ns] [--context ctx] [
   `app.kubernetes.io/instance` label; the render uses the cluster's version for `.Capabilities`.
   `pod/` never imports `value/`: `pod.Reads` says which fields a check reads, `cmd/kwhy` joins the two.
 
-**Non-goals (v0.4):** DRA resource claims (detect and say unsupported), secondary schedulers with custom
-plugins, scoring/placement ("why did it land on node X"), preemption and nominated pods. Cut on 2026-11-20:
-Cluster Autoscaler/Karpenter detection and `--scheduler-config` (a hint, not a diagnosis; warnings cover the rest).
+**Non-goals:** out-of-tree scheduler plugins (they fail by name), scoring/placement ("why did it land on node X"),
+and an exact preemption decision (the hint ignores PodDisruptionBudgets and nominated pods; backlog). DRA, autoscaler
+events, `--scheduler-config` and the preemption hint were non-goals for v0.4 and shipped later (v0.6–v0.8).
 
 ## Output (human)
 
@@ -98,9 +98,9 @@ the scheduler's own scheme and defaults) instead of the default one. What's stil
 - Import `k8s.io/kubernetes/pkg/scheduler/...` at a pinned version (spike: v1.37.2, 31 `replace`
   directives generated from upstream `go.mod` by a script in the repo).
 - `schedmetrics.Register()` before building frameworks, or `NewFramework` panics.
-- Default profile from `apis/config/latest.Default()`. **Remove `DynamicResources` from
-  `MultiPoint.Enabled`**: it needs a `SharedDRAManager`, and `MultiPoint.Disabled` doesn't remove a
-  plugin that is listed as enabled (both found in the spike).
+- Default profile from `apis/config/latest.Default()`. The spike removed `DynamicResources` from
+  `MultiPoint.Enabled` (it needs a `SharedDRAManager`, and `MultiPoint.Disabled` doesn't remove a plugin listed as
+  enabled); since v0.8 kwhy builds that manager instead (see Risks).
 - **All filters:** `RunFilterPlugins` returns on the first failure, so build one framework per filter
   plugin (`Filter.Enabled=[name]`, `Disabled=[*]`), run PreFilter, then Filter on every node. The spike
   shows the gain: on `gpu-a2` the scheduler reported only NodeAffinity, but NodeResourcesFit also failed.

@@ -60,6 +60,7 @@ Every answer has one of these **kinds**, shown to the user and in JSON:
 | `hashed` | checksum of other content; points at what it hashes | `checksum/config` annotation |
 | `chart` | no values leaf affects it; constant in the chart | `apiVersion`, fixed ports |
 | `structural` | a leaf decides whether the field exists at all (bools, enums) | `ingress.enabled` |
+| `random` | differs between two identical renders | `randAlphaNum` passwords |
 
 ## Algorithm (validated in `docs/spikes/value`)
 
@@ -98,8 +99,8 @@ Spike results, 40 sampled leaves per chart checked against perturbation ground t
 | argo-cd 10.18.1 | 1.00 | 0.99 | 3 |
 | bitnami postgresql 18.12.20 | 1.00 | 0.96 | 9 |
 
-The spike rendered via the `helm` CLI (2–28s per chart, dominated by process start). In-process rendering is
-expected to be roughly 10× faster; that's a performance target for v0.1, not yet measured.
+The spike rendered via the `helm` CLI (2–28s per chart, dominated by process start). In-process (measured in
+v0.1, 8 cores): 0.02–1.7s for most charts, argo-cd 3.8s, kube-prometheus-stack 21s; cached repeats ~0.2s.
 
 ## Kustomize, validated in `docs/spikes/kustomize`
 

@@ -30,8 +30,8 @@ kwhy change <base>..<head> --chart <dir> [-f values.yaml ...] [--set k=v ...] [-
 - GitHub Action (`action.yml`) that posts or updates one PR comment (markdown output).
 - One chart per run (several apps per run since v0.8, below).
 
-**v0.7 (built 2026-11-20):** `--manifests DIR` for plain YAML instead of a chart (a Kustomize directory is
-refused), Helm's `--set-string`/`--set-json`/`--set-file`/`--set-literal`, a `no endpoints` verdict for a Service
+**v0.7 (built 2026-11-20):** `--manifests DIR` for plain YAML instead of a chart (a Kustomize directory was
+refused until v0.9), Helm's `--set-string`/`--set-json`/`--set-file`/`--set-literal`, a `no endpoints` verdict for a Service
 whose selector matched rendered pods before and none after (checked on kind: its EndpointSlices empty), and with
 `--context` a note when a Deployment's surge pods exceed the namespace's ResourceQuota. The Action takes
 `manifests` and runs on Linux, macOS and Windows.
@@ -46,6 +46,9 @@ as nothing, so a new app is `create`.
 
 **v0.9 (built 2026-11-20, experimental):** Kustomize overlays in `--manifests` (built with Kustomize's library), Argo CD apps
 pointing at an overlay, and Flux `Kustomization` objects in `--apps`.
+
+**Not classified yet** (no line in the report; backlog): CronJob changes (next run only), bare Pod changes (mostly
+immutable, would be `will fail`), and CronJob/Job consumers of a changed ConfigMap or Secret.
 
 **Non-goals:** applying anything, validating against admission webhooks/policies (Kyverno etc.), cost
 estimates.

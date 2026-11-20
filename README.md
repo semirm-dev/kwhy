@@ -10,11 +10,12 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 | Command | Question | Works on | Status |
 |---|---|---|---|
 | `kwhy value` | Where does this rendered value come from? (Helm; Kustomize experimental) | Git repo, offline | v0.9 |
-| `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.3 |
-| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.6 |
+| `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.9 |
+| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.9 |
 
-> **Status:** early development. `kwhy value` works today and is checked nightly against 10 public charts.
-> `kwhy change` works for Helm charts and every rule is checked against a real cluster in CI. `kwhy pod` works on
+> **Status:** all three commands work end to end for Helm and plain YAML; Kustomize is experimental in all three.
+> `kwhy value` is checked nightly against 10 public charts.
+> `kwhy change` works for charts, plain YAML and Argo CD / Flux apps, and every rule is checked against a real cluster in CI. `kwhy pod` works on
 > live clusters: Pending pods are checked against the real scheduler, and crashes, pull errors, OOM kills, config,
 > mount and probe failures against what kubelet reports, on kind in CI (Kubernetes 1.35–1.37).
 
@@ -117,10 +118,10 @@ One field, end to end, on an 8-core M1 Pro:
 | argo-cd | 758 | 3.8s |
 | kube-prometheus-stack | 1247 | 21s |
 
-Nearly all of it is tracing the whole chart, which every run repeats, so a second question about the
-same chart costs the same again.
+Nearly all of it is tracing the whole chart once; later questions about the same chart and values come from
+the cache (argo-cd: 9s → 0.2s).
 
-## `kwhy change`: what will this PR do? (v0.3–v0.8)
+## `kwhy change`: what will this PR do? (v0.3–v0.9)
 
 Diff tools show the full rendered diff. `kwhy change` says what the diff *does*, as one short PR comment
 (target output):
@@ -182,7 +183,7 @@ It posts one comment per PR and updates it on every push, comparing the PR's bas
 Inputs: `chart`, `manifests`, `config` or `apps` (none: `.kwhy.yaml`), `values` and `set` (one per line), `release`, `namespace`, `kube-version`,
 `fail-on`, `base`, `head`, `version` (kwhy release, default latest), `comment`. Linux, macOS and Windows runners.
 
-## `kwhy pod`: why isn't it running? (v0.5)
+## `kwhy pod`: why isn't it running? (v0.4–v0.9)
 
 Two cases, one command. It says what's wrong; fixing it stays with you.
 
@@ -385,6 +386,9 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
   away. A custom profile needs `--scheduler-config`; out-of-tree scheduler plugins can't run.
 - `pod`'s preemption hint ignores PodDisruptionBudgets and nominated pods. Pods with DRA resource claims run the
   real `DynamicResources` plugin over the cluster's ResourceSlices (v0.8). What's missing across all three commands is in the [backlog](docs/plans/backlog.md).
+- `change` classifies Deployments, StatefulSets, DaemonSets, Jobs, Services, PVCs, ConfigMaps and Secrets. A changed
+  CronJob or bare Pod gets no line, and a CronJob or Job reading a changed ConfigMap isn't listed as a consumer.
+- `pod` takes pods and `deploy/`, `sts/`, `ds/`, `job/`; for a CronJob or ReplicaSet, name one of its pods.
 - `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
 
 ## Development

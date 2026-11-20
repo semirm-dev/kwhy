@@ -3,6 +3,14 @@
 The open work and the decisions any future change must respect. What's built is in the README and
 `docs/specs/`; how it was built is in git history.
 
+## Where each command stands (2026-11-20, v0.9.0)
+
+| Command | Helm | Plain YAML | Kustomize | Checked by | Gaps |
+|---|---|---|---|---|---|
+| `value` | done: every spec item, all `--set*` flags, cache | n/a | experimental | 10 charts nightly (precision 1.00, recall 0.98–1.00); 7 overlays, on demand | #3–6 |
+| `change` | done: every spec rule, `--context`, Action, `.kwhy.yaml`, Argo CD / Flux | done | experimental | 23 kind fixtures on 1.35/1.37, 4 real chart upgrades | #8, #9 |
+| `pod` | Pending (real scheduler, DRA, custom profiles) and not-running (kubelet, controllers) done; `--chart` | n/a | `--kustomize`, experimental | kind parity suite on 1.35–1.37 | #7, #10 |
+
 ## Open
 
 | # | What | Why it matters | Size |
@@ -15,6 +23,8 @@ The open work and the decisions any future change must respect. What's built is 
 | 6 | Kustomize trace cache (like Helm's), keyed by the stack's files | argo-cd HA takes ~8s per question | S |
 | 7 | `kwhy pod` preemption hint that weighs PodDisruptionBudgets and nominated pods | the hint may name a node the scheduler wouldn't preempt on | M |
 | 8 | `change --apps` reads Argo CD / Flux definitions at each ref, not only the working tree | an app whose definition changes in the PR uses the head's | S |
+| 9 | `change`: CronJob (next run picks it up) and bare Pod (mostly immutable: `will fail`) verdicts; CronJob/Job as ConfigMap and Secret consumers | these changes get no line today | S |
+| 10 | `pod cj/` and `rs/` targets | today you name one of their pods | S |
 
 ## Decisions to keep
 
