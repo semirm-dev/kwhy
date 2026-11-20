@@ -80,6 +80,8 @@ type Leaf struct {
 	Path  []any    `json:"path"`  // string keys and int list indexes, e.g. {"resources", "requests", "memory"}
 	Value any      `json:"value"` // winning value
 	Chain []Source `json:"chain"` // Chain[0] is the winner, then what it overrode, ending at the chart default
+	// Entry names the kustomization entry for Kustomize answers (e.g. "patches[0] path=memory.yaml"); Path is empty then.
+	Entry string `json:"entry,omitempty"`
 }
 
 // Source is one place that sets a values leaf.

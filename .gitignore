@@ -2,4 +2,4 @@
 /dist/
 *.test
 *.out
-.DS_Store
+.DS_Store/testdata/kustomize/public/

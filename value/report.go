@@ -26,7 +26,7 @@ func WriteHuman(w io.Writer, as []Answer) error {
 		switch {
 		case a.Kind == Direct:
 			l := a.Leaves[0]
-			fmt.Fprintf(&b, "%s  %s  %s\n", val, l.Chain[0].String(), PathString(l.Path))
+			fmt.Fprintf(&b, "%s  %s  %s\n", val, l.Chain[0].String(), leafName(l))
 			for j, s := range l.Chain[1:] {
 				label := "├─ "
 				if j == len(l.Chain)-2 {
@@ -43,7 +43,7 @@ func WriteHuman(w io.Writer, as []Answer) error {
 		case len(a.Leaves) > 0:
 			var from []string
 			for _, l := range a.Leaves {
-				from = append(from, fmt.Sprintf("%s (%s)", PathString(l.Path), l.Chain[0].String()))
+				from = append(from, fmt.Sprintf("%s (%s)", leafName(l), l.Chain[0].String()))
 			}
 			fmt.Fprintf(&b, "%s  %s  ← %s\n", val, a.Kind, strings.Join(from, ", "))
 
@@ -73,7 +73,7 @@ func WriteMarkdown(w io.Writer, as []Answer) error {
 		var from []string
 		for _, l := range a.Leaves {
 			var s strings.Builder
-			fmt.Fprintf(&s, "`%s` %s", PathString(l.Path), l.Chain[0].String())
+			fmt.Fprintf(&s, "`%s` %s", leafName(l), l.Chain[0].String())
 			for _, o := range l.Chain[1:] {
 				s.WriteString(", overrides ")
 				s.WriteString(o.String())
@@ -102,4 +102,12 @@ func WriteJSON(w io.Writer, as []Answer) error {
 		Schema  string   `json:"schema"`
 		Answers []Answer `json:"answers"`
 	}{"kwhy.value/v1", as})
+}
+
+func leafName(l Leaf) string {
+	if l.Entry != "" {
+		return l.Entry
+	}
+
+	return PathString(l.Path)
 }

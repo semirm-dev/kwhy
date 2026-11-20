@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"reflect"
@@ -121,11 +122,11 @@ func valueCmd() *cobra.Command {
 			cmd.SetOut(cmd.ErrOrStderr())
 			_ = cmd.Help()
 
-			return usageError{errors.New("missing value command: chart")}
+			return usageError{errors.New("missing value command: chart or kustomize")}
 		},
 	}
 
-	cmd.AddCommand(valueChartCmd())
+	cmd.AddCommand(valueChartCmd(), valueKustomizeCmd())
 
 	return cmd
 }
@@ -252,6 +253,72 @@ func valueChartCmd() *cobra.Command {
 	f.StringVar(&helm.RepositoryCache, "repository-cache", helm.RepositoryCache, "path to Helm's repository index cache")
 	f.StringVar(&helm.RegistryConfig, "registry-config", helm.RegistryConfig, "path to Helm's registry config")
 	f.StringVar(&helm.ContentCache, "content-cache", helm.ContentCache, "path to Helm's chart content cache")
+
+	return cmd
+}
+
+func valueKustomizeCmd() *cobra.Command {
+	var (
+		output, root string
+		all          bool
+	)
+
+	cmd := &cobra.Command{
+		Use:     "kustomize <overlay dir> <kind>/<name> [<path>]",
+		Short:   "Which kustomization entry and line set a built value",
+		Example: `  kwhy value kustomize overlays/prod deploy/api '.spec.template.spec.containers[name=api].resources.requests.memory'`,
+		Args:    usageArgs(2, 3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, args := args[0], args[1:]
+			if err := onePathOrAll(len(args) == 2, all); err != nil {
+				return err
+			}
+			if writers[output] == nil {
+				return usageError{fmt.Errorf("--output must be human, markdown or json, got %q", output)}
+			}
+
+			// The whole stack (bases, components) must be in the copy: default to the repo root.
+			if root == "" {
+				root = "."
+				if top, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
+					root = strings.TrimSpace(string(top))
+				}
+			}
+
+			o, err := value.LoadOverlay(root, dir)
+			if err != nil {
+				return err
+			}
+			d, err := o.Select(args[0])
+			if err != nil {
+				return err
+			}
+
+			if all {
+				as, err := o.ExplainAllOverlay(d.ID)
+				if err != nil {
+					return err
+				}
+				return writers[output](cmd.OutOrStdout(), as)
+			}
+
+			p, err := o.FieldPath(d, args[1])
+			if err != nil {
+				return err
+			}
+			a, err := o.ExplainOverlay(value.KField{Doc: d.ID, Path: p})
+			if err != nil {
+				return err
+			}
+
+			return writers[output](cmd.OutOrStdout(), []value.Answer{a})
+		},
+	}
+
+	f := cmd.Flags()
+	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
+	f.BoolVar(&all, "all", false, "explain every field of the resource")
+	f.StringVar(&root, "root", "", "directory holding the whole overlay stack (default: the git repo root)")
 
 	return cmd
 }
