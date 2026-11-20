@@ -387,18 +387,21 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 ## Development
 
 ```sh
-gofmt -l .            # must print nothing
+gofmt -l $(git ls-files "*.go")   # must print nothing
 go vet ./...
 go test -race ./...
+go test -tags accuracy ./value/ ./change/   # public charts and overlays: scripts/fetch-charts.sh, scripts/fetch-overlays.sh
+go test -tags kind ./change/ ./pod/          # against a kind cluster (see the test files for the cluster setup)
 ```
 
 ```
-cmd/kwhy/    CLI wiring (cobra): flags in, features out
-render/      Helm rendering in-process, shared by value and change
-value/       values leaves, override chains, tracing (v0.1)
-change/      base/head render, impact rules, live refinement, report (v0.3)
-pod/         cluster snapshot, every filter per node, report (v0.4); the only package importing k8s.io/kubernetes
-docs/        specs, plans, spikes
+cmd/kwhy/    CLI wiring (cobra): flags in, features out; kwhy mcp
+render/      Helm rendering, plain manifests and Kustomize builds, shared by value and change
+value/       values leaves, override chains, tracing, cache; Kustomize leave-one-out attribution
+change/      base/head render, targets (.kwhy.yaml, Argo CD, Flux), impact rules, live refinement, report
+pod/         cluster snapshot, every filter per node, pod and controller diagnosis, report;
+             the only package importing k8s.io/kubernetes
+docs/        specs, plans (backlog: docs/plans/2026-11-20-backlog.md), spikes
 ```
 
 Design: [overview](docs/specs/00-overview.md) · [value](docs/specs/01-value.md) ·
