@@ -1,0 +1,11 @@
+# Fails once and has no retries left.
+apiVersion: batch/v1
+kind: Job
+metadata: {name: target}
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - {name: app, image: busybox:1.36, command: [sh, -c, "exit 3"]}

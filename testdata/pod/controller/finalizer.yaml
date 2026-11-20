@@ -1,0 +1,8 @@
+# Held by a finalizer nothing removes; the test deletes it and removes the finalizer at cleanup.
+apiVersion: v1
+kind: Pod
+metadata: {name: target, finalizers: [kwhy.test/hold]}
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - {name: app, image: registry.k8s.io/pause:3.10}

@@ -1,0 +1,17 @@
+# A quota of zero pods: the ReplicaSet can't create any, so the Deployment has none to check.
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: no-pods}
+spec:
+  hard: {pods: "0"}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: target}
+spec:
+  selector: {matchLabels: {app: target}}
+  template:
+    metadata: {labels: {app: target}}
+    spec:
+      containers:
+        - {name: app, image: registry.k8s.io/pause:3.10}
