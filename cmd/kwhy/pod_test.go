@@ -101,3 +101,23 @@ func TestPodSourcesProblem(t *testing.T) {
 		t.Errorf("sources = %+v\nwant [%+v]", got, want)
 	}
 }
+
+// Through a Kustomize overlay: the memory request a failing check reads is set by the prod overlay's patch.
+func TestPodKustomizeSources(t *testing.T) {
+	c := fake.NewClientset(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "prod-api", Namespace: "prod"}})
+	p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "prod-api-1", Namespace: "prod",
+		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "prod-api", Controller: new(true)}}}}
+	r := pod.Result{Nodes: []pod.Node{{Name: "n1", Failed: []pod.Check{{Plugin: "NodeResourcesFit", Reasons: []string{"Insufficient memory"}}}}}}
+
+	t.Chdir("../../testdata/kustomize/fixture")
+	got, err := podKustomizeSources(t.Context(), c, p, r, ".", "overlays/prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := pod.Source{Plugin: "NodeResourcesFit", Field: ".spec.containers[0].resources.requests.memory", Value: "2Gi",
+		From: "patches[0] path=memory.yaml (overlays/prod/memory.yaml:12)"}
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("sources = %+v\nwant [%+v]", got, want)
+	}
+}

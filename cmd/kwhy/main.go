@@ -506,6 +506,16 @@ func podCmd() *cobra.Command {
 				return usageError{fmt.Errorf("--output must be human, markdown or json, got %q", output)}
 			}
 
+			if src.chart != "" && src.kustomize != "" {
+				return usageError{errors.New("give --chart or --kustomize, not both")}
+			}
+			if src.kustomize != "" && src.root == "" {
+				src.root = "."
+				if top, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
+					src.root = strings.TrimSpace(string(top))
+				}
+			}
+
 			if logs < 0 {
 				return usageError{fmt.Errorf("--logs must be 0 or more, got %d", logs)}
 			}
@@ -560,6 +570,11 @@ func podCmd() *cobra.Command {
 				}
 
 				r := pod.Result{Problems: append(ps, ctrl...)}
+				if src.kustomize != "" && len(ps) > 0 {
+					if r.Sources, err = podKustomizeSources(ctx, c, p, r, src.root, src.kustomize); err != nil {
+						return err
+					}
+				}
 				if src.chart != "" && len(ps) > 0 {
 					v, err := c.Discovery().ServerVersion()
 					if err != nil {
@@ -606,6 +621,11 @@ func podCmd() *cobra.Command {
 					return err
 				}
 			}
+			if src.kustomize != "" {
+				if r.Sources, err = podKustomizeSources(ctx, c, p, r, src.root, src.kustomize); err != nil {
+					return err
+				}
+			}
 
 			return podWriters[output](cmd.OutOrStdout(), p, r)
 		},
@@ -621,6 +641,8 @@ func podCmd() *cobra.Command {
 	f.StringVar(&src.version, "version", "", "chart version, for repo and OCI charts")
 	valuesFlags(f, &src.values, ", as deployed")
 	f.BoolVar(&src.noCache, "no-cache", false, "with --chart: trace the chart again instead of reusing the last trace")
+	f.StringVar(&src.kustomize, "kustomize", "", "Kustomize overlay that deploys the pod: also show which entry and line set each field a failing check reads")
+	f.StringVar(&src.root, "root", "", "with --kustomize: directory holding the whole overlay stack (default: the git repo root)")
 	f.StringVar(&src.release, "release", "", "Helm release name (default: the pod's app.kubernetes.io/instance label)")
 
 	return cmd
@@ -631,6 +653,7 @@ type podChart struct {
 	noCache                 bool
 	chart, version, release string
 	values                  values.Options
+	kustomize, root         string // or a Kustomize overlay, and the directory holding its stack
 }
 
 // podSources finds, with kwhy value, the values lines that set the fields p's failing checks read. It renders the
@@ -671,15 +694,87 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 		return nil, fmt.Errorf("--chart: %w", err)
 	}
 
-	// A workload's pod spec sits under .spec.template; a bare Pod's is the document itself.
-	prefix := ".spec.template"
-	if kind == "Pod" {
-		prefix = ""
+	wants := podWanted(r, kind, docs[doc].Object)
+	if len(wants) == 0 {
+		return nil, nil
 	}
 
-	// matchers are the failing checks (unscheduled pod) and the problems (pod on a node), each with the fields it reads.
+	cache := value.OpenCache(ch, v, o, value.ChunkSize, traceCache(src.noCache))
+	idx, err := cache.Trace(ctx, ch, v, o, value.ChunkSize)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []pod.Source
+	for _, w := range wants {
+		a, err := cache.Explain(ctx, idx, ch, v, o, value.Field{Doc: doc, Path: w.path})
+		if err != nil {
+			return nil, err
+		}
+		if len(a.Leaves) == 0 {
+			continue // set in the chart's templates, not by a value
+		}
+		out = append(out, sourceOf(w, a, kind))
+	}
+
+	return out, nil
+}
+
+// podKustomizeSources is podSources for a pod deployed from a Kustomize overlay.
+func podKustomizeSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r pod.Result, root, dir string) ([]pod.Source, error) {
+	kind, name, err := pod.Owner(ctx, c, p)
+	if err != nil {
+		return nil, err
+	}
+
+	o, err := value.LoadOverlay(root, dir)
+	if err != nil {
+		return nil, err
+	}
+	d, err := o.Select(kind + "/" + name)
+	if err != nil {
+		return nil, fmt.Errorf("--kustomize: %w", err)
+	}
+
+	var out []pod.Source
+	for _, w := range podWanted(r, kind, d.Object) {
+		kp, err := o.FieldPath(d, w.path)
+		if err != nil {
+			continue
+		}
+		a, err := o.ExplainOverlay(value.KField{Doc: d.ID, Path: kp})
+		if err != nil {
+			return nil, err
+		}
+		if a.Kind == value.Chart {
+			continue // no entry or confirmed line to point at
+		}
+		out = append(out, sourceOf(w, a, kind))
+	}
+
+	return out, nil
+}
+
+// wanted is a field of the rendered workload a failing check or problem reads.
+type wanted struct {
+	path string // in the rendered document, list items by index
+	src  pod.Source
+}
+
+// podWanted lists the fields of a rendered workload (or bare Pod) obj that r's failing checks and problems read.
+func podWanted(r pod.Result, kind string, obj map[string]any) []wanted {
+	// A workload's pod spec sits under .spec.template; a bare Pod's is the document itself.
+	prefix := ".spec.template"
+	spec, _ := obj["spec"].(map[string]any)
+	if kind == "Pod" {
+		prefix = ""
+	} else {
+		tmpl, _ := spec["template"].(map[string]any)
+		spec, _ = tmpl["spec"].(map[string]any)
+	}
+
 	type matcher struct {
-		src   pod.Source // Plugin or Problem set
+		src   pod.Source
 		reads func(path string) bool
 		check bool
 	}
@@ -688,11 +783,6 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 		for _, chk := range n.Failed {
 			matchers = append(matchers, matcher{pod.Source{Plugin: chk.Plugin}, func(p string) bool { return pod.Reads(chk, p) }, true})
 		}
-	}
-	spec, _ := docs[doc].Object["spec"].(map[string]any)
-	if kind != "Pod" {
-		tmpl, _ := spec["template"].(map[string]any)
-		spec, _ = tmpl["spec"].(map[string]any)
 	}
 	for _, pr := range r.Problems {
 		i := containerIndex(spec, pr.Container, pr.Init)
@@ -703,62 +793,51 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 		matchers = append(matchers, matcher{pod.Source{Problem: label}, func(p string) bool { return pod.ReadsProblem(pr, p, i) }, false})
 	}
 
-	type want struct {
-		field value.Field
-		src   pod.Source
-	}
-	fields := value.Flatten(docs)
-
-	var wants []want
+	fields := value.Flatten([]render.Doc{{Object: obj}})
+	var out []wanted
 	for f := range fields {
 		path, ok := strings.CutPrefix(f.Path, prefix)
-		if f.Doc != doc || !ok || !strings.HasPrefix(path, ".spec") {
+		if !ok || !strings.HasPrefix(path, ".spec") {
 			continue
 		}
 		// For scheduling, a limit only matters when the container sets no request for it: Kubernetes copies the
 		// limit. An OOM kill is about the limit itself.
 		req := strings.Replace(f.Path, ".resources.limits.", ".resources.requests.", 1)
-		_, hasReq := fields[value.Field{Doc: doc, Path: req}]
+		_, hasReq := fields[value.Field{Path: req}]
 		shadowed := hasReq && req != f.Path
 
 		for _, m := range matchers {
 			if (!m.check || !shadowed) && m.reads(path) {
-				wants = append(wants, want{f, m.src})
+				out = append(out, wanted{f.Path, m.src})
 				break
 			}
 		}
 	}
-	if len(wants) == 0 {
-		return nil, nil
-	}
-	slices.SortFunc(wants, func(a, b want) int { return strings.Compare(a.field.Path, b.field.Path) })
+	slices.SortFunc(out, func(a, b wanted) int { return strings.Compare(a.path, b.path) })
 
-	cache := value.OpenCache(ch, v, o, value.ChunkSize, traceCache(src.noCache))
-	idx, err := cache.Trace(ctx, ch, v, o, value.ChunkSize)
-	if err != nil {
-		return nil, err
-	}
+	return out
+}
 
-	var out []pod.Source
-	for _, w := range wants {
-		a, err := cache.Explain(ctx, idx, ch, v, o, w.field)
-		if err != nil {
-			return nil, err
-		}
-		if len(a.Leaves) == 0 {
-			continue // set in the chart's templates, not by a value
-		}
-
-		var from []string
-		for _, l := range a.Leaves {
-			from = append(from, fmt.Sprintf("%s (%s)", value.PathString(l.Path), l.Chain[0]))
-		}
-		s := w.src
-		s.Field, s.Value, s.From = strings.TrimPrefix(w.field.Path, prefix), a.Value, strings.Join(from, ", ")
-		out = append(out, s)
+// sourceOf turns an answer into the pod's Source line: the field in pod-spec terms, its value and where it's set.
+func sourceOf(w wanted, a value.Answer, kind string) pod.Source {
+	prefix := ".spec.template"
+	if kind == "Pod" {
+		prefix = ""
 	}
 
-	return out, nil
+	var from []string
+	for _, l := range a.Leaves {
+		name := l.Entry
+		if name == "" {
+			name = value.PathString(l.Path)
+		}
+		from = append(from, fmt.Sprintf("%s (%s)", name, l.Chain[0]))
+	}
+
+	s := w.src
+	s.Field, s.Value, s.From = strings.TrimPrefix(w.path, prefix), a.Value, strings.Join(from, ", ")
+
+	return s
 }
 
 // containerIndex is the position of the container named name in a rendered pod spec, -1 if absent.
