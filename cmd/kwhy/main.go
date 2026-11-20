@@ -87,7 +87,7 @@ func valueCmd() *cobra.Command {
 			cmd.SetOut(cmd.ErrOrStderr())
 			_ = cmd.Help()
 
-			return usageError{errors.New("missing value command: chart or kustomize")}
+			return usageError{errors.New("missing value command: chart")}
 		},
 	}
 	cmd.AddCommand(valueChartCmd())

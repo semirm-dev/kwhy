@@ -138,7 +138,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 ## Known limits
 
 - `lookup` returns empty, as with `helm template` (offline).
-- Kustomize tracing comes in v0.2.
+- Kustomize is not supported yet.
 - `-f` takes local files only for now (Helm also accepts URLs).
 - Every run traces the whole chart again; nothing is cached between runs (~20s on kube-prometheus-stack).
 
