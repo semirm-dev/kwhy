@@ -16,12 +16,12 @@ text{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,"DejaVu Sans Mono",mon
 <rect class="k0" x="33.6" y="52" width="598" height="20" fill="#121a26"/>
 </g>
 <text class="o2" x="18" y="105"><tspan x="18.0" class="s">Merging this PR will:</tspan></text>
-<text class="o3" x="18" y="125"><tspan x="18.0" class="c">↻ restart  </tspan><tspan x="103.8">  Deployment prod/checkout     12 pods   </tspan><tspan x="423.6" class="d">image tag</tspan></text>
+<text class="o3" x="18" y="125"><tspan x="18.0" class="c">↻ restart  </tspan><tspan x="103.8">  Deployment prod/checkout     12 pods   </tspan><tspan x="423.6" class="d">image</tspan></text>
 <text class="o4" x="18" y="145"><tspan x="18.0" class="y">⏱ ordered  </tspan><tspan x="103.8">  StatefulSet prod/postgres     3 pods   </tspan><tspan x="423.6" class="d">one at a time, ~9m</tspan></text>
 <text class="o5" x="18" y="165"><tspan x="18.0" class="y">! no effect</tspan><tspan x="103.8">  ConfigMap prod/api-config → Deployment prod/api</tspan></text>
 <text class="o6" x="18" y="185"><tspan x="18.0" class="d">             env var: running pods keep the OLD value until they restart</tspan></text>
 <text class="o7" x="18" y="205"><tspan x="18.0" class="r">✗ will fail</tspan><tspan x="103.8">  StatefulSet prod/cache  spec.serviceName is immutable</tspan></text>
-<text class="o8" x="18" y="225"><tspan x="18.0" class="r">⚠ data     </tspan><tspan x="103.8">  PersistentVolumeClaim prod/data-postgres-0 deleted</tspan></text>
-<text class="o9" x="18" y="245"><tspan x="18.0" class="d">45 pods restarted · est. 11 min · 1 apply error</tspan></text>
+<text class="o8" x="18" y="225"><tspan x="18.0" class="r">⚠ data     </tspan><tspan x="103.8">  StatefulSet prod/redis  deleted, and its PVCs with it</tspan></text>
+<text class="o9" x="18" y="245"><tspan x="18.0" class="d">15 pods restarted · est. 11 min · 1 apply error · 1 data warning</tspan></text>
 </g>
 </svg>

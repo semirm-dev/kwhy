@@ -15,6 +15,7 @@ import (
 	"helm.sh/helm/v4/pkg/chart/common"
 	"helm.sh/helm/v4/pkg/cli"
 
+	"github.com/semirm-dev/kwhy/change"
 	"github.com/semirm-dev/kwhy/render"
 	"github.com/semirm-dev/kwhy/value"
 )
@@ -25,6 +26,10 @@ var (
 
 	writers = map[string]func(io.Writer, []value.Answer) error{
 		"human": value.WriteHuman, "markdown": value.WriteMarkdown, "json": value.WriteJSON,
+	}
+
+	changeWriters = map[string]func(io.Writer, []change.Impact) error{
+		"human": change.WriteHuman, "markdown": change.WriteMarkdown,
 	}
 )
 
@@ -61,8 +66,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
-	root.AddCommand(valueCmd(), notYet("change", "What merging a change does to running workloads (v0.3)"),
-		notYet("pod", "Why a pod is not scheduled (v0.4)"))
+	root.AddCommand(valueCmd(), changeCmd(), notYet("pod", "Why a pod is not scheduled (v0.4)"))
 
 	err := root.Execute()
 	if err == nil {
@@ -220,6 +224,69 @@ func valueChartCmd() *cobra.Command {
 	f.StringVar(&helm.RepositoryCache, "repository-cache", helm.RepositoryCache, "path to Helm's repository index cache")
 	f.StringVar(&helm.RegistryConfig, "registry-config", helm.RegistryConfig, "path to Helm's registry config")
 	f.StringVar(&helm.ContentCache, "content-cache", helm.ContentCache, "path to Helm's chart content cache")
+
+	return cmd
+}
+
+func changeCmd() *cobra.Command {
+	var (
+		src                                     change.Source
+		release, namespace, output, kubeVersion string
+	)
+
+	helm := cli.New()
+
+	cmd := &cobra.Command{
+		Use:     "change <base>..<head>",
+		Short:   "What merging a change does to running workloads",
+		Example: `  kwhy change main..feature --chart ./charts/api -f values-prod.yaml -o markdown`,
+		Args:    usageArgs(1, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			base, head, ok := strings.Cut(args[0], "..")
+			if !ok || base == "" || head == "" {
+				return usageError{fmt.Errorf("want <base>..<head>, got %q", args[0])}
+			}
+
+			if src.Chart == "" {
+				return usageError{errors.New("--chart is required")}
+			}
+
+			if _, err := common.ParseKubeVersion(kubeVersion); err != nil {
+				return usageError{fmt.Errorf("--kube-version: %w", err)}
+			}
+
+			if changeWriters[output] == nil {
+				return usageError{fmt.Errorf("--output must be human or markdown, got %q", output)}
+			}
+
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer stop()
+
+			slog.SetDefault(slog.New(slog.DiscardHandler))
+
+			o := render.Options{Release: release, Namespace: namespace, KubeVersion: kubeVersion}
+			b, err := change.Render(ctx, base, src, o, helm)
+			if err != nil {
+				return err
+			}
+
+			h, err := change.Render(ctx, head, src, o, helm)
+			if err != nil {
+				return err
+			}
+
+			return changeWriters[output](cmd.OutOrStdout(), change.Diff(b, h))
+		},
+	}
+
+	f := cmd.Flags()
+	f.StringVar(&src.Chart, "chart", "", "chart directory in the repo")
+	f.StringArrayVarP(&src.Values, "values", "f", nil, "values file (repeatable, later wins); files in the repo are read at each ref")
+	f.StringArrayVar(&src.Sets, "set", nil, "set a value: key=value (repeatable, wins over files)")
+	f.StringVar(&release, "release", "rel", "release name")
+	f.StringVarP(&namespace, "namespace", "n", "default", "release namespace")
+	f.StringVar(&kubeVersion, "kube-version", render.KubeVersion, "Kubernetes version for .Capabilities.KubeVersion")
+	f.StringVarP(&output, "output", "o", "human", "output format: human or markdown")
 
 	return cmd
 }

@@ -17,14 +17,26 @@ mistakes that cause incidents after a "harmless" merge.
 
 ## Scope
 
-**v0.3:**
+**Proof of concept (built 2026-11-20, Helm only, offline):**
 ```
-kwhy change <base>..<head> [--app <path> ...] [--config .kwhy.yaml] [--context <kube-context>]
+kwhy change <base>..<head> --chart <dir> [-f values.yaml ...] [--set k=v ...]
+            [--release rel] [-n ns] [--kube-version v] [-o human|markdown]
+```
+- Renders base and head with the shared `render/` engine in `git worktree` checkouts in a temp dir,
+  removed afterwards. Chart and values paths inside the repo are read at each ref.
+- Every rule in the tables below except the "not yet built" list, with unit tests per rule
+  (`change/change_test.go`).
+- Not yet: the kind suite, the real-chart regression set, the 65k comment limit.
+
+**Next, in this order:** `--fail-on` exit codes, `-o json`, `--context`. Then the GitHub Action.
+
+**v0.3 target:**
+```
+kwhy change <base>..<head> [--chart <dir> ...] [--config .kwhy.yaml] [--context <kube-context>]
             [--output human|markdown|json] [--fail-on fail,data-loss]
 ```
-- Renders base and head with the shared `render/` engine (`git worktree` checkouts in a temp dir).
-- What to render comes from `--app` (chart dir + values files, or a kustomization dir) or `.kwhy.yaml`.
-  Auto-discovery of Argo CD `Application` and Flux `HelmRelease`/`Kustomization` comes later.
+- What to render comes from `--chart` (chart dir + values files) or `.kwhy.yaml`. Kustomize is shelved
+  (see the overview). Auto-discovery of Argo CD `Application` and Flux `HelmRelease` comes later.
 - `--context` (optional, read-only) adds live replica counts, HPA ranges and rollout time estimates.
 - GitHub Action that posts or updates one PR comment (markdown output).
 
@@ -35,13 +47,13 @@ estimates.
 
 ```
 Merging this PR will:
-↻ restart    Deployment prod/checkout     12 pods   image tag
+↻ restart    Deployment prod/checkout     12 pods   image
 ⏱ ordered    StatefulSet prod/postgres     3 pods   one at a time, ~9m
 ! no effect  ConfigMap prod/api-config → Deployment prod/api
              env var: running pods keep the OLD value until they restart
 ✗ will fail  StatefulSet prod/cache  spec.serviceName is immutable
-⚠ data       PersistentVolumeClaim prod/data-postgres-0 deleted
-45 pods restarted · est. 11 min · 1 apply error
+⚠ data       StatefulSet prod/redis  deleted, and its PVCs with it
+15 pods restarted · est. 11 min · 1 apply error · 1 data warning
 ```
 
 ## Rules
@@ -68,17 +80,25 @@ Merging this PR will:
   immutable-field failures into delete+recreate: report `recreate` instead of `will fail`.
 - Deduplicate consumers (grafana's Secret was reported twice).
 
-**Specified, not yet validated (validate in the v0.3 kind suite):**
-- Immutable: workload `spec.selector`; Service `clusterIP` and type changes from/to `ExternalName`;
-  ConfigMap/Secret with `immutable: true`; PVC spec except `resources.requests.storage` increases
-  (and only if the StorageClass has `allowVolumeExpansion`).
+**Built in the proof of concept, unit-tested, not yet validated on kind:**
+- Immutable: workload `spec.selector`; Service `clusterIP`; ConfigMap/Secret with `immutable: true`.
 - `data` warnings: deleting a PVC, a StatefulSet whose `persistentVolumeClaimRetentionPolicy.whenDeleted`
-  is `Delete`, or a Namespace; CRD deletions (cascade to all custom resources).
-- DaemonSet template change: one pod per node (`--context` for node count), respecting `maxUnavailable`.
-- Projected volumes, `secretKeyRef`, image-only changes with mutable tags (`:latest` + `Always` restarts on
-  any rollout, invisible in the diff: warn).
+  is `Delete`, or a Namespace; CRD deletions (cascade to all custom resources). A diff can't see PVCs
+  created from `volumeClaimTemplates`, so it warns on the StatefulSet, never on `data-<sts>-0`.
+- `updateStrategy: OnDelete` (StatefulSet, DaemonSet): `no effect` until pods are deleted, and consumers of
+  a changed ConfigMap/Secret keep the old data.
+- StatefulSet `rollingUpdate.partition`: only ordinals ≥ partition roll; at or above `replicas`, `no effect`.
+- Projected volumes and `secretKeyRef` consumers.
+- DaemonSet template change: "one pod per node", no count offline.
+
+**Specified, not yet built:**
+- Service type changes from/to `ExternalName`; PVC spec except `resources.requests.storage` increases
+  (and only if the StorageClass has `allowVolumeExpansion`).
+- DaemonSet node count with `--context`, respecting `maxUnavailable`.
+- Image-only changes with mutable tags (`:latest` + `Always` restarts on any rollout, invisible in the
+  diff: warn).
 - Rollout estimate (with `--context`): replicas (HPA current, not manifest), `maxSurge`/`maxUnavailable`,
-  `minReadySeconds`, readiness probe timing, StatefulSet `podManagementPolicy` and `partition`.
+  `minReadySeconds`, readiness probe timing, StatefulSet `podManagementPolicy`.
 
 ## Acceptance criteria (v0.3)
 

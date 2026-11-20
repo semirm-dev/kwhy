@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,7 +35,11 @@ func TestRunExitCodes(t *testing.T) {
 		{"value chart bad chunk size", []string{"value", "chart", "c", "deploy/api", "--all", "--chunk-size", "0"}, 2},
 		{"value chart bad kube version", []string{"value", "chart", "c", "deploy/api", "--all", "--kube-version", "nope"}, 2},
 		{"value chart flags after args", []string{"value", "chart", "c", "deploy/api", ".spec.replicas", "-f", "a.yaml", "-f", "b.yaml"}, 1},
-		{"change", []string{"change"}, 1},
+		{"change missing range", []string{"change", "--chart", "c"}, 2},
+		{"change not a range", []string{"change", "main", "--chart", "c"}, 2},
+		{"change empty head", []string{"change", "main..", "--chart", "c"}, 2},
+		{"change missing chart", []string{"change", "main..feature"}, 2},
+		{"change bad output", []string{"change", "main..feature", "--chart", "c", "-o", "yaml"}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -94,5 +99,53 @@ func TestRunUnknownPath(t *testing.T) {
 
 	if code != 1 || !strings.Contains(errb.String(), "did you mean .spec.replicas") {
 		t.Fatalf("code %d, stderr %q", code, errb.String())
+	}
+}
+
+func TestRunChange(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.CopyFS(filepath.Join(repo, "chart"), os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("prod.yaml", "replicaCount: 2\n")
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-qm", "base")
+
+	git("checkout", "-qb", "feature")
+	write("prod.yaml", "replicaCount: 3\nimage: {tag: '2.0'}\n")
+	git("commit", "-qam", "head")
+	git("checkout", "-q", "main")
+
+	// The working copy is on main, so 3 pods proves prod.yaml was read from the feature checkout.
+	t.Chdir(repo)
+	var out, errb bytes.Buffer
+	code := run([]string{"change", "main..feature", "--chart", "chart", "-f", "prod.yaml"}, &out, &errb)
+
+	if code != 0 || !strings.Contains(out.String(), "Deployment default/rel-api  3 pods  image") ||
+		!strings.Contains(out.String(), "3 pods restarted") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+
+	cmd := exec.Command("git", "worktree", "list")
+	cmd.Dir = repo
+	if wt, _ := cmd.Output(); strings.Count(string(wt), "\n") != 1 {
+		t.Errorf("worktrees left behind:\n%s", wt)
 	}
 }
