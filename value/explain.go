@@ -289,9 +289,11 @@ func ExplainAll(ctx context.Context, idx *Index, c *render.Chart, v *Values, o r
 // emptyLeaves finds the empty-string leaves that move f, which Trace doesn't mark. One render nudging
 // them all is shared by every field, so a field they don't move costs no render of its own.
 func emptyLeaves(ctx context.Context, idx *Index, c *render.Chart, v *Values, o render.Options, f Field) ([]match, error) {
+	// Tracing leaves empty strings and zeros unmarked; both are falsy, so `default` and `or` read past them.
+	// Booleans stay out: flipping one switches template blocks, which would credit structure, not the value.
 	var empty []Leaf
 	for _, l := range v.Leaves {
-		if l.Value == "" {
+		if n, ok := whole(l.Value); l.Value == "" || ok && n == 0 {
 			empty = append(empty, l)
 		}
 	}

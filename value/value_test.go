@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -499,6 +500,34 @@ func TestExplainEmptyLeafDefault(t *testing.T) {
 	}
 	if a.Kind != value.Derived || len(a.Leaves) != 1 || a.Leaves[0].ID != lookup(t, v, "saName").ID {
 		t.Fatalf("got %s %+v, want derived from saName", a.Kind, a.Leaves)
+	}
+}
+
+// A zero leaf behind a field that also has a marker hit is a contributor, like an empty string.
+func TestExplainZeroLeafWithHit(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mini")
+	if err := os.CopyFS(dir, os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+	tpl := "apiVersion: v1\nkind: Service\nmetadata:\n  name: {{ .Values.svcName }}\nspec:\n  ports:\n" +
+		"    - name: {{ .Values.svcName }}-{{ .Values.svcPort | default 8080 }}\n      port: 80\n"
+	if err := os.WriteFile(filepath.Join(dir, "templates", "svc.yaml"), []byte(tpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := writeFiles(t, [2]string{"svc.yaml", "svcName: web\nsvcPort: 0\n"})
+
+	idx, v, c := trace(t, dir, files[0])
+	a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "service/web", ".spec.ports[0].name"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, l := range a.Leaves {
+		got = append(got, value.PathString(l.Path))
+	}
+	if a.Value != "web-8080" || a.Kind != value.Composed || !slices.Equal(got, []string{"svcName", "svcPort"}) {
+		t.Fatalf("got %v %s %v, want composed from svcName and svcPort", a.Value, a.Kind, got)
 	}
 }
 
