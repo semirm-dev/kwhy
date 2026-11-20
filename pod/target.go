@@ -33,7 +33,8 @@ func (h Healthy) Error() string {
 }
 
 // Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, ds/x, job/x). For a workload
-// it is the oldest pod not yet on a node, else the not-ready pod with the most restarts, else Healthy; a workload
+// it is the oldest pod not yet on a node, else the not-ready pod with the most restarts, else a pod stuck
+// terminating, else Healthy; a workload
 // with no pods at all gets a new pod built from its template.
 func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Pod, error) {
 	kind, name, ok := strings.Cut(ref, "/")
@@ -88,9 +89,11 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 		return nil, fmt.Errorf("list pods of %s: %w", ref, err)
 	}
 
-	var live, pending, broken []v1.Pod
+	var live, pending, broken, stuck []v1.Pod
 	for _, p := range pods.Items {
 		switch {
+		case Terminating(&p):
+			stuck = append(stuck, p)
 		case p.DeletionTimestamp != nil || p.Status.Phase == v1.PodSucceeded:
 		case p.Spec.NodeName == "":
 			pending = append(pending, p)
@@ -109,6 +112,8 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 	case len(broken) > 0:
 		p := slices.MaxFunc(broken, func(a, b v1.Pod) int { return restarts(&a) - restarts(&b) })
 		return &p, nil
+	case len(stuck) > 0:
+		return &stuck[0], nil
 	case len(live) > 0:
 		return nil, Healthy{Pods: len(live)}
 	}

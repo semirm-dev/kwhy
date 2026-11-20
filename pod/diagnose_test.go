@@ -180,3 +180,26 @@ func TestDiagnoseNode(t *testing.T) {
 		t.Errorf("no node: %+v", ps)
 	}
 }
+
+func TestDiagnoseTerminating(t *testing.T) {
+	p := running(ok("app"), ok("sidecar"))
+	p.DeletionTimestamp = &metav1.Time{Time: time.Now().Add(-10 * time.Minute)}
+	p.DeletionGracePeriodSeconds = new(int64(30))
+	p.Finalizers = []string{"example.com/backup"}
+
+	ps := diagnose(t, p)
+	if len(ps) != 1 || ps[0].Kind != pod.Stuck || ps[0].Detail != "deleting for 10m; finalizers: example.com/backup" {
+		t.Errorf("finalizer: %+v", ps)
+	}
+
+	p.Finalizers = nil
+	if ps := diagnose(t, p); len(ps) != 1 || !strings.Contains(ps[0].Detail, "kubelet on n1 hasn't confirmed") {
+		t.Errorf("no finalizer: %+v", ps)
+	}
+
+	// Within a minute of the grace period's end, deleting is normal.
+	p.DeletionTimestamp = &metav1.Time{Time: time.Now().Add(-10 * time.Second)}
+	if pod.Terminating(p) {
+		t.Error("10s past the grace period counted as stuck")
+	}
+}

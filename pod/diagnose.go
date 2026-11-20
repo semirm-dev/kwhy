@@ -15,16 +15,17 @@ import (
 
 // Problem kinds. The strings are part of the kwhy.pod/v1 JSON contract.
 const (
-	Pull    = "pull"    // the image can't be pulled
-	Crash   = "crash"   // the container exits with an error
-	OOM     = "oom"     // the container was killed at its memory limit
-	Config  = "config"  // a Secret, ConfigMap or key the container needs is missing
-	Mount   = "mount"   // a volume can't be mounted or attached
-	Probe   = "probe"   // a readiness, liveness or startup probe fails
-	Evicted = "evicted" // the kubelet evicted the pod
-	Sandbox = "sandbox" // the node can't create the pod's sandbox (network, runtime)
-	NodeBad = "node"    // the pod's node isn't Ready or is under pressure
-	Other   = "other"   // not running or not ready for a reason not listed above
+	Pull    = "pull"        // the image can't be pulled
+	Crash   = "crash"       // the container exits with an error
+	OOM     = "oom"         // the container was killed at its memory limit
+	Config  = "config"      // a Secret, ConfigMap or key the container needs is missing
+	Mount   = "mount"       // a volume can't be mounted or attached
+	Probe   = "probe"       // a readiness, liveness or startup probe fails
+	Evicted = "evicted"     // the kubelet evicted the pod
+	Sandbox = "sandbox"     // the node can't create the pod's sandbox (network, runtime)
+	NodeBad = "node"        // the pod's node isn't Ready or is under pressure
+	Stuck   = "terminating" // the pod was deleted but is still there past its grace period
+	Other   = "other"       // not running or not ready for a reason not listed above
 )
 
 // maxEvents caps the event messages kept per problem.
@@ -56,6 +57,14 @@ func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem
 	}
 
 	evs := about(list.Items, p.UID)
+
+	if Terminating(p) {
+		ps := []Problem{{Kind: Stuck, Reason: "Terminating", Detail: terminating(p)}}
+		if pr, ok := nodeProblem(ctx, c, p.Spec.NodeName); ok {
+			ps = append(ps, pr)
+		}
+		return ps, nil
+	}
 
 	if p.Status.Phase == v1.PodFailed && p.Status.Reason == "Evicted" {
 		return []Problem{{Kind: Evicted, Reason: p.Status.Reason, Detail: p.Status.Message}}, nil
@@ -92,6 +101,27 @@ func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem
 	}
 
 	return ps, nil
+}
+
+// Terminating says whether p was deleted and is still there a minute past its grace period. The deletion
+// timestamp is already the end of the grace period.
+func Terminating(p *v1.Pod) bool {
+	return p.DeletionTimestamp != nil && time.Since(p.DeletionTimestamp.Time) > time.Minute
+}
+
+// terminating describes what holds a deleted pod: its finalizers, else the kubelet that hasn't confirmed.
+func terminating(p *v1.Pod) string {
+	requested := p.DeletionTimestamp.Time
+	if g := p.DeletionGracePeriodSeconds; g != nil {
+		requested = requested.Add(-time.Duration(*g) * time.Second)
+	}
+
+	d := "deleting for " + age(time.Since(requested))
+	if len(p.Finalizers) > 0 {
+		return d + "; finalizers: " + strings.Join(p.Finalizers, ", ")
+	}
+
+	return d + "; no finalizers, so the kubelet on " + or(p.Spec.NodeName, "its node") + " hasn't confirmed the containers stopped"
 }
 
 // nodeProblem names the node's condition when it isn't Ready or is under pressure. Best effort: many users can't
