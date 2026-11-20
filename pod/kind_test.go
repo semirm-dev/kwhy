@@ -45,6 +45,11 @@ func TestKindParity(t *testing.T) {
 		return string(out), err
 	}
 
+	// Workers can still be NotReady (and tainted not-ready) right after kind create returns.
+	if out, err := kubectl("wait", "--for=condition=Ready", "node", "--all", "--timeout=180s"); err != nil {
+		t.Fatalf("nodes not ready: %v\n%s", err, out)
+	}
+
 	worker := strings.TrimPrefix(kctx, "kind-") + "-worker"
 	if out, err := kubectl("taint", "node", worker, "kwhy/gpu=true:NoSchedule", "--overwrite"); err != nil {
 		t.Fatalf("taint %s: %v\n%s", worker, err, out)
@@ -66,9 +71,10 @@ func TestKindParity(t *testing.T) {
 			if out, err := kubectl("create", "namespace", ns); err != nil {
 				t.Fatalf("%v\n%s", err, out)
 			}
+			// Wait, so the next fixture never runs beside this one's terminating pods.
 			t.Cleanup(func() {
-				kubectl("delete", "namespace", ns, "--wait=false")
-				kubectl("delete", "pv", "-l", "topology.kubernetes.io/zone=c", "--wait=false")
+				kubectl("delete", "namespace", ns, "--timeout=120s")
+				kubectl("delete", "pv", "-l", "topology.kubernetes.io/zone=c", "--timeout=60s")
 			})
 
 			// Anchors first and running, so the scheduler sees them before the target.
@@ -83,22 +89,20 @@ func TestKindParity(t *testing.T) {
 				t.Fatalf("apply target: %v\n%s", err, out)
 			}
 
-			msg := unschedulable(t, c, ns)
-
-			cl, err := pod.Snapshot(t.Context(), c)
-			if err != nil {
-				t.Fatal(err)
+			// The scheduler's message and kwhy's snapshot are read at different moments; while the cluster
+			// settles (a taint reaching the scheduler's cache, a requeue) they may disagree, so retry for a while.
+			// A real mismatch persists and fails.
+			var (
+				msg, want string
+				r         pod.Result
+			)
+			for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(2 * time.Second) {
+				msg = unschedulable(t, c, ns)
+				r = evaluateLive(t, c, ns)
+				if want = fitMessage(r); strings.HasPrefix(msg, want) || time.Now().After(deadline) {
+					break
+				}
 			}
-			p, err := pod.Target(t.Context(), c, ns, "target")
-			if err != nil {
-				t.Fatal(err)
-			}
-			r, err := pod.Evaluate(t.Context(), cl, p)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			want := fitMessage(r)
 			t.Logf("scheduler: %s", msg)
 			if !strings.HasPrefix(msg, want) {
 				t.Errorf("scheduler: %s\nkwhy:      %s", msg, want)
@@ -112,6 +116,27 @@ func TestKindParity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func evaluateLive(t *testing.T, c kubernetes.Interface, ns string) pod.Result {
+	t.Helper()
+
+	cl, err := pod.Snapshot(t.Context(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := pod.Target(t.Context(), c, ns, "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := pod.Evaluate(t.Context(), cl, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return r
 }
 
 // unschedulable waits for the target's PodScheduled=False condition and returns its message.
