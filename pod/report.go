@@ -12,15 +12,27 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// WriteHuman writes the node × check matrix for a terminal, or one line for a pod already on a node.
+// WriteHuman writes, for a terminal, the node × check matrix of an unscheduled pod, or the problems of a pod on
+// a node.
 func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
+	var b strings.Builder
 	if p.Spec.NodeName != "" {
-		_, err := fmt.Fprintln(w, scheduled(p))
-		return err
+		b.WriteString(onNode(p, r) + "\n")
+	} else {
+		b.WriteString(title(p, r) + "\n")
 	}
 
-	var b strings.Builder
-	b.WriteString(title(p, r) + "\n")
+	if rows := problemRows(p, r); len(rows) > 0 {
+		b.WriteByte('\n')
+		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "CONTAINER\tPROBLEM\tDETAIL")
+		for _, row := range rows {
+			fmt.Fprintln(tw, strings.TrimSuffix(strings.Join(row[:], "\t"), "\t"))
+		}
+		tw.Flush()
+
+		writeEvidence(&b, r.Problems)
+	}
 
 	cols := failedPlugins(r)
 	if len(cols) > 0 {
@@ -42,7 +54,7 @@ func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 		b.WriteString("\nSource:\n")
 		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		for _, s := range r.Sources {
-			fmt.Fprintf(tw, "  %s\t%s = %v\t← %s\n", s.Plugin, s.Field, s.Value, s.From)
+			fmt.Fprintf(tw, "  %s\t%s = %v\t← %s\n", s.label(), s.Field, s.Value, s.From)
 		}
 		tw.Flush()
 	}
@@ -51,15 +63,22 @@ func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 	return err
 }
 
-// WriteMarkdown writes the matrix as a Markdown table, or one line for a pod already on a node.
+// WriteMarkdown writes the matrix or the problems as Markdown tables.
 func WriteMarkdown(w io.Writer, p *v1.Pod, r Result) error {
+	var b strings.Builder
 	if p.Spec.NodeName != "" {
-		_, err := fmt.Fprintf(w, "**%s**\n", scheduled(p))
-		return err
+		b.WriteString("**" + onNode(p, r) + "**\n")
+	} else {
+		b.WriteString("**" + title(p, r) + "**\n")
 	}
 
-	var b strings.Builder
-	b.WriteString("**" + title(p, r) + "**\n")
+	if rows := problemRows(p, r); len(rows) > 0 {
+		b.WriteString("\n| Container | Problem | Detail |\n|---|---|---|\n")
+		for _, row := range rows {
+			fmt.Fprintf(&b, "| `%s` | %s | %s |\n", row[0], row[1], row[2])
+		}
+		writeEvidence(&b, r.Problems)
+	}
 
 	cols := failedPlugins(r)
 	if len(cols) > 0 {
@@ -77,7 +96,7 @@ func WriteMarkdown(w io.Writer, p *v1.Pod, r Result) error {
 	if len(r.Sources) > 0 {
 		b.WriteString("\n**Source:**\n\n")
 		for _, s := range r.Sources {
-			fmt.Fprintf(&b, "- %s: `%s` = `%v` ← %s\n", s.Plugin, s.Field, s.Value, s.From)
+			fmt.Fprintf(&b, "- %s: `%s` = `%v` ← %s\n", s.label(), s.Field, s.Value, s.From)
 		}
 	}
 
@@ -92,19 +111,107 @@ func WriteJSON(w io.Writer, p *v1.Pod, r Result) error {
 	enc.SetIndent("", "  ")
 
 	return enc.Encode(struct {
-		Schema    string   `json:"schema"`
-		Namespace string   `json:"namespace"`
-		Pod       string   `json:"pod"`
-		Template  bool     `json:"template"`
-		Scheduled string   `json:"scheduled,omitempty"`
-		Plugins   []string `json:"plugins,omitempty"`
-		Nodes     []Node   `json:"nodes,omitempty"`
-		Sources   []Source `json:"sources,omitempty"`
-	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, p.Spec.NodeName, r.Plugins, r.Nodes, r.Sources})
+		Schema    string    `json:"schema"`
+		Namespace string    `json:"namespace"`
+		Pod       string    `json:"pod"`
+		Template  bool      `json:"template"`
+		Scheduled string    `json:"scheduled,omitempty"`
+		Plugins   []string  `json:"plugins,omitempty"`
+		Nodes     []Node    `json:"nodes,omitempty"`
+		Problems  []Problem `json:"problems,omitempty"`
+		Sources   []Source  `json:"sources,omitempty"`
+	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, p.Spec.NodeName, r.Plugins, r.Nodes, r.Problems, r.Sources})
 }
 
-func scheduled(p *v1.Pod) string {
-	return fmt.Sprintf("%s/%s is scheduled on %s (%s).", p.Namespace, p.Name, p.Spec.NodeName, p.Status.Phase)
+// onNode is the title for a pod on a node: "ml/api-1 on n1 · Running · not ready · 2 containers, 1 failing".
+func onNode(p *v1.Pod, r Result) string {
+	failing := map[string]bool{}
+	for _, pr := range r.Problems {
+		if !pr.Earlier {
+			failing[pr.Container] = true
+		}
+	}
+	if len(failing) == 0 {
+		return fmt.Sprintf("%s/%s is on %s, %s and ready.", p.Namespace, p.Name, p.Spec.NodeName, p.Status.Phase)
+	}
+
+	state := "ready"
+	if !ready(p) {
+		state = "not ready"
+	}
+	delete(failing, "")
+
+	return fmt.Sprintf("%s/%s on %s · %s · %s · %s, %d failing", p.Namespace, p.Name, p.Spec.NodeName, p.Status.Phase, state,
+		plural(len(p.Spec.Containers), "container"), len(failing))
+}
+
+// problemRows are one row per problem, then a ✓ row for each app container without one.
+func problemRows(p *v1.Pod, r Result) [][3]string {
+	if len(r.Problems) == 0 {
+		return nil
+	}
+
+	var rows [][3]string
+	seen := map[string]bool{}
+	for _, pr := range r.Problems {
+		name, kind := pr.Container, pr.Kind
+		switch {
+		case name == "":
+			name = "(pod)"
+		case pr.Init:
+			name += " (init)"
+		}
+		if pr.Earlier {
+			kind += " (earlier)"
+		}
+		rows = append(rows, [3]string{name, kind, pr.Detail})
+		seen[pr.Container] = true
+	}
+	for _, c := range p.Spec.Containers {
+		if !seen[c.Name] {
+			rows = append(rows, [3]string{c.Name, "✓", ""})
+		}
+	}
+
+	return rows
+}
+
+// writeEvidence lists the events and logs behind the problems.
+func writeEvidence(b *strings.Builder, ps []Problem) {
+	var events []string
+	for _, pr := range ps {
+		for _, e := range pr.Events {
+			events = append(events, fmt.Sprintf("  %s: %s", or(pr.Container, "pod"), e))
+		}
+	}
+	if len(events) > 0 {
+		b.WriteString("\nEvents:\n" + strings.Join(events, "\n") + "\n")
+	}
+
+	for _, pr := range ps {
+		if len(pr.Logs) > 0 {
+			fmt.Fprintf(b, "\nLogs (%s, previous instance):\n", pr.Container)
+			for _, l := range pr.Logs {
+				b.WriteString("  " + l + "\n")
+			}
+		}
+	}
+}
+
+func or(s, def string) string {
+	if s == "" {
+		return def
+	}
+
+	return s
+}
+
+func plural(n int, s string) string {
+	if n == 1 {
+		return "1 " + s
+	}
+
+	return fmt.Sprintf("%d %ss", n, s)
 }
 
 type group struct {

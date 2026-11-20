@@ -399,7 +399,11 @@ func podCmd() *cobra.Command {
 			}
 
 			if p.Spec.NodeName != "" {
-				return podWriters[output](cmd.OutOrStdout(), p, pod.Result{})
+				ps, err := pod.Diagnose(ctx, c, p)
+				if err != nil {
+					return err
+				}
+				return podWriters[output](cmd.OutOrStdout(), p, pod.Result{Problems: ps})
 			}
 
 			cl, err := pod.Snapshot(ctx, c)

@@ -125,10 +125,10 @@ func TestWriteScheduled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := human.String(); got != "ml/api-1 is scheduled on n1 (Running).\n" {
+	if got := human.String(); got != "ml/api-1 is on n1, Running and ready.\n" {
 		t.Errorf("human = %q", got)
 	}
-	if got := md.String(); got != "**ml/api-1 is scheduled on n1 (Running).**\n" {
+	if got := md.String(); got != "**ml/api-1 is on n1, Running and ready.**\n" {
 		t.Errorf("markdown = %q", got)
 	}
 
@@ -153,5 +153,41 @@ func TestWriteHealthy(t *testing.T) {
 	}
 	if !strings.Contains(js.String(), `"ready": 3`) {
 		t.Errorf("json = %s", js.String())
+	}
+}
+
+func TestWriteProblems(t *testing.T) {
+	p := running(ok("sidecar"))
+	p.Status.Conditions = []v1.PodCondition{{Type: v1.PodReady, Status: v1.ConditionFalse}}
+	r := pod.Result{Problems: []pod.Problem{{Container: "app", Kind: pod.OOM, Reason: "CrashLoopBackOff", Detail: "killed at limit 512Mi, 6 restarts",
+		Events: []string{"Back-off restarting failed container app in pod api-1"}, Logs: []string{"allocating 1GiB"}}}}
+
+	var b bytes.Buffer
+	if err := pod.WriteHuman(&b, p, r); err != nil {
+		t.Fatal(err)
+	}
+
+	want := `ml/api-1 on n1 · Running · not ready · 2 containers, 1 failing
+
+CONTAINER  PROBLEM  DETAIL
+app        oom      killed at limit 512Mi, 6 restarts
+sidecar    ✓
+
+Events:
+  app: Back-off restarting failed container app in pod api-1
+
+Logs (app, previous instance):
+  allocating 1GiB
+`
+	if b.String() != want {
+		t.Errorf("got\n%s\nwant\n%s", b.String(), want)
+	}
+
+	b.Reset()
+	if err := pod.WriteMarkdown(&b, p, r); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "| `app` | oom | killed at limit 512Mi, 6 restarts |") {
+		t.Errorf("markdown:\n%s", b.String())
 	}
 }

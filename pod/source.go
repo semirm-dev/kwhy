@@ -26,12 +26,18 @@ var reads = map[string][]string{
 
 // Source is where a field a failing check reads is set, found by kwhy value.
 type Source struct {
-	Plugin string `json:"plugin"`
+	// Plugin names the failing check (unscheduled pod); Problem the problem kind and container (pod on a node).
+	Plugin  string `json:"plugin,omitempty"`
+	Problem string `json:"problem,omitempty"`
 	// Field is the pod spec path, e.g. .spec.containers[0].resources.requests.cpu.
 	Field string `json:"field"`
 	Value any    `json:"value"`
 	// From names the values leaves and where they are set, e.g. "resources.requests.cpu (values-prod.yaml:31)".
 	From string `json:"from"`
+}
+
+func (s Source) label() string {
+	return or(s.Plugin, s.Problem)
 }
 
 // Reads says whether check c reads the pod spec field at path (".spec.containers[0].resources.requests.cpu").

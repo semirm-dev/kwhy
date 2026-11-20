@@ -58,6 +58,8 @@ type Result struct {
 	Plugins []string `json:"plugins"`
 	// Nodes are sorted by name.
 	Nodes []Node `json:"nodes"`
+	// Problems are why a pod on a node isn't running or ready (Diagnose); empty for an unscheduled pod.
+	Problems []Problem `json:"problems,omitempty"`
 	// Sources say where the fields failing checks read are set; filled by the caller (kwhy value), may be empty.
 	Sources []Source `json:"sources,omitempty"`
 }
