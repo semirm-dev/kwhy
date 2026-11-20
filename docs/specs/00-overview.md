@@ -61,10 +61,10 @@ it moves to its own Go module without changing the CLI.
 | Version | Ships | Gate to start the next one |
 |---|---|---|
 | v0.1 | `value` read-only, Helm only | Correct answers on the 6 spike charts plus 4 more in CI golden tests |
-| v0.2 | `value chart` / `value kustomize` subcommands, Kustomize tracing; release binaries (goreleaser; Homebrew once a tap exists) | Kustomize spike done (2026-11-19, `docs/spikes/kustomize`) |
+| v0.2 | `value chart` subcommand; release binaries (goreleaser; Homebrew once a tap exists). Kustomize shelved (2026-11-20) until Helm is tested and polished | Helm tested and polished |
 | v0.3 | `change` (Helm + Kustomize, offline) + GitHub Action | Rules suite green on kind in CI |
 | v0.4 | `pod`; Krew manifest (`kubectl-kwhy`) | Parity test against real scheduler events on kind |
-| later | Argo CD / Flux app discovery, MCP server, Terraform for `value`, remote Kustomize bases (fetched, opt-in) | |
+| later | `value kustomize` (redesign; first attempt on branch `feat/v0.2-kustomize`), Argo CD / Flux app discovery, MCP server, Terraform for `value`, remote Kustomize bases (fetched, opt-in) | |
 
 ## Decisions (2026-11-18)
 

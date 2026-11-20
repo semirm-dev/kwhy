@@ -30,7 +30,7 @@ kwhy value chart <chart> <kind>/<name> --all        # every field of the resourc
 `<path>` uses a jq-like syntax: `.spec.template.spec.containers[name=api].resources.requests.memory`
 (`[name=x]` selects list items by name, since indexes shift between renders).
 
-**v0.2:** Kustomize.
+**Kustomize:** shelved (2026-11-20), see below.
 
 **Non-goals (v0.x):** Terraform/HCL, Jsonnet, cdk8s, live cluster objects (use `kubectl blame` for
 "who changed it in the cluster"), editing chart templates.
@@ -96,7 +96,11 @@ Spike results, 40 sampled leaves per chart checked against perturbation ground t
 The spike rendered via the `helm` CLI (2–28s per chart, dominated by process start). In-process rendering is
 expected to be roughly 10× faster; that's a performance target for v0.1, not yet measured.
 
-## Kustomize (v0.2), validated in `docs/spikes/kustomize`
+## Kustomize (shelved), validated in `docs/spikes/kustomize`
+
+Shelved on 2026-11-20 until Helm is tested and polished; to be redesigned. The first implementation
+is on branch `feat/v0.2-kustomize`: leave-one-out attribution kept hitting cases that name a wrong line
+(override chains, generator order, deleted documents, name collisions). The notes below describe that attempt.
 
 Markers do not apply: patches are literal YAML, not templates. **Leave-one-out builds** instead: build
 the overlay with `krusty` on an in-memory copy, then once more per entry of every kustomization in the
@@ -112,13 +116,13 @@ builds), to be parallelised. The rules it took (document identity, name-keyed li
 resources, components as routes, line lookup per entry type, `target:`-aware override chains) are in
 the spike README.
 
-**Supported in v0.2:** local overlay stacks (overlays on bases in the same repo, nested, with
+**Supported by the first attempt:** local overlay stacks (overlays on bases in the same repo, nested, with
 components); strategic-merge and JSON6902 patches, from files or inline; `images`, `replicas`,
 `namespace`, `namePrefix`/`nameSuffix`, `commonLabels`/`commonAnnotations`/`labels`,
 `configMapGenerator`/`secretGenerator` and their literals. Same command style and `kwhy.value/v1`
-output as Helm: `kwhy value <kind>/<name> <path> --kustomize <overlay dir>`, `--all`.
+output as Helm: `kwhy value kustomize <overlay dir> <kind>/<name> [<path>]`, `--all`.
 
-**Not supported in v0.2** (for the first three kwhy stops with a message naming what it found, never a partial answer):
+**Not supported by the first attempt** (for the first three kwhy stops with a message naming what it found, never a partial answer):
 
 | Missing | Why | Later? |
 |---|---|---|
