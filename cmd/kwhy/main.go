@@ -453,6 +453,11 @@ func podCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if !pod.IsTemplate(p) {
+				if r.Problems, err = pod.Autoscaler(ctx, c, p); err != nil {
+					return err
+				}
+			}
 			r.Problems = append(r.Problems, ctrl...)
 
 			if src.chart != "" {

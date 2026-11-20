@@ -162,6 +162,8 @@ func problemRows(p *v1.Pod, r Result) [][3]string {
 		switch {
 		case name == "" && (pr.Kind == Create || pr.Kind == Rollout || pr.Kind == JobFail):
 			name = "(controller)"
+		case name == "" && pr.Kind == Scaler:
+			name = "(autoscaler)"
 		case name == "":
 			name = "(pod)"
 		case pr.Init:

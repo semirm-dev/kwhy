@@ -25,6 +25,7 @@ const (
 	Sandbox = "sandbox"     // the node can't create the pod's sandbox (network, runtime)
 	NodeBad = "node"        // the pod's node isn't Ready or is under pressure
 	Stuck   = "terminating" // the pod was deleted but is still there past its grace period
+	Scaler  = "autoscaler"  // Cluster Autoscaler or Karpenter says what it does about this Pending pod
 	Other   = "other"       // not running or not ready for a reason not listed above
 )
 
@@ -101,6 +102,27 @@ func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem
 	}
 
 	return ps, nil
+}
+
+// scalerReasons are the pod events Cluster Autoscaler (TriggeredScaleUp, NotTriggerScaleUp) and Karpenter
+// (Nominated) post about a pod waiting for a node; some are Normal events.
+var scalerReasons = []string{"TriggeredScaleUp", "NotTriggerScaleUp", "Nominated"}
+
+// Autoscaler reports what a node autoscaler last said about the Pending pod p: a node is being added for it, or why
+// none will be. Nothing when no autoscaler runs or it said nothing.
+func Autoscaler(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem, error) {
+	list, err := c.CoreV1().Events(p.Namespace).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.uid=" + string(p.UID)})
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+
+	for _, e := range about(list.Items, p.UID) {
+		if slices.Contains(scalerReasons, e.Reason) {
+			return []Problem{{Kind: Scaler, Reason: e.Reason, Detail: e.Message}}, nil
+		}
+	}
+
+	return nil, nil
 }
 
 // Terminating says whether p was deleted and is still there a minute past its grace period. The deletion

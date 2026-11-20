@@ -203,3 +203,27 @@ func TestDiagnoseTerminating(t *testing.T) {
 		t.Error("10s past the grace period counted as stuck")
 	}
 }
+
+func TestAutoscaler(t *testing.T) {
+	p := newPod("train", "", "2", "16Gi")
+	normal := func(reason, msg string, ago time.Duration) *v1.Event {
+		return &v1.Event{ObjectMeta: metav1.ObjectMeta{Name: reason, Namespace: p.Namespace}, InvolvedObject: v1.ObjectReference{UID: p.UID},
+			Type: v1.EventTypeNormal, Reason: reason, Message: msg, LastTimestamp: metav1.NewTime(time.Now().Add(-ago))}
+	}
+
+	ps, err := pod.Autoscaler(t.Context(), fake.NewClientset(
+		normal("NotTriggerScaleUp", "pod didn't trigger scale-up: 2 max node group size reached", 5*time.Minute),
+		normal("TriggeredScaleUp", "pod triggered scale-up: [{gpu-pool 2->3 (max: 5)}]", time.Minute),
+		normal("Scheduled", "unrelated", 0),
+	), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ps) != 1 || ps[0].Reason != "TriggeredScaleUp" || !strings.Contains(ps[0].Detail, "gpu-pool 2->3") {
+		t.Errorf("problems = %+v, want the newest autoscaler event", ps)
+	}
+
+	if ps, _ := pod.Autoscaler(t.Context(), fake.NewClientset(), p); ps != nil {
+		t.Errorf("no autoscaler: %+v", ps)
+	}
+}
