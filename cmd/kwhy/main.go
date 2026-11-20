@@ -18,6 +18,9 @@ import (
 	"github.com/semirm-dev/kwhy/value"
 )
 
+// version is set at release time with -ldflags "-X main.version=...".
+var version = "dev"
+
 var writers = map[string]func(io.Writer, []value.Answer) error{
 	"human": value.WriteHuman, "markdown": value.WriteMarkdown, "json": value.WriteJSON,
 }
@@ -34,6 +37,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	root := &cobra.Command{
 		Use:           "kwhy",
 		Short:         "Answers why questions about Kubernetes config",
+		Version:       version,
 		Args:          cobra.ArbitraryArgs, // so unknown commands reach RunE and exit 2
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -49,6 +53,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		},
 	}
 
+	root.SetVersionTemplate("kwhy {{.Version}}\n")
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)

@@ -110,12 +110,14 @@ scheduler reports. It says what's wrong; fixing it stays with you:
 
 ## Install
 
+Download the archive for your platform (macOS, Linux or Windows; amd64 or arm64) from
+[GitHub Releases](https://github.com/semirm-dev/kwhy/releases), unpack it and put `kwhy` on your `PATH`. Or build it:
+
 ```sh
 go install github.com/semirm-dev/kwhy/cmd/kwhy@latest
 ```
 
-Single static binary, offline by default, no telemetry. Release binaries, Homebrew (v0.2) and Krew as
-`kubectl kwhy` (v0.4) come later.
+Single static binary, offline by default, no telemetry. Homebrew and Krew as `kubectl kwhy` (v0.4) come later.
 
 ## Flags (`kwhy value chart`)
 

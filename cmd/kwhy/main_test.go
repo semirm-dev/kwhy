@@ -44,6 +44,15 @@ func TestRunExitCodes(t *testing.T) {
 	}
 }
 
+func TestRunVersion(t *testing.T) {
+	var out bytes.Buffer
+	code := run([]string{"--version"}, &out, io.Discard)
+
+	if code != 0 || !strings.Contains(out.String(), "kwhy dev") {
+		t.Fatalf("code %d, stdout %q", code, out.String())
+	}
+}
+
 func TestRunHappyPath(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := run([]string{"value", "chart", mini, "deploy/api", ".spec.replicas", "-f", prod}, &out, &errb)
