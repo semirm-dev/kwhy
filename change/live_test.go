@@ -82,3 +82,37 @@ spec:
 		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// A Deployment's surge pods that don't fit the namespace's ResourceQuota are called out.
+func TestLiveSurgeQuota(t *testing.T) {
+	const deploy = `
+kind: Deployment
+metadata: {name: api}
+spec:
+  replicas: 4
+  template: {spec: {containers: [{name: c, image: app:%s, resources: {requests: {cpu: 500m}}}]}}
+`
+	quota := func(used string) *corev1.ResourceQuota {
+		return &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: "compute", Namespace: "default"},
+			Status: corev1.ResourceQuotaStatus{
+				Hard: corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse("2")},
+				Used: corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse(used)}}}
+	}
+
+	for _, tc := range []struct {
+		used, want string
+	}{
+		// 25% of 4 pods surge: one more pod of 500m, with 200m left.
+		{"1800m", "image, ~20s, surge of 1 pod exceeds ResourceQuota compute (requests.cpu: 1800m of 2 used, needs +500m)"},
+		{"1", "image, ~20s"},
+	} {
+		c := fake.NewClientset(quota(tc.used))
+		is := change.Diff(docs(t, fmt.Sprintf(deploy, "1")), docs(t, fmt.Sprintf(deploy, "2")))
+		if err := change.Live(t.Context(), c, is); err != nil {
+			t.Fatal(err)
+		}
+		if got := is[0].Detail; got != tc.want {
+			t.Errorf("used %s: detail %q, want %q", tc.used, is[0].Detail, tc.want)
+		}
+	}
+}

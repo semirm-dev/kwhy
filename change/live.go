@@ -6,7 +6,9 @@ import (
 	"time"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
@@ -19,6 +21,7 @@ const podStart = 10 * time.Second
 // counts, StorageClass expansion and rollout estimates. It only reads.
 func Live(ctx context.Context, c kubernetes.Interface, is []Impact) error {
 	hpas := map[string][]autoscalingv2.HorizontalPodAutoscaler{}
+	quotas := map[string][]corev1.ResourceQuota{}
 	for n := range is {
 		i := &is[n]
 		ns := i.doc.Namespace
@@ -35,9 +38,17 @@ func Live(ctx context.Context, c kubernetes.Interface, is []Impact) error {
 				}
 				hpas[ns] = l.Items
 			}
+			if _, ok := quotas[ns]; !ok {
+				l, err := c.CoreV1().ResourceQuotas(ns).List(ctx, metav1.ListOptions{})
+				if err != nil {
+					return fmt.Errorf("list ResourceQuotas in %s: %w", ns, err)
+				}
+				quotas[ns] = l.Items
+			}
 			if err := rollout(ctx, c, i, hpas[ns]); err != nil {
 				return err
 			}
+			surgeQuota(i, quotas[ns])
 		}
 	}
 	sortImpacts(is)
@@ -102,6 +113,55 @@ func rollout(ctx context.Context, c kubernetes.Interface, i *Impact, hpas []auto
 	return nil
 }
 
+// surgeQuota notes when a Deployment's surge pods don't fit a ResourceQuota of the namespace: the new ReplicaSet
+// can't create them, so the rollout stalls or runs slower than estimated.
+func surgeQuota(i *Impact, quotas []corev1.ResourceQuota) {
+	d := i.doc
+	if d.Kind != "Deployment" || len(quotas) == 0 {
+		return
+	}
+
+	surge, _ := batches(d.Kind, d.Object, i.Pods)
+	if surge == 0 {
+		return
+	}
+
+	// What one pod of the template counts against a quota.
+	per := map[corev1.ResourceName]resource.Quantity{corev1.ResourcePods: resource.MustParse("1")}
+	for _, ctr := range list(get(d.Object, "spec", "template", "spec", "containers")) {
+		for _, r := range []string{"cpu", "memory"} {
+			q, err := resource.ParseQuantity(fmt.Sprint(get(ctr, "resources", "requests", r)))
+			if err != nil {
+				continue
+			}
+			for _, name := range []corev1.ResourceName{corev1.ResourceName(r), corev1.ResourceName("requests." + r)} {
+				sum := per[name]
+				sum.Add(q)
+				per[name] = sum
+			}
+		}
+	}
+
+	for _, q := range quotas {
+		for name, hard := range q.Status.Hard {
+			one, ok := per[name]
+			if !ok {
+				continue
+			}
+			need := one.DeepCopy()
+			need.Mul(int64(surge))
+			left := hard.DeepCopy()
+			left.Sub(q.Status.Used[name])
+			if left.Cmp(need) < 0 {
+				used := q.Status.Used[name]
+				i.Detail += fmt.Sprintf(", surge of %s exceeds ResourceQuota %s (%s: %s of %s used, needs +%s)",
+					plural(surge, "pod"), q.Name, name, used.String(), hard.String(), need.String())
+				return
+			}
+		}
+	}
+}
+
 // estimate is the rollout time: batches of pods, each taking pod start, readiness and minReadySeconds.
 func estimate(kind string, o obj, pods int) time.Duration {
 	if pods == 0 {
@@ -120,28 +180,36 @@ func estimate(kind string, o obj, pods int) time.Duration {
 	}
 	perBatch := podStart + ready + time.Duration(num(get(o, "spec"), "minReadySeconds", 0))*time.Second
 
+	if kind == "Deployment" && str(o, "spec", "strategy", "type") == "Recreate" {
+		return perBatch
+	}
+	_, batch := batches(kind, o, pods)
+
+	return time.Duration((pods+batch-1)/batch) * perBatch
+}
+
+// batches is the surge (extra pods at once) and the batch size (surge + unavailable, at least 1) of a rolling
+// update of pods.
+func batches(kind string, o obj, pods int) (surge, batch int) {
 	ru := get(o, "spec", "strategy", "rollingUpdate")
-	surge, unavailable := "25%", "25%"
+	s, unavailable := "25%", "25%"
 	switch {
 	case kind == "Deployment" && str(o, "spec", "strategy", "type") == "Recreate":
-		return perBatch
-	case kind == "StatefulSet":
-		ru, surge, unavailable = get(o, "spec", "updateStrategy", "rollingUpdate"), "0", "1"
-	case kind == "DaemonSet":
-		ru, surge, unavailable = get(o, "spec", "updateStrategy", "rollingUpdate"), "0", "1"
+		return 0, pods
+	case kind == "StatefulSet" || kind == "DaemonSet":
+		ru, s, unavailable = get(o, "spec", "updateStrategy", "rollingUpdate"), "0", "1"
 	}
 	if v := get(ru, "maxSurge"); v != nil {
-		surge = fmt.Sprint(v)
+		s = fmt.Sprint(v)
 	}
 	if v := get(ru, "maxUnavailable"); v != nil {
 		unavailable = fmt.Sprint(v)
 	}
 
-	s, _ := intstr.GetScaledValueFromIntOrPercent(new(intstr.Parse(surge)), pods, true)
+	surge, _ = intstr.GetScaledValueFromIntOrPercent(new(intstr.Parse(s)), pods, true)
 	u, _ := intstr.GetScaledValueFromIntOrPercent(new(intstr.Parse(unavailable)), pods, false)
-	batch := max(s+u, 1)
 
-	return time.Duration((pods+batch-1)/batch) * perBatch
+	return surge, max(surge+u, 1)
 }
 
 // resize turns a claim's growth into a failure when the claim isn't bound or its StorageClass can't expand.
