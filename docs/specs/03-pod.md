@@ -88,7 +88,9 @@ config, mount, probe and init failures (`pod/kind_running_test.go`). Plan: `docs
 **v0.6 (built 2026-11-20):** the workload's controller speaks too (`create`: pods it can't create, `rollout`:
 progress deadline exceeded, `job`: a failed Job), pods stuck `terminating`, `ds/` targets, Cluster Autoscaler and
 Karpenter events on a Pending pod (`autoscaler`), and a preemption hint (nodes it would fit on without
-lower-priority pods). Plan: `docs/plans/2026-11-20-v0.6-pod-complete.md`. What's still missing:
+lower-priority pods). Plan: `docs/plans/2026-11-20-v0.6-pod-complete.md`.
+`--scheduler-config FILE` (2026-11-20) runs a profile of the cluster's `KubeSchedulerConfiguration` (decoded with
+the scheduler's own scheme and defaults) instead of the default one. What's still missing:
 `docs/plans/2026-11-20-backlog.md`.
 
 ## Design (validated in `docs/spikes/pod`)

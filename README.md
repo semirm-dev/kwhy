@@ -276,6 +276,20 @@ in the Krew index, install it with `kubectl krew install --manifest=kwhy.yaml`.
 
 Single static binary, offline by default, no telemetry. Homebrew comes later.
 
+Releases from v0.8 carry an SBOM per archive and a keyless cosign signature of `checksums.txt`:
+
+```sh
+cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig \
+  --certificate-identity-regexp 'https://github.com/semirm-dev/kwhy/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+```
+
+## For AI agents: `kwhy mcp`
+
+`kwhy mcp` serves the three commands over the Model Context Protocol on stdio, as the tools `kwhy_value`,
+`kwhy_change` and `kwhy_pod`. Each call runs the same code as the CLI and returns its versioned JSON. For Claude
+Code: `claude mcp add kwhy -- kwhy mcp`.
+
 ## Flags (`kwhy value chart`)
 
 | Flag | Meaning |
@@ -325,6 +339,7 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 | `-f`, `--set`, `--set-string`, `--set-json`, `--set-file`, `--set-literal`, `--version V` | as the release was deployed (with `--chart`) |
 | `--no-cache` | with `--chart`: trace the chart again instead of reusing the cached trace |
 | `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
+| `--scheduler-config FILE` | the cluster's `KubeSchedulerConfiguration`: run the profile named by the pod's `schedulerName` instead of the default one (out-of-tree plugins can't run and fail by name) |
 | `--logs N` | last N log lines of a crashed or OOM-killed container's last run (default 0: none; logs may contain secrets, so they're never read unless asked) |
 
 A healthy pod gets one line (`ns/x is on node-1, Running and ready.`); JSON has `"scheduled"` and `"problems"`
@@ -341,8 +356,8 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
   unknown ("one pod per node").
 - The first question about a chart traces it whole (~20s on kube-prometheus-stack); repeats with the same chart
   and values come from the cache (argo-cd: 9s → 0.2s).
-- `pod` runs the default scheduler profile compiled into kwhy (v1.37) and warns when the cluster is more than one
-  minor version away or the pod names another scheduler. Custom profiles and scheduler plugins aren't seen.
+- `pod` runs the scheduler compiled into kwhy (v1.37) and warns when the cluster is more than one minor version
+  away. A custom profile needs `--scheduler-config`; out-of-tree scheduler plugins can't run.
 - `pod` doesn't support pods with resource claims (DRA). Its preemption hint ignores PodDisruptionBudgets and
   nominated pods. What's missing across all three commands is in the [backlog](docs/plans/2026-11-20-backlog.md).
 - `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
