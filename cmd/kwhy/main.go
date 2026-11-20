@@ -403,7 +403,16 @@ func podCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return podWriters[output](cmd.OutOrStdout(), p, pod.Result{Problems: ps})
+
+				r := pod.Result{Problems: ps}
+				if src.chart != "" && len(ps) > 0 {
+					slog.SetDefault(slog.New(slog.DiscardHandler))
+					if r.Sources, err = podSources(ctx, c, p, r, src, render.KubeVersion, helm); err != nil {
+						return err
+					}
+				}
+
+				return podWriters[output](cmd.OutOrStdout(), p, r)
 			}
 
 			cl, err := pod.Snapshot(ctx, c)
@@ -494,14 +503,35 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 		prefix = ""
 	}
 
-	var checks []pod.Check
+	// matchers are the failing checks (unscheduled pod) and the problems (pod on a node), each with the fields it reads.
+	type matcher struct {
+		src   pod.Source // Plugin or Problem set
+		reads func(path string) bool
+		check bool
+	}
+	var matchers []matcher
 	for _, n := range r.Nodes {
-		checks = append(checks, n.Failed...)
+		for _, chk := range n.Failed {
+			matchers = append(matchers, matcher{pod.Source{Plugin: chk.Plugin}, func(p string) bool { return pod.Reads(chk, p) }, true})
+		}
+	}
+	spec, _ := docs[doc].Object["spec"].(map[string]any)
+	if kind != "Pod" {
+		tmpl, _ := spec["template"].(map[string]any)
+		spec, _ = tmpl["spec"].(map[string]any)
+	}
+	for _, pr := range r.Problems {
+		i := containerIndex(spec, pr.Container, pr.Init)
+		label := pr.Kind
+		if pr.Container != "" {
+			label += " (" + pr.Container + ")"
+		}
+		matchers = append(matchers, matcher{pod.Source{Problem: label}, func(p string) bool { return pod.ReadsProblem(pr, p, i) }, false})
 	}
 
 	type want struct {
-		field  value.Field
-		plugin string
+		field value.Field
+		src   pod.Source
 	}
 	fields := value.Flatten(docs)
 
@@ -511,15 +541,15 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 		if f.Doc != doc || !ok || !strings.HasPrefix(path, ".spec") {
 			continue
 		}
-		// A limit only matters when the container sets no request for it: Kubernetes copies the limit.
+		// For scheduling, a limit only matters when the container sets no request for it: Kubernetes copies the
+		// limit. An OOM kill is about the limit itself.
 		req := strings.Replace(f.Path, ".resources.limits.", ".resources.requests.", 1)
-		if _, ok := fields[value.Field{Doc: doc, Path: req}]; ok && req != f.Path {
-			continue
-		}
+		_, hasReq := fields[value.Field{Doc: doc, Path: req}]
+		shadowed := hasReq && req != f.Path
 
-		for _, chk := range checks {
-			if pod.Reads(chk, path) {
-				wants = append(wants, want{f, chk.Plugin})
+		for _, m := range matchers {
+			if (!m.check || !shadowed) && m.reads(path) {
+				wants = append(wants, want{f, m.src})
 				break
 			}
 		}
@@ -548,11 +578,29 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 		for _, l := range a.Leaves {
 			from = append(from, fmt.Sprintf("%s (%s)", value.PathString(l.Path), l.Chain[0]))
 		}
-		out = append(out, pod.Source{Plugin: w.plugin, Field: strings.TrimPrefix(w.field.Path, prefix), Value: a.Value,
-			From: strings.Join(from, ", ")})
+		s := w.src
+		s.Field, s.Value, s.From = strings.TrimPrefix(w.field.Path, prefix), a.Value, strings.Join(from, ", ")
+		out = append(out, s)
 	}
 
 	return out, nil
+}
+
+// containerIndex is the position of the container named name in a rendered pod spec, -1 if absent.
+func containerIndex(spec map[string]any, name string, init bool) int {
+	key := "containers"
+	if init {
+		key = "initContainers"
+	}
+
+	list, _ := spec[key].([]any)
+	for i, c := range list {
+		if m, _ := c.(map[string]any); m["name"] == name {
+			return i
+		}
+	}
+
+	return -1
 }
 
 // usageArgs is cobra.RangeArgs with a wrong count exiting 2.

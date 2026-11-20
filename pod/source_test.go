@@ -78,3 +78,30 @@ func TestOwner(t *testing.T) {
 		t.Errorf("template: %s/%s, %v", kind, name, err)
 	}
 }
+
+func TestReadsProblem(t *testing.T) {
+	for _, tc := range []struct {
+		pr   pod.Problem
+		path string
+		i    int
+		want bool
+	}{
+		{pod.Problem{Kind: pod.OOM, Container: "api"}, ".spec.containers[1].resources.limits.memory", 1, true},
+		{pod.Problem{Kind: pod.OOM, Container: "api"}, ".spec.containers[0].resources.limits.memory", 1, false}, // another container
+		{pod.Problem{Kind: pod.OOM, Container: "api"}, ".spec.containers[1].resources.requests.memory", 1, false},
+		{pod.Problem{Kind: pod.Pull, Container: "api"}, ".spec.containers[0].image", 0, true},
+		{pod.Problem{Kind: pod.Crash, Container: "api"}, ".spec.containers[0].args[0]", 0, true},
+		{pod.Problem{Kind: pod.Config, Container: "api"}, ".spec.containers[0].env[2].valueFrom.secretKeyRef.name", 0, true},
+		{pod.Problem{Kind: pod.Probe, Container: "api"}, ".spec.containers[0].readinessProbe.httpGet.path", 0, true},
+		{pod.Problem{Kind: pod.Crash, Container: "migrate", Init: true}, ".spec.initContainers[0].command[0]", 0, true},
+		{pod.Problem{Kind: pod.Crash, Container: "migrate", Init: true}, ".spec.containers[0].command[0]", 0, false},
+		{pod.Problem{Kind: pod.Mount}, ".spec.volumes[0].configMap.name", -1, true},
+		{pod.Problem{Kind: pod.Evicted}, ".spec.containers[0].resources.requests.memory", -1, true},
+		{pod.Problem{Kind: pod.Sandbox}, ".spec.containers[0].image", 0, false},
+		{pod.Problem{Kind: pod.Pull, Container: "gone"}, ".spec.containers[0].image", -1, false},
+	} {
+		if got := pod.ReadsProblem(tc.pr, tc.path, tc.i); got != tc.want {
+			t.Errorf("ReadsProblem(%s %s, %s, %d) = %v, want %v", tc.pr.Kind, tc.pr.Container, tc.path, tc.i, got, tc.want)
+		}
+	}
+}

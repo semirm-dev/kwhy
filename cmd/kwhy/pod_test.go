@@ -78,3 +78,25 @@ func TestPodSources(t *testing.T) {
 		t.Error("no release: want an error")
 	}
 }
+
+// An OOM kill names the limit, even when the container also sets a request.
+func TestPodSourcesProblem(t *testing.T) {
+	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "rel-api", Namespace: "default"}}
+	c := fake.NewClientset(deploy)
+
+	p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "rel-api-1", Namespace: "default",
+		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "rel-api", Controller: new(true)}}}}
+	r := pod.Result{Problems: []pod.Problem{{Container: "api", Kind: pod.OOM}}}
+
+	src := podChart{chart: mini, release: "rel", files: []string{prod}, sets: []string{"resources.limits.memory=4Gi"}}
+	got, err := podSources(t.Context(), c, p, r, src, "v1.37.0", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := pod.Source{Problem: "oom (api)", Field: ".spec.containers[0].resources.limits.memory", Value: "4Gi",
+		From: "resources.limits.memory (--set resources.limits.memory=4Gi)"}
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("sources = %+v\nwant [%+v]", got, want)
+	}
+}

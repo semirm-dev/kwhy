@@ -3,6 +3,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -59,13 +60,45 @@ func Reads(c Check, path string) bool {
 		return containers && strings.HasSuffix(path, ".hostPort")
 	}
 
-	for _, prefix := range reads[c.Plugin] {
-		if path == prefix || strings.HasPrefix(path, prefix+".") || strings.HasPrefix(path, prefix+"[") {
-			return true
-		}
+	return slices.ContainsFunc(reads[c.Plugin], func(prefix string) bool { return under(path, prefix) })
+}
+
+// problemReads are the container fields each problem kind involves.
+var problemReads = map[string][]string{
+	Pull:   {"image"},
+	Crash:  {"command", "args", "image"},
+	OOM:    {"resources.limits.memory"},
+	Config: {"env", "envFrom"},
+	Probe:  {"readinessProbe", "livenessProbe", "startupProbe"},
+}
+
+// ReadsProblem says whether problem pr involves the pod spec field at path. i is the position of pr's container
+// in the spec's containers (or initContainers) list, -1 if unknown.
+func ReadsProblem(pr Problem, path string, i int) bool {
+	switch pr.Kind {
+	case Mount:
+		return under(path, ".spec.volumes")
+	case Evicted:
+		return (strings.HasPrefix(path, ".spec.containers[") || strings.HasPrefix(path, ".spec.initContainers[")) &&
+			strings.Contains(path, ".resources.")
 	}
 
-	return false
+	if i < 0 {
+		return false
+	}
+
+	list := "containers"
+	if pr.Init {
+		list = "initContainers"
+	}
+	prefix := fmt.Sprintf(".spec.%s[%d].", list, i)
+
+	return slices.ContainsFunc(problemReads[pr.Kind], func(f string) bool { return under(path, prefix+f) })
+}
+
+// under says whether path is prefix or a field inside it.
+func under(path, prefix string) bool {
+	return path == prefix || strings.HasPrefix(path, prefix+".") || strings.HasPrefix(path, prefix+"[")
 }
 
 // Owner is the workload that creates p, as kind and name ("Deployment", "api"); a ReplicaSet is followed to its
