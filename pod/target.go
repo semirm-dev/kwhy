@@ -91,7 +91,7 @@ func Warnings(cl *Cluster, p *v1.Pod) []string {
 	if compiled := schedulerVersion(); compiled != nil {
 		if server, err := version.ParseGeneric(cl.Version); err == nil && server.Major() == compiled.Major() {
 			if d := int(server.Minor()) - int(compiled.Minor()); d > 1 || d < -1 {
-				ws = append(ws, fmt.Sprintf("cluster is %s, kwhy runs the %s scheduler; checks may differ", cl.Version, compiled))
+				ws = append(ws, fmt.Sprintf("cluster is %s, kwhy runs the v%s scheduler; checks may differ", cl.Version, compiled))
 			}
 		}
 	}
