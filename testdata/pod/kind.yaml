@@ -1,0 +1,10 @@
+# Cluster for the kwhy pod parity suite (pod/kind_test.go): a tainted control plane and two workers in two zones.
+# The suite also taints kwhy-pod-worker with kwhy/gpu=true:NoSchedule.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+    labels: {kwhy/pool: gpu, topology.kubernetes.io/zone: a}
+  - role: worker
+    labels: {topology.kubernetes.io/zone: b}

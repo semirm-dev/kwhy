@@ -1,0 +1,26 @@
+# A claim bound to a volume in zone c, where no node is.
+apiVersion: v1
+kind: PersistentVolume
+metadata: {name: kwhy-zone-c, labels: {topology.kubernetes.io/zone: c}}
+spec:
+  capacity: {storage: 1Gi}
+  accessModes: [ReadWriteOnce]
+  storageClassName: kwhy-manual
+  hostPath: {path: /tmp/kwhy-zone-c}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: data}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: kwhy-manual
+  volumeName: kwhy-zone-c
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: target, labels: {kwhy/target: "true"}}
+spec:
+  volumes: [{name: data, persistentVolumeClaim: {claimName: data}}]
+  containers:
+    - {name: c, image: registry.k8s.io/pause:3.10}

@@ -1,0 +1,8 @@
+# Selects the gpu worker but doesn't tolerate its kwhy/gpu taint.
+apiVersion: v1
+kind: Pod
+metadata: {name: target, labels: {kwhy/target: "true"}}
+spec:
+  nodeSelector: {kwhy/pool: gpu}
+  containers:
+    - {name: c, image: registry.k8s.io/pause:3.10}

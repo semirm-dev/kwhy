@@ -1,0 +1,9 @@
+# Spreads over a topology label no node has.
+apiVersion: v1
+kind: Pod
+metadata: {name: target, labels: {app: spread, kwhy/target: "true"}}
+spec:
+  topologySpreadConstraints:
+    - {maxSkew: 1, topologyKey: kwhy/rack, whenUnsatisfiable: DoNotSchedule, labelSelector: {matchLabels: {app: spread}}}
+  containers:
+    - {name: c, image: registry.k8s.io/pause:3.10}

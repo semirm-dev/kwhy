@@ -1,0 +1,12 @@
+# Requires a zone no node is in.
+apiVersion: v1
+kind: Pod
+metadata: {name: target, labels: {kwhy/target: "true"}}
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions: [{key: topology.kubernetes.io/zone, operator: In, values: [c]}]
+  containers:
+    - {name: c, image: registry.k8s.io/pause:3.10}

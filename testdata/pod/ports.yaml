@@ -1,0 +1,16 @@
+# The anchor holds host port 18080 on the zone b worker, the only node the target selects.
+apiVersion: v1
+kind: Pod
+metadata: {name: anchor}
+spec:
+  nodeSelector: {topology.kubernetes.io/zone: b}
+  containers:
+    - {name: c, image: registry.k8s.io/pause:3.10, ports: [{containerPort: 18080, hostPort: 18080}]}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: target, labels: {kwhy/target: "true"}}
+spec:
+  nodeSelector: {topology.kubernetes.io/zone: b}
+  containers:
+    - {name: c, image: registry.k8s.io/pause:3.10, ports: [{containerPort: 18080, hostPort: 18080}]}
