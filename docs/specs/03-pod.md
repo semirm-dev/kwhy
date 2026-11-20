@@ -135,5 +135,5 @@ anti-affinity, spread, tolerations): 0.28s on 32 cores, 0.42s on 2. A run agains
 | `k8s.io/kubernetes` import churn (packages moved in 1.33–1.37) | Pin; the `pod/` package is the only importer; upgrade per minor with the parity suite |
 | Large dependency tree and binary size | Separate Go module if needed; strip symbols |
 | Clusters with custom scheduler plugins | Detect and warn; out of scope |
-| DRA becoming common (GPU clusters) | Implement `SharedDRAManager` from listers in a later release |
+| DRA becoming common (GPU clusters) | Done 2026-11-20: a `SharedDRAManager` built as `scheduler.go` does, over the snapshot's ResourceClaims, ResourceSlices and DeviceClasses; each per-plugin framework gets its own profile name, since DynamicResources indexes the shared pod informer under it |
 | Competitor already in Krew | Lead with parity + source linking, not with "explains Pending pods" |

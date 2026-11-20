@@ -358,8 +358,8 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
   and values come from the cache (argo-cd: 9s → 0.2s).
 - `pod` runs the scheduler compiled into kwhy (v1.37) and warns when the cluster is more than one minor version
   away. A custom profile needs `--scheduler-config`; out-of-tree scheduler plugins can't run.
-- `pod` doesn't support pods with resource claims (DRA). Its preemption hint ignores PodDisruptionBudgets and
-  nominated pods. What's missing across all three commands is in the [backlog](docs/plans/2026-11-20-backlog.md).
+- `pod`'s preemption hint ignores PodDisruptionBudgets and nominated pods. Pods with DRA resource claims run the
+  real `DynamicResources` plugin over the cluster's ResourceSlices (v0.8). What's missing across all three commands is in the [backlog](docs/plans/2026-11-20-backlog.md).
 - `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
 
 ## Development
