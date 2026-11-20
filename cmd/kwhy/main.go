@@ -453,7 +453,7 @@ func podCmd() *cobra.Command {
 	f.StringVarP(&namespace, "namespace", "n", "", "namespace (default: the kube context's)")
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.StringVar(&helm.KubeContext, "context", "", "kube context to read from (read-only)")
-	f.Int64Var(&logs, "logs", 0, "last N log lines of a crashed or OOM-killed container's previous run (logs may contain secrets)")
+	f.Int64Var(&logs, "logs", 0, "last N log lines of a crashed or OOM-killed container's last run (logs may contain secrets)")
 	f.StringVar(&src.chart, "chart", "", "chart that deploys the pod: also show which values line sets each field a failing check reads")
 	f.StringVar(&src.version, "version", "", "chart version, for repo and OCI charts")
 	f.StringArrayVarP(&src.files, "values", "f", nil, "values file or URL (repeatable, later wins), as deployed")
