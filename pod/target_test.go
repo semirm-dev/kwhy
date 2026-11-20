@@ -55,8 +55,8 @@ func TestTarget(t *testing.T) {
 	if _, err := pod.Target(t.Context(), c, "default", "nope"); err == nil {
 		t.Error("missing pod: want an error")
 	}
-	if _, err := pod.Target(t.Context(), c, "default", "ds/agent"); err == nil || !strings.Contains(err.Error(), "unsupported kind") {
-		t.Errorf("ds: err = %v", err)
+	if _, err := pod.Target(t.Context(), c, "default", "rs/agent"); err == nil || !strings.Contains(err.Error(), "unsupported kind") {
+		t.Errorf("rs: err = %v", err)
 	}
 }
 

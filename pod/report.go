@@ -16,11 +16,7 @@ import (
 // a node.
 func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 	var b strings.Builder
-	if p.Spec.NodeName != "" {
-		b.WriteString(onNode(p, r) + "\n")
-	} else {
-		b.WriteString(title(p, r) + "\n")
-	}
+	b.WriteString(heading(p, r) + "\n")
 
 	if rows := problemRows(p, r); len(rows) > 0 {
 		b.WriteByte('\n')
@@ -66,11 +62,7 @@ func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 // WriteMarkdown writes the matrix or the problems as Markdown tables.
 func WriteMarkdown(w io.Writer, p *v1.Pod, r Result) error {
 	var b strings.Builder
-	if p.Spec.NodeName != "" {
-		b.WriteString("**" + onNode(p, r) + "**\n")
-	} else {
-		b.WriteString("**" + title(p, r) + "**\n")
-	}
+	b.WriteString("**" + heading(p, r) + "**\n")
 
 	if rows := problemRows(p, r); len(rows) > 0 {
 		b.WriteString("\n| Container | Problem | Detail |\n|---|---|---|\n")
@@ -123,6 +115,18 @@ func WriteJSON(w io.Writer, p *v1.Pod, r Result) error {
 	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, p.Spec.NodeName, r.Plugins, r.Nodes, r.Problems, r.Sources})
 }
 
+// heading is the first line: a pod on a node, a pod being scheduled, or a workload only its controller speaks for.
+func heading(p *v1.Pod, r Result) string {
+	switch {
+	case p.Spec.NodeName != "":
+		return onNode(p, r)
+	case len(r.Nodes) == 0:
+		return fmt.Sprintf("%s/%s · no pod to check · %s from its controller", p.Namespace, p.Name, plural(len(r.Problems), "problem"))
+	}
+
+	return title(p, r)
+}
+
 // onNode is the title for a pod on a node: "ml/api-1 on n1 · Running · not ready · 2 containers, 1 failing".
 func onNode(p *v1.Pod, r Result) string {
 	failing := map[string]bool{}
@@ -156,6 +160,8 @@ func problemRows(p *v1.Pod, r Result) [][3]string {
 	for _, pr := range r.Problems {
 		name, kind := pr.Container, pr.Kind
 		switch {
+		case name == "" && (pr.Kind == Create || pr.Kind == Rollout || pr.Kind == JobFail):
+			name = "(controller)"
 		case name == "":
 			name = "(pod)"
 		case pr.Init:

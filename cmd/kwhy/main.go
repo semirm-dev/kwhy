@@ -16,6 +16,7 @@ import (
 	"helm.sh/helm/v4/pkg/chart/common"
 	"helm.sh/helm/v4/pkg/cli"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
@@ -394,13 +395,24 @@ func podCmd() *cobra.Command {
 				namespace = helm.Namespace()
 			}
 
-			p, err := pod.Target(ctx, c, namespace, args[0])
-			var healthy pod.Healthy
-			if errors.As(err, &healthy) {
-				return pod.WriteHealthy(cmd.OutOrStdout(), output, namespace, args[0], healthy)
-			}
+			ctrl, err := pod.Controller(ctx, c, namespace, args[0])
 			if err != nil {
 				return err
+			}
+
+			p, err := pod.Target(ctx, c, namespace, args[0])
+			var healthy pod.Healthy
+			if err != nil && !errors.As(err, &healthy) {
+				return err
+			}
+
+			// All pods ready, or none yet: the controller's problems are the answer when it has any.
+			if err != nil || pod.IsTemplate(p) && len(ctrl) > 0 {
+				if len(ctrl) == 0 {
+					return pod.WriteHealthy(cmd.OutOrStdout(), output, namespace, args[0], healthy)
+				}
+				w := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: args[0], Namespace: namespace}}
+				return podWriters[output](cmd.OutOrStdout(), w, pod.Result{Problems: ctrl})
 			}
 
 			if p.Spec.NodeName != "" {
@@ -413,10 +425,14 @@ func podCmd() *cobra.Command {
 					pod.AddLogs(ctx, c, p, ps, logs)
 				}
 
-				r := pod.Result{Problems: ps}
+				r := pod.Result{Problems: append(ps, ctrl...)}
 				if src.chart != "" && len(ps) > 0 {
+					v, err := c.Discovery().ServerVersion()
+					if err != nil {
+						return fmt.Errorf("server version: %w", err)
+					}
 					slog.SetDefault(slog.New(slog.DiscardHandler))
-					if r.Sources, err = podSources(ctx, c, p, r, src, render.KubeVersion, helm); err != nil {
+					if r.Sources, err = podSources(ctx, c, p, r, src, v.GitVersion, helm); err != nil {
 						return err
 					}
 				}
@@ -437,6 +453,7 @@ func podCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			r.Problems = append(r.Problems, ctrl...)
 
 			if src.chart != "" {
 				slog.SetDefault(slog.New(slog.DiscardHandler))

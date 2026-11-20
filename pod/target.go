@@ -16,6 +16,11 @@ import (
 // templateUID marks a pod Target built from a workload's template.
 const templateUID = "kwhy-template"
 
+// IsTemplate says whether p was built by Target from a workload's template rather than read from the cluster.
+func IsTemplate(p *v1.Pod) bool {
+	return p.UID == templateUID
+}
+
 // Healthy is returned by Target for a workload whose pods are all running and ready.
 type Healthy struct{ Pods int }
 
@@ -27,7 +32,7 @@ func (h Healthy) Error() string {
 	return fmt.Sprintf("all %d pods ready", h.Pods)
 }
 
-// Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, job/x). For a workload
+// Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, ds/x, job/x). For a workload
 // it is the oldest pod not yet on a node, else the not-ready pod with the most restarts, else Healthy; a workload
 // with no pods at all gets a new pod built from its template.
 func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Pod, error) {
@@ -37,37 +42,45 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 	}
 
 	var (
-		sel   *metav1.LabelSelector
-		tmpl  v1.PodTemplateSpec
-		owner string
+		sel  *metav1.LabelSelector
+		tmpl v1.PodTemplateSpec
 	)
-	switch kind {
-	case "pod", "pods", "po":
+	if kind == "pod" || kind == "pods" || kind == "po" {
 		p, err := c.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("get pod: %w", err)
 		}
 		return p, nil
-	case "deploy", "deployment", "deployments":
+	}
+
+	owner := workloadKind(kind)
+	switch owner {
+	case "Deployment":
 		d, err := c.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("get deployment: %w", err)
 		}
-		sel, tmpl, owner = d.Spec.Selector, d.Spec.Template, "Deployment"
-	case "sts", "statefulset", "statefulsets":
+		sel, tmpl = d.Spec.Selector, d.Spec.Template
+	case "StatefulSet":
 		s, err := c.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("get statefulset: %w", err)
 		}
-		sel, tmpl, owner = s.Spec.Selector, s.Spec.Template, "StatefulSet"
-	case "job", "jobs":
+		sel, tmpl = s.Spec.Selector, s.Spec.Template
+	case "DaemonSet":
+		d, err := c.AppsV1().DaemonSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("get daemonset: %w", err)
+		}
+		sel, tmpl = d.Spec.Selector, d.Spec.Template
+	case "Job":
 		j, err := c.BatchV1().Jobs(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("get job: %w", err)
 		}
-		sel, tmpl, owner = j.Spec.Selector, j.Spec.Template, "Job"
+		sel, tmpl = j.Spec.Selector, j.Spec.Template
 	default:
-		return nil, fmt.Errorf("unsupported kind %q: want pod, deploy, sts or job", kind)
+		return nil, fmt.Errorf("unsupported kind %q: want pod, deploy, sts, ds or job", kind)
 	}
 
 	pods, err := c.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: metav1.FormatLabelSelector(sel)})

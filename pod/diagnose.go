@@ -9,6 +9,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -54,8 +55,7 @@ func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem
 		return nil, fmt.Errorf("list events: %w", err)
 	}
 
-	evs := list.Items
-	slices.SortFunc(evs, func(a, b v1.Event) int { return lastSeen(b).Compare(lastSeen(a)) })
+	evs := about(list.Items, p.UID)
 
 	if p.Status.Phase == v1.PodFailed && p.Status.Reason == "Evicted" {
 		return []Problem{{Kind: Evicted, Reason: p.Status.Reason, Detail: p.Status.Message}}, nil
@@ -218,6 +218,14 @@ func messages(evs []v1.Event, container string, reasons ...string) []string {
 	}
 
 	return out
+}
+
+// about keeps the events about uid (the field selector already does on a real API server), newest first.
+func about(evs []v1.Event, uid types.UID) []v1.Event {
+	evs = slices.DeleteFunc(evs, func(e v1.Event) bool { return e.InvolvedObject.UID != uid })
+	slices.SortFunc(evs, func(a, b v1.Event) int { return lastSeen(b).Compare(lastSeen(a)) })
+
+	return evs
 }
 
 func lastSeen(e v1.Event) time.Time {
