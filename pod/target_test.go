@@ -1,6 +1,7 @@
 package pod_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -78,5 +79,34 @@ func TestWarnings(t *testing.T) {
 	// Test binaries carry build info, so the compiled v1.37 scheduler is known.
 	if !strings.Contains(ws, "cluster is v1.30.0") {
 		t.Errorf("no version skew warning in %q", ws)
+	}
+}
+
+func TestTargetWorstPod(t *testing.T) {
+	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"}, Spec: appsv1.DeploymentSpec{
+		Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}}}
+	onNode := func(name string, isReady bool, restarts int32) *v1.Pod {
+		p := newPod(name, "n1", "1", "1Gi")
+		p.Namespace, p.Labels = "default", map[string]string{"app": "web"}
+		status := v1.ConditionFalse
+		if isReady {
+			status = v1.ConditionTrue
+		}
+		p.Status.Conditions = []v1.PodCondition{{Type: v1.PodReady, Status: status}}
+		p.Status.ContainerStatuses = []v1.ContainerStatus{{Name: "c", RestartCount: restarts}}
+		return p
+	}
+
+	c := fake.NewClientset(deploy, onNode("web-ok", true, 0), onNode("web-flaky", false, 2), onNode("web-crashing", false, 14))
+	p, err := pod.Target(t.Context(), c, "default", "deploy/web")
+	if err != nil || p.Name != "web-crashing" {
+		t.Errorf("broken pods: got %v, %v; want web-crashing", p, err)
+	}
+
+	c = fake.NewClientset(deploy, onNode("web-a", true, 0), onNode("web-b", true, 3))
+	_, err = pod.Target(t.Context(), c, "default", "deploy/web")
+	var h pod.Healthy
+	if !errors.As(err, &h) || h.Pods != 2 || err.Error() != "all 2 pods ready" {
+		t.Errorf("all ready: err = %v", err)
 	}
 }

@@ -390,6 +390,10 @@ func podCmd() *cobra.Command {
 			}
 
 			p, err := pod.Target(ctx, c, namespace, args[0])
+			var healthy pod.Healthy
+			if errors.As(err, &healthy) {
+				return pod.WriteHealthy(cmd.OutOrStdout(), output, namespace, args[0], healthy)
+			}
 			if err != nil {
 				return err
 			}

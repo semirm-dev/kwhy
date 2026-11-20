@@ -140,3 +140,18 @@ func TestWriteScheduled(t *testing.T) {
 		t.Errorf("json = %v", out)
 	}
 }
+
+func TestWriteHealthy(t *testing.T) {
+	var human, js bytes.Buffer
+	if err := errors.Join(pod.WriteHealthy(&human, "human", "ml", "deploy/web", pod.Healthy{Pods: 3}),
+		pod.WriteHealthy(&js, "json", "ml", "deploy/web", pod.Healthy{Pods: 3})); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := human.String(); got != "ml/deploy/web: all 3 pods ready.\n" {
+		t.Errorf("human = %q", got)
+	}
+	if !strings.Contains(js.String(), `"ready": 3`) {
+		t.Errorf("json = %s", js.String())
+	}
+}

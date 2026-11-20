@@ -225,3 +225,25 @@ func age(d time.Duration) string {
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
 }
+
+// WriteHealthy writes the answer for a workload whose pods are all ready, in output (human, markdown or json).
+func WriteHealthy(w io.Writer, output, namespace, workload string, h Healthy) error {
+	line := fmt.Sprintf("%s/%s: %s.", namespace, workload, h)
+
+	switch output {
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(struct {
+			Schema    string `json:"schema"`
+			Namespace string `json:"namespace"`
+			Workload  string `json:"workload"`
+			Ready     int    `json:"ready"`
+		}{"kwhy.pod/v1", namespace, workload, h.Pods})
+	case "markdown":
+		line = "**" + line + "**"
+	}
+
+	_, err := fmt.Fprintln(w, line)
+	return err
+}

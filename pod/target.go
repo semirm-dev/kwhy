@@ -16,8 +16,20 @@ import (
 // templateUID marks a pod Target built from a workload's template.
 const templateUID = "kwhy-template"
 
-// Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, job/x); for a workload
-// it is the oldest pod not yet on a node, or, when every pod has one, a new pod built from the workload's template.
+// Healthy is returned by Target for a workload whose pods are all running and ready.
+type Healthy struct{ Pods int }
+
+func (h Healthy) Error() string {
+	if h.Pods == 1 {
+		return "its pod is ready"
+	}
+
+	return fmt.Sprintf("all %d pods ready", h.Pods)
+}
+
+// Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, job/x). For a workload
+// it is the oldest pod not yet on a node, else the not-ready pod with the most restarts, else Healthy; a workload
+// with no pods at all gets a new pod built from its template.
 func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Pod, error) {
 	kind, name, ok := strings.Cut(ref, "/")
 	if !ok {
@@ -63,15 +75,29 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 		return nil, fmt.Errorf("list pods of %s: %w", ref, err)
 	}
 
-	var pending []v1.Pod
+	var live, pending, broken []v1.Pod
 	for _, p := range pods.Items {
-		if p.Spec.NodeName == "" && p.DeletionTimestamp == nil {
+		switch {
+		case p.DeletionTimestamp != nil || p.Status.Phase == v1.PodSucceeded:
+		case p.Spec.NodeName == "":
 			pending = append(pending, p)
+		case !ready(&p):
+			broken = append(broken, p)
+		}
+		if p.DeletionTimestamp == nil {
+			live = append(live, p)
 		}
 	}
-	if len(pending) > 0 {
+
+	switch {
+	case len(pending) > 0:
 		p := slices.MinFunc(pending, func(a, b v1.Pod) int { return a.CreationTimestamp.Compare(b.CreationTimestamp.Time) })
 		return &p, nil
+	case len(broken) > 0:
+		p := slices.MaxFunc(broken, func(a, b v1.Pod) int { return restarts(&a) - restarts(&b) })
+		return &p, nil
+	case len(live) > 0:
+		return nil, Healthy{Pods: len(live)}
 	}
 
 	return &v1.Pod{
@@ -79,6 +105,27 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 			OwnerReferences: []metav1.OwnerReference{{Kind: owner, Name: name, Controller: new(true)}}},
 		Spec: tmpl.Spec,
 	}, nil
+}
+
+// ready says whether p's Ready condition is true.
+func ready(p *v1.Pod) bool {
+	for _, c := range p.Status.Conditions {
+		if c.Type == v1.PodReady {
+			return c.Status == v1.ConditionTrue
+		}
+	}
+
+	return false
+}
+
+// restarts sums the restart counts of p's containers.
+func restarts(p *v1.Pod) int {
+	n := 0
+	for _, cs := range append(p.Status.InitContainerStatuses, p.Status.ContainerStatuses...) {
+		n += int(cs.RestartCount)
+	}
+
+	return n
 }
 
 // Warnings says when the answer may differ from what the cluster's scheduler decides.
