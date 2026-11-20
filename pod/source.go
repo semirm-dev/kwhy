@@ -40,9 +40,11 @@ func Reads(c Check, path string) bool {
 
 	switch c.Plugin {
 	case fitPlugin:
-		// shortcut: requests only; a request defaulted from limits isn't linked.
+		// Limits count too: Kubernetes defaults a missing request to the limit. Callers drop a limit when its
+		// container also sets the request.
 		for _, r := range c.Reasons {
-			if res, ok := strings.CutPrefix(r, "Insufficient "); ok && containers && strings.HasSuffix(path, ".resources.requests."+res) {
+			res, ok := strings.CutPrefix(r, "Insufficient ")
+			if ok && containers && (strings.HasSuffix(path, ".resources.requests."+res) || strings.HasSuffix(path, ".resources.limits."+res)) {
 				return true
 			}
 		}

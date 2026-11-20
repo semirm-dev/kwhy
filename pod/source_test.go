@@ -22,7 +22,7 @@ func TestReads(t *testing.T) {
 		{cpu, ".spec.containers[0].resources.requests.cpu", true},
 		{cpu, ".spec.initContainers[1].resources.requests.cpu", true},
 		{cpu, ".spec.containers[0].resources.requests.memory", false}, // not short of memory
-		{cpu, ".spec.containers[0].resources.limits.cpu", false},
+		{cpu, ".spec.containers[0].resources.limits.cpu", true},       // defaults the request when none is set
 		{pod.Check{Plugin: "TaintToleration"}, ".spec.tolerations[0].key", true},
 		{pod.Check{Plugin: "NodeAffinity"}, `.spec.nodeSelector["kwhy/pool"]`, true},
 		{pod.Check{Plugin: "NodeAffinity"}, ".spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].values[0]", true},

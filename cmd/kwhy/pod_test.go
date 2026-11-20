@@ -51,6 +51,28 @@ func TestPodSources(t *testing.T) {
 		t.Errorf("sources = %+v\nwant [%+v]", got, want)
 	}
 
+	// Only a limit: Kubernetes defaults the request to it, so the limit is the source.
+	limitOnly := podChart{chart: mini, release: "rel", sets: []string{"resources.requests=null", "resources.limits.memory=2Gi"}}
+	got, err = podSources(t.Context(), c, p, r, limitOnly, "v1.37.0", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = pod.Source{Plugin: "NodeResourcesFit", Field: ".spec.containers[0].resources.limits.memory", Value: "2Gi",
+		From: "resources.limits.memory (--set resources.limits.memory=2Gi)"}
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("limit only: sources = %+v\nwant [%+v]", got, want)
+	}
+
+	// Request and limit: only the request is the source.
+	both := podChart{chart: mini, release: "rel", files: []string{prod}, sets: []string{"resources.limits.memory=4Gi"}}
+	got, err = podSources(t.Context(), c, p, r, both, "v1.37.0", cli.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Field != ".spec.containers[0].resources.requests.memory" {
+		t.Errorf("request and limit: sources = %+v, want only the request", got)
+	}
+
 	// Without --release, the instance label is required.
 	if _, err := podSources(t.Context(), c, p, r, podChart{chart: mini}, "v1.37.0", cli.New()); err == nil {
 		t.Error("no release: want an error")

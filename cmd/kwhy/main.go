@@ -495,12 +495,20 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 		field  value.Field
 		plugin string
 	}
+	fields := value.Flatten(docs)
+
 	var wants []want
-	for f := range value.Flatten(docs) {
+	for f := range fields {
 		path, ok := strings.CutPrefix(f.Path, prefix)
 		if f.Doc != doc || !ok || !strings.HasPrefix(path, ".spec") {
 			continue
 		}
+		// A limit only matters when the container sets no request for it: Kubernetes copies the limit.
+		req := strings.Replace(f.Path, ".resources.limits.", ".resources.requests.", 1)
+		if _, ok := fields[value.Field{Doc: doc, Path: req}]; ok && req != f.Path {
+			continue
+		}
+
 		for _, chk := range checks {
 			if pod.Reads(chk, path) {
 				wants = append(wants, want{f, chk.Plugin})
