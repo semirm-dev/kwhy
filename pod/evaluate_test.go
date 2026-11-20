@@ -2,7 +2,10 @@ package pod_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
@@ -174,5 +177,56 @@ func TestEvaluatePreempt(t *testing.T) {
 	high.Spec.PreemptionPolicy, high.Spec.Priority = nil, nil
 	if r, _ := pod.Evaluate(t.Context(), cl, high); r.Preempt != nil {
 		t.Errorf("same priority: preempt = %v", r.Preempt)
+	}
+}
+
+// A cluster's own scheduler profile replaces the default: here it drops the NodeAffinity filter.
+func TestEvaluateSchedulerConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sched.yaml")
+	cfg := `apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+profiles:
+  - schedulerName: default-scheduler
+  - schedulerName: relaxed
+    plugins:
+      filter:
+        disabled: [{name: NodeAffinity}]
+`
+	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newPod("web", "", "1", "1Gi")
+	p.Spec.NodeSelector = map[string]string{"pool": "gpu"}
+	p.Spec.SchedulerName = "relaxed"
+
+	cl, err := pod.Snapshot(t.Context(), fake.NewClientset(node("n1", "4", "8Gi", nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := pod.Evaluate(t.Context(), cl, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Nodes[0].Failed) != 1 || r.Nodes[0].Failed[0].Plugin != "NodeAffinity" {
+		t.Fatalf("default profile: %+v, want NodeAffinity to fail", r.Nodes[0].Failed)
+	}
+
+	if err := cl.UseSchedulerConfig(path, p.Spec.SchedulerName); err != nil {
+		t.Fatal(err)
+	}
+	if r, err = pod.Evaluate(t.Context(), cl, p); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Nodes[0].Failed) != 0 || slices.Contains(r.Plugins, "NodeAffinity") {
+		t.Errorf("relaxed profile: failed %+v, plugins %v; want a fit without NodeAffinity", r.Nodes[0].Failed, r.Plugins)
+	}
+	if ws := pod.Warnings(cl, p); slices.ContainsFunc(ws, func(w string) bool { return strings.Contains(w, "relaxed") }) {
+		t.Errorf("warns about a scheduler whose config was given: %v", ws)
+	}
+
+	if err := cl.UseSchedulerConfig(path, "volcano"); err == nil {
+		t.Error("unknown scheduler name: want an error")
 	}
 }

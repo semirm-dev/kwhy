@@ -79,7 +79,7 @@ func Evaluate(ctx context.Context, cl *Cluster, p *v1.Pod) (Result, error) {
 	snap := cache.NewSnapshot(cl.pods, cl.nodes)
 	inf := informers.NewSharedInformerFactory(cl.client, 0)
 
-	full, err := newFramework(ctx, snap, inf, cl.client, "", false)
+	full, err := newFramework(ctx, snap, inf, cl.client, cl.profile, "", false)
 	if err != nil {
 		return Result{}, err
 	}
@@ -96,7 +96,7 @@ func Evaluate(ctx context.Context, cl *Cluster, p *v1.Pod) (Result, error) {
 
 	each := make([]framework.Framework, len(r.Plugins))
 	for i, name := range r.Plugins {
-		if each[i], err = newFramework(ctx, snap, inf, cl.client, name, pre.Has(name)); err != nil {
+		if each[i], err = newFramework(ctx, snap, inf, cl.client, cl.profile, name, pre.Has(name)); err != nil {
 			return Result{}, err
 		}
 	}
@@ -170,7 +170,7 @@ func fitting(ctx context.Context, cl *Cluster, pods []*v1.Pod, p *v1.Pod) ([]str
 	snap := cache.NewSnapshot(pods, cl.nodes)
 	inf := informers.NewSharedInformerFactory(cl.client, 0)
 
-	fw, err := newFramework(ctx, snap, inf, cl.client, "", false)
+	fw, err := newFramework(ctx, snap, inf, cl.client, cl.profile, "", false)
 	if err != nil {
 		return nil, err
 	}
@@ -210,13 +210,16 @@ func priority(p *v1.Pod) int32 {
 // newFramework builds the default profile without DynamicResources. With filter set, the framework runs only
 // that filter plugin, and only its own PreFilter if it has one, so a rejection is never blamed on another plugin.
 func newFramework(ctx context.Context, snap *cache.Snapshot, inf informers.SharedInformerFactory, c kubernetes.Interface,
-	filter string, preFilter bool) (framework.Framework, error) {
-	cfg, err := latest.Default()
-	if err != nil {
-		return nil, fmt.Errorf("default scheduler config: %w", err)
+	base *config.KubeSchedulerProfile, filter string, preFilter bool) (framework.Framework, error) {
+	if base == nil {
+		cfg, err := latest.Default()
+		if err != nil {
+			return nil, fmt.Errorf("default scheduler config: %w", err)
+		}
+		base = &cfg.Profiles[0]
 	}
 
-	prof := cfg.Profiles[0]
+	prof := *base
 	// MultiPoint.Disabled doesn't remove a plugin MultiPoint enables, so drop it from the list.
 	prof.Plugins.MultiPoint.Enabled = slices.DeleteFunc(slices.Clone(prof.Plugins.MultiPoint.Enabled),
 		func(p config.Plugin) bool { return p.Name == "DynamicResources" })

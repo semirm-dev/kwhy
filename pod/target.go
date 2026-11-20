@@ -149,8 +149,8 @@ func restarts(p *v1.Pod) int {
 // Warnings says when the answer may differ from what the cluster's scheduler decides.
 func Warnings(cl *Cluster, p *v1.Pod) []string {
 	var ws []string
-	if s := p.Spec.SchedulerName; s != "" && s != v1.DefaultSchedulerName {
-		ws = append(ws, fmt.Sprintf("pod uses scheduler %q; kwhy runs the default scheduler's checks", s))
+	if s := p.Spec.SchedulerName; s != "" && s != v1.DefaultSchedulerName && (cl.profile == nil || cl.profile.SchedulerName != s) {
+		ws = append(ws, fmt.Sprintf("pod uses scheduler %q; kwhy runs the default scheduler's checks (give its --scheduler-config)", s))
 	}
 
 	if compiled := schedulerVersion(); compiled != nil {

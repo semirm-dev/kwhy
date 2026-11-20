@@ -417,6 +417,7 @@ func podCmd() *cobra.Command {
 		namespace, output string
 		src               podChart
 		logs              int64
+		schedConfig       string
 	)
 
 	helm := cli.New()
@@ -506,6 +507,12 @@ func podCmd() *cobra.Command {
 				return err
 			}
 
+			if schedConfig != "" {
+				if err := cl.UseSchedulerConfig(schedConfig, p.Spec.SchedulerName); err != nil {
+					return err
+				}
+			}
+
 			for _, w := range pod.Warnings(cl, p) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "kwhy: warning:", w)
 			}
@@ -536,6 +543,7 @@ func podCmd() *cobra.Command {
 	f.StringVarP(&namespace, "namespace", "n", "", "namespace (default: the kube context's)")
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.StringVar(&helm.KubeContext, "context", "", "kube context to read from (read-only)")
+	f.StringVar(&schedConfig, "scheduler-config", "", "the cluster's KubeSchedulerConfiguration file: run the pod's profile instead of the default")
 	f.Int64Var(&logs, "logs", 0, "last N log lines of a crashed or OOM-killed container's last run (logs may contain secrets)")
 	f.StringVar(&src.chart, "chart", "", "chart that deploys the pod: also show which values line sets each field a failing check reads")
 	f.StringVar(&src.version, "version", "", "chart version, for repo and OCI charts")

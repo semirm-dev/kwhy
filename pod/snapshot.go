@@ -3,6 +3,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"os"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -11,6 +12,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/pager"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
 )
 
 // Cluster is what the scheduler sees, read once: nodes, the pods placed on them, and every object a filter
@@ -19,9 +22,38 @@ type Cluster struct {
 	// Version is the API server's version, e.g. v1.36.4.
 	Version string
 
-	client kubernetes.Interface
-	nodes  []*v1.Node
-	pods   []*v1.Pod
+	client  kubernetes.Interface
+	nodes   []*v1.Node
+	pods    []*v1.Pod
+	profile *config.KubeSchedulerProfile // nil: the default profile
+}
+
+// UseSchedulerConfig makes Evaluate run a profile of the cluster's KubeSchedulerConfiguration file instead of the
+// default one: the profile named schedulerName, or the first when it's empty. Out-of-tree plugins in it can't run
+// here, so building that profile fails naming the plugin.
+func (cl *Cluster) UseSchedulerConfig(path, schedulerName string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("scheduler config: %w", err)
+	}
+
+	obj, _, err := scheme.Codecs.UniversalDecoder().Decode(data, nil, nil) // applies the API's defaults
+	if err != nil {
+		return fmt.Errorf("scheduler config %s: %w", path, err)
+	}
+	cfg, ok := obj.(*config.KubeSchedulerConfiguration)
+	if !ok || len(cfg.Profiles) == 0 {
+		return fmt.Errorf("scheduler config %s: not a KubeSchedulerConfiguration with profiles", path)
+	}
+
+	for i, p := range cfg.Profiles {
+		if schedulerName == "" || p.SchedulerName == schedulerName {
+			cl.profile = &cfg.Profiles[i]
+			return nil
+		}
+	}
+
+	return fmt.Errorf("scheduler config %s: no profile for scheduler %q", path, schedulerName)
 }
 
 // Snapshot reads, with get and list only, every object the default filter plugins need.
