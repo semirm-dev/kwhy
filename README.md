@@ -11,11 +11,12 @@ Answers the "why" questions about Kubernetes config, using the real Helm and sch
 |---|---|---|---|
 | `kwhy value` | Where does this rendered value come from? | Git repo, offline | v0.1 |
 | `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.3 |
-| `kwhy pod` | Why is this pod not scheduled (Pending)? | Live cluster, read-only | v0.4 (crashes, pull errors, OOM: planned, v0.5) |
+| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.5 |
 
 > **Status:** early development. `kwhy value` works today and is checked nightly against 10 public charts.
 > `kwhy change` works for Helm charts and every rule is checked against a real cluster in CI. `kwhy pod` works on
-> live clusters and is checked against the real scheduler on kind in CI (Kubernetes 1.35–1.37).
+> live clusters: Pending pods are checked against the real scheduler, and crashes, pull errors, OOM kills, config,
+> mount and probe failures against what kubelet reports, on kind in CI (Kubernetes 1.35–1.37).
 
 ## `kwhy value`: where does this value come from?
 
@@ -152,10 +153,49 @@ It posts one comment per PR and updates it on every push, comparing the PR's bas
 Inputs: `chart`, `values` and `set` (one per line), `release`, `namespace`, `kube-version`, `fail-on`, `base`,
 `head`, `version` (kwhy release, default latest), `comment`. Linux runners only.
 
-## `kwhy pod`: why is it Pending? (v0.4)
+## `kwhy pod`: why isn't it running? (v0.5)
 
-Runs the real kube-scheduler filters on every node and shows every failing check, not just the first one the
-scheduler reports. It says what's wrong; fixing it stays with you.
+Two cases, one command. It says what's wrong; fixing it stays with you.
+
+**On a node but not running or not ready** (v0.5): kwhy reads the pod's status and events and names each failing
+container's problem as kubelet reported it: `pull`, `crash` (exit code, restarts), `oom` (the limit it hit),
+`config` (missing Secret, ConfigMap or key), `mount`, `probe`, `evicted`, `sandbox`, `node` (the node isn't Ready
+or is under pressure), or `other` with kubelet's reason. Init containers come first; a past OOM kill of a container
+that's fine now shows as `oom (earlier)`. Real output on kind:
+
+```console
+$ kwhy pod deploy/api -n shop --logs 5
+shop/api-7786cbf6bb-txlt8 on kwhy-pod-worker · Running · not ready · 2 containers, 1 failing
+
+CONTAINER  PROBLEM  DETAIL
+api        oom      killed at limit 32Mi, 4 restarts, last 1m ago
+proxy      ✓
+
+Events:
+  api: Back-off restarting failed container api in pod api-7786cbf6bb-txlt8_shop(9b22ae5a-f48d-4749-a5f1-8608dac549dc)
+
+Logs (api, last run):
+  starting cache warm-up
+
+$ kwhy pod deploy/worker -n shop --logs 5
+shop/worker-6b697b77cd-dh92v on kwhy-pod-worker2 · Running · not ready · 1 container, 1 failing
+
+CONTAINER  PROBLEM  DETAIL
+worker     crash    exit 1, 3 restarts, last 20s ago
+
+Logs (worker, last run):
+  connecting to db:5432
+  fatal: password authentication failed
+```
+
+kwhy never guesses why an app exits: `exit 1` is all kubelet knows, and the logs (opt-in, `--logs N`) are the app's
+own words. With `--chart`, problems link to values like checks do (from the test suite, the test chart with
+`--set resources.limits.memory=4Gi`): `oom (api)  .spec.containers[0].resources.limits.memory = 4Gi  ← resources.limits.memory (--set resources.limits.memory=4Gi)`.
+For a workload it explains the worst pod (unscheduled first, then the not-ready one with the most restarts), or
+says `all N pods ready`.
+
+**Not scheduled (Pending)** (v0.4): runs the real kube-scheduler filters on every node and shows every failing
+check, not just the first one the scheduler reports.
 
 Real output, for a Deployment asking for a gpu node and 40 CPUs on a 3-node kind cluster:
 
@@ -261,10 +301,12 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 | `--chart CHART` | chart that deploys the pod (directory, `.tgz`, `oci://` or `repo/chart`): adds the values line behind each field a failing check reads |
 | `-f, --values FILE`, `--set K=V`, `--version V` | as the release was deployed (with `--chart`) |
 | `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
+| `--logs N` | last N log lines of a crashed or OOM-killed container's last run (default 0: none; logs may contain secrets, so they're never read unless asked) |
 
-A pod already on a node gets one line (`ns/x is scheduled on node-1 (Running).`), or in JSON `"scheduled": "node-1"`.
+A healthy pod gets one line (`ns/x is on node-1, Running and ready.`); JSON has `"scheduled"` and `"problems"`
+(`kind`, `container`, `reason`, `detail`, `events`, `logs`).
 
-Exit codes: `0` ok (also for a pod that is already scheduled), `1` runtime error, `2` usage error.
+Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, `2` usage error.
 
 ## Known limits
 
@@ -275,8 +317,9 @@ Exit codes: `0` ok (also for a pod that is already scheduled), `1` runtime error
 - Every run traces the whole chart again; nothing is cached between runs (~20s on kube-prometheus-stack).
 - `pod` runs the default scheduler profile compiled into kwhy (v1.37) and warns when the cluster is more than one
   minor version away or the pod names another scheduler. Custom profiles and scheduler plugins aren't seen.
-- `pod` explains why a pod isn't scheduled. A pod that is on a node but crashing, failing to pull its image,
-  OOM-killed or not ready gets only `scheduled on <node>`; diagnosing those is planned for v0.5.
+- `pod` explains a pod, not a workload's controller: a Deployment whose ReplicaSet can't create pods (quota,
+  PodSecurity, webhooks), a failed Job's own reason and pods stuck Terminating aren't diagnosed yet. What's
+  missing across all three commands is in the [backlog](docs/plans/2026-11-20-backlog.md).
 - `pod` doesn't support pods with resource claims (DRA) and doesn't consider preemption or nominated pods.
 - `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
 

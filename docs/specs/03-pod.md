@@ -75,14 +75,17 @@ Source:
   NodeResourcesFit  .spec.containers[0].resources.requests.memory = 2Gi  ← resources.requests.memory (values-prod.yaml:4)
 ```
 
-## v0.5: not running (planned)
+## v0.5: not running (built 2026-11-20)
 
 v0.4 explains only pods the scheduler can't place. Most "my pod is down" cases happen after placement, so v0.5
 diagnoses a pod on a node from its status and events: image pull errors, crash loops (exit code, restarts), OOM
 kills (the limit it hit), missing Secrets and ConfigMaps, failed mounts, failing probes, failed init containers,
 evictions. Each problem names the container and kubelet's own reason, never a guess at why an app exits, and with
 `--chart` the values line behind the field involved (`killed at limit 512Mi ← resources.limits.memory`).
-Plan: `docs/plans/2026-11-20-v0.5-pod-running.md`.
+Also a `node` problem when the pod's node isn't Ready or is under pressure (best effort: needs `get nodes`), and
+`--logs N` (opt-in) for the last run of a crashed container. Checked on kind against kubelet for pull, crash, OOM,
+config, mount, probe and init failures (`pod/kind_running_test.go`). Plan: `docs/plans/2026-11-20-v0.5-pod-running.md`.
+What's still missing: `docs/plans/2026-11-20-backlog.md`.
 
 ## Design (validated in `docs/spikes/pod`)
 
