@@ -3,11 +3,11 @@
 The open work and the decisions any future change must respect. What's built is in the README and
 `docs/specs/`; how it was built is in git history.
 
-## Where each command stands (2026-11-23, v0.13.0)
+## Where each command stands (2026-11-23, v0.14.0)
 
 | Command | Helm | Plain YAML | Kustomize | Checked by | Gaps |
 |---|---|---|---|---|---|
-| `value` | done: every spec item, all `--set*` flags, cache | n/a | done, cached | 10 charts nightly (precision 1.00, recall 0.98–1.00); 12 overlays nightly (precision 1.00, recall 0.87–1.00) | #1–4 |
+| `value` | done: every spec item, all `--set*` flags, cache | n/a | done, cached | 10 charts nightly (precision 1.00, recall 0.98–1.00); 12 overlays nightly (precision 1.00, recall 0.87–1.00) | #1–3 |
 | `change` | done: every spec rule, `--context`, Action, `.kwhy.yaml`, Argo CD / Flux read at each ref, CronJob and bare Pod | done | done | 25 kind fixtures on 1.35/1.37, 4 real chart upgrades | |
 | `pod` | Pending (real scheduler, DRA, custom profiles) and not-running (kubelet, controllers) done; `--chart`; `rs/`, `cj/`; scheduler's own preemption dry run | n/a | `--kustomize` | kind parity suite on 1.35–1.37, preemption included | |
 
@@ -18,12 +18,6 @@ The open work and the decisions any future change must respect. What's built is 
 | 1 | **Kustomize names behind `namePrefix`**: a prefixed name (and every reference Kustomize renames with it) names only the `namePrefix` line, not the resource's own `name:` line; kubebuilder's recall is 0.87, gated at 0.85. Fix: one more marked build that renames every resource (`name: apip9_7_`) and, with the same mark, every line that only picks it as a target (a patch's own `metadata.name`, `target: name:`, `replicas`/`replacements` selectors, inline patches too), or Kustomize fails the build on the first unmatched patch. Credit a line only when its mark shows up in a field. Not by name matching: that can name an unrelated document that shares the name | recall for prefixed names and their references | M |
 | 2 | Kustomize remote bases: clone each once into a cache at its ref, map the clones into the in-memory copy; opt-in, since it breaks "offline" | stops with a message today | M |
 | 3 | Kustomize `helmCharts:` inside a kustomization | stops with a message today | M, spike first |
-| 4 | Fallback if a Kustomize wrong line ever turns up: `value kustomize <field>` edits the line it is about to name and rebuilds (one build per field; too slow for `--all`) | a backstop for "never name a wrong line" | S |
-| 5 | **Security: Kustomize bases escape the checkout** (audit 2026-11-23). `render.Offline` (`render/kustomize.go`) only checks that a `resources`/`bases`/`components` entry exists, not that it stays inside the checkout; a PR overlay with `../../../../some/dir` loads any kustomization dir on the CI runner (reproduced: `change` reported a ConfigMap from outside the repo). Fix: pass the checkout root to `Offline`, refuse entries where `filepath.Rel(root, p)` isn't `filepath.IsLocal`; `change` passes `t.dir`. Failing test first, next to `TestKustomizeOffline` | breaks the 8440ec1 promise; first to fix | S |
-| 6 | `--apps` silently drops apps after the first unparsable YAML doc in a file (`readObjects`, `change/discover.go`): e.g. an ApplicationSet with unquoted `{{ }}` followed by Applications reports "No effect" and passes `--fail-on`. Fix: warn naming the file when a decode fails after an earlier doc in it decoded | false "no effect" in CI | S |
-| 7 | Trace cache only grows: every new build changes the key, old `.gob` files are never read or deleted (`value/cache.go` `write`). Fix: delete `*.gob` older than 30 days on write | disk creep on dev machines | S |
-| 8 | Markdown limit ignores kept rows (`WriteMarkdown`, `change/report.go`): if will-fail/data/recreate rows alone pass 65000 chars, GitHub rejects the comment. Fix: apply the same cut-and-count to the kept rows | very large changes only | S |
-| 9 | Delete `docs/spikes/` (~1,600 lines, 4 separate modules, nothing builds or links them; git history keeps them) | less to read | S |
 
 ## Decisions to keep
 

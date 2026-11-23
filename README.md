@@ -161,9 +161,10 @@ It renders both refs in temporary git worktrees. Sources: a chart (`--chart`), p
 `--apps DIR` that points into the repo. App paths are read as Argo CD and Flux read them, from the repo root and
 never above it, and a ref with a symlink out of the repo, or a Kustomize base outside the checkout (through `..` or a
 symlink), is refused, so a pull request can't point kwhy at the runner's files. A file under `--apps` that stops
-decoding after an earlier document gets a warning naming it, since apps after the bad document aren't read. Offline, pod counts come from `replicas`. With `--context` it reads the
-cluster (get and list only) for live replicas, HPA ranges, DaemonSet node counts, StorageClass expansion, the
-namespace's ResourceQuota and a rollout time estimate.
+decoding after an earlier document gets a warning naming it, since apps after the bad document aren't read.
+Offline, pod counts come from `replicas`. With `--context` it reads the cluster (get and list only) for live
+replicas, HPA ranges, DaemonSet node counts, StorageClass expansion, the namespace's ResourceQuota and a rollout
+time estimate.
 
 ### In a pull request
 
@@ -176,7 +177,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with: {fetch-depth: 0}   # kwhy needs both refs
-      - uses: semirm-dev/kwhy@v0.13.0
+      - uses: semirm-dev/kwhy@v0.14.0
         with:
           chart: charts/api
           values: values-prod.yaml
