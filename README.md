@@ -53,7 +53,7 @@ $ kwhy value chart testdata/charts/mini deploy/rel-api \
 
 Don't know the resource name? Guess: the error lists everything the chart renders. `--all` explains every field.
 
-**2. What will a PR do?** Put the chart in a scratch repo, change one ConfigMap value, and ask:
+**2. What will a PR do?** Copy the chart into a throwaway git repo, change one ConfigMap value, and ask:
 
 ```console
 $ mkdir /tmp/demo && cp -r testdata/charts/mini /tmp/demo/chart && cp testdata/values-prod.yaml /tmp/demo/
@@ -369,12 +369,14 @@ What's next is in the [backlog](docs/plans/backlog.md).
 ## Development
 
 ```sh
-gofmt -l $(git ls-files "*.go")   # must print nothing
-go vet ./...
-go test -race ./...
-go test -tags accuracy ./value/ ./change/   # public charts and overlays: scripts/fetch-charts.sh, scripts/fetch-overlays.sh
-go test -tags kind ./change/ ./pod/          # against a kind cluster (see the test files for the cluster setup)
+make build        # ./kwhy, version from git
+make run ARGS="pod deploy/api -n shop"
+make check        # what CI runs: gofmt, vet, race tests
+make accuracy     # public charts and overlays (scripts/fetch-charts.sh, scripts/fetch-overlays.sh first)
+make kind-test    # change and pod against kind clusters it creates; make kind-down removes them
 ```
+
+`make` alone lists every target.
 
 ```
 cmd/kwhy/    CLI wiring (cobra): flags in, features out; kwhy mcp
