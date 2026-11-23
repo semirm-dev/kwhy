@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/version"
@@ -32,7 +33,8 @@ func (h Healthy) Error() string {
 	return fmt.Sprintf("all %d pods ready", h.Pods)
 }
 
-// Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, ds/x, job/x). For a workload
+// Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, ds/x, rs/x, job/x, cj/x); a
+// CronJob is followed to its newest Job. For a workload
 // it is the oldest pod not yet on a node, else the not-ready pod with the most restarts, else a pod stuck
 // terminating, else Healthy; a workload
 // with no pods at all gets a new pod built from its template.
@@ -74,6 +76,21 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 			return nil, fmt.Errorf("get daemonset: %w", err)
 		}
 		sel, tmpl = d.Spec.Selector, d.Spec.Template
+	case "ReplicaSet":
+		r, err := c.AppsV1().ReplicaSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("get replicaset: %w", err)
+		}
+		sel, tmpl = r.Spec.Selector, r.Spec.Template
+	case "CronJob":
+		cj, j, err := lastJob(ctx, c, ns, name)
+		if err != nil {
+			return nil, err
+		}
+		if j != nil {
+			return Target(ctx, c, ns, "job/"+j.Name)
+		}
+		tmpl = cj.Spec.JobTemplate.Spec.Template
 	case "Job":
 		j, err := c.BatchV1().Jobs(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
@@ -81,7 +98,11 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 		}
 		sel, tmpl = j.Spec.Selector, j.Spec.Template
 	default:
-		return nil, fmt.Errorf("unsupported kind %q: want pod, deploy, sts, ds or job", kind)
+		return nil, fmt.Errorf("unsupported kind %q: want pod, deploy, sts, ds, rs, job or cj", kind)
+	}
+
+	if owner == "CronJob" { // no Job yet: its next one
+		return template(ns, name, owner, tmpl), nil
 	}
 
 	pods, err := c.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: metav1.FormatLabelSelector(sel)})
@@ -118,11 +139,38 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 		return nil, Healthy{Pods: len(live)}
 	}
 
+	return template(ns, name, owner, tmpl), nil
+}
+
+// template is a new pod built from the template of the workload owner/name.
+func template(ns, name, owner string, tmpl v1.PodTemplateSpec) *v1.Pod {
 	return &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: templateUID, Labels: tmpl.Labels,
 			OwnerReferences: []metav1.OwnerReference{{Kind: owner, Name: name, Controller: new(true)}}},
 		Spec: tmpl.Spec,
-	}, nil
+	}
+}
+
+// lastJob gets the CronJob name and its newest Job, nil if it has none.
+func lastJob(ctx context.Context, c kubernetes.Interface, ns, name string) (*batchv1.CronJob, *batchv1.Job, error) {
+	cj, err := c.BatchV1().CronJobs(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("get cronjob: %w", err)
+	}
+
+	jobs, err := c.BatchV1().Jobs(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("list jobs of cronjob %s: %w", name, err)
+	}
+
+	var last *batchv1.Job
+	for i, j := range jobs.Items {
+		if metav1.IsControlledBy(&j, cj) && (last == nil || j.CreationTimestamp.After(last.CreationTimestamp.Time)) {
+			last = &jobs.Items[i]
+		}
+	}
+
+	return cj, last, nil
 }
 
 // ready says whether p's Ready condition is true.

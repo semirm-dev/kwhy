@@ -35,7 +35,7 @@ kwhy pod <name|pod/name|deploy/name|sts/name|job/name> [-n ns] [--context ctx] [
 - Read-only. Lists nodes, pods (all namespaces, for allocated resources), namespaces, PVs, PVCs, StorageClasses,
   CSINodes, CSIDrivers, VolumeAttachments and CSIStorageCapacities once; builds the scheduler snapshot and serves the
   rest to the plugins' listers from an in-memory fake clientset, so plugins never touch the cluster.
-- Accepts a workload (`deploy/x`, `sts/x`, `job/x`): picks its oldest pod not yet on a node, or checks a new pod
+- Accepts a workload (`deploy/x`, `sts/x`, `ds/x`, `rs/x`, `job/x`, `cj/x`; a CronJob is followed to its newest Job, or to its job template if it has none): picks its oldest pod not yet on a node, or checks a new pod
   from its template if none is waiting. A pod already on a node gets one line ("scheduled on X"), in JSON `"scheduled": "X"` without plugins or nodes, and exit 0.
 - **v0.4.1 (built 2026-11-20):** the source link. With `--chart` (plus `-f`, `--set`, `--version`, `--release`
   as deployed), kwhy renders the chart, finds the workload that owns the pod (a ReplicaSet is followed to its

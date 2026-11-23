@@ -76,6 +76,32 @@ func Controller(ctx context.Context, c kubernetes.Interface, ns, ref string) ([]
 			return nil, fmt.Errorf("get daemonset: %w", err)
 		}
 		return createEvents(ctx, c, ns, d.UID, "daemonset "+name)
+	case "ReplicaSet":
+		r, err := c.AppsV1().ReplicaSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("get replicaset: %w", err)
+		}
+		for _, cond := range r.Status.Conditions {
+			if cond.Type == appsv1.ReplicaSetReplicaFailure && cond.Status == v1.ConditionTrue {
+				return []Problem{{Kind: Create, Reason: cond.Reason, Detail: "replicaset " + name + ": " + cond.Message}}, nil
+			}
+		}
+		return createEvents(ctx, c, ns, r.UID, "replicaset "+name)
+	case "CronJob":
+		cj, j, err := lastJob(ctx, c, ns, name)
+		if err != nil {
+			return nil, err
+		}
+		if ps, err = createEvents(ctx, c, ns, cj.UID, "cronjob "+name); err != nil {
+			return nil, err
+		}
+		if j != nil {
+			p, err := Controller(ctx, c, ns, "job/"+j.Name)
+			if err != nil {
+				return nil, err
+			}
+			ps = append(ps, p...)
+		}
 	case "Job":
 		j, err := c.BatchV1().Jobs(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
@@ -121,8 +147,12 @@ func workloadKind(kind string) string {
 		return "StatefulSet"
 	case "ds", "daemonset", "daemonsets":
 		return "DaemonSet"
+	case "rs", "replicaset", "replicasets":
+		return "ReplicaSet"
 	case "job", "jobs":
 		return "Job"
+	case "cj", "cronjob", "cronjobs":
+		return "CronJob"
 	}
 
 	return ""

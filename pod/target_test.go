@@ -7,8 +7,10 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/fake"
@@ -55,8 +57,52 @@ func TestTarget(t *testing.T) {
 	if _, err := pod.Target(t.Context(), c, "default", "nope"); err == nil {
 		t.Error("missing pod: want an error")
 	}
-	if _, err := pod.Target(t.Context(), c, "default", "rs/agent"); err == nil || !strings.Contains(err.Error(), "unsupported kind") {
-		t.Errorf("rs: err = %v", err)
+	if _, err := pod.Target(t.Context(), c, "default", "svc/agent"); err == nil || !strings.Contains(err.Error(), "unsupported kind") {
+		t.Errorf("svc: err = %v", err)
+	}
+}
+
+func TestTargetCronJobAndReplicaSet(t *testing.T) {
+	tmpl := func(app string) v1.PodTemplateSpec {
+		return v1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": app}},
+			Spec: v1.PodSpec{Containers: []v1.Container{{Name: "c"}}}}
+	}
+	cj := func(name string) *batchv1.CronJob {
+		return &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID(name)},
+			Spec: batchv1.CronJobSpec{JobTemplate: batchv1.JobTemplateSpec{Spec: batchv1.JobSpec{Template: tmpl(name)}}}}
+	}
+	job := func(name, owner string, age time.Duration) *batchv1.Job {
+		return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", CreationTimestamp: metav1.NewTime(time.Now().Add(-age)),
+			OwnerReferences: []metav1.OwnerReference{{Kind: "CronJob", Name: owner, UID: types.UID(owner), Controller: new(true)}}},
+			Spec: batchv1.JobSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"job-name": name}}, Template: tmpl(owner)}}
+	}
+	pending := func(name, jobName string) *v1.Pod {
+		p := newPod(name, "", "1", "1Gi")
+		p.Namespace, p.Labels = "default", map[string]string{"job-name": jobName}
+		return p
+	}
+	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "web-1", Namespace: "default"}, Spec: appsv1.ReplicaSetSpec{
+		Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}, Template: tmpl("web")}}
+
+	c := fake.NewClientset(cj("backup"), cj("report"), rs,
+		job("backup-1", "backup", time.Hour), job("backup-2", "backup", time.Minute),
+		pending("backup-1-a", "backup-1"), pending("backup-2-a", "backup-2"))
+
+	for _, tc := range []struct{ ref, want, owner string }{
+		{"cj/backup", "backup-2-a", ""}, // the newest Job's pod
+		{"cronjob/report", "report", "CronJob"},
+		{"rs/web-1", "web-1", "ReplicaSet"},
+	} {
+		p, err := pod.Target(t.Context(), c, "default", tc.ref)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.ref, err)
+		}
+		if p.Name != tc.want {
+			t.Errorf("%s = %s, want %s", tc.ref, p.Name, tc.want)
+		}
+		if tc.owner != "" && (!pod.IsTemplate(p) || p.OwnerReferences[0].Kind != tc.owner) {
+			t.Errorf("%s: want a template pod owned by %s, got %+v", tc.ref, tc.owner, p.OwnerReferences)
+		}
 	}
 }
 

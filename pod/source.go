@@ -102,13 +102,22 @@ func under(path, prefix string) bool {
 }
 
 // Owner is the workload that creates p, as kind and name ("Deployment", "api"); a ReplicaSet is followed to its
-// Deployment. A pod nothing owns is its own owner.
+// Deployment and a Job to its CronJob. A pod nothing owns is its own owner.
 func Owner(ctx context.Context, c kubernetes.Interface, p *v1.Pod) (kind, name string, err error) {
 	ref := metav1.GetControllerOf(p)
 	if ref == nil {
 		return "Pod", p.Name, nil
 	}
 
+	if ref.Kind == "Job" {
+		j, err := c.BatchV1().Jobs(p.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			return "", "", fmt.Errorf("get job: %w", err)
+		}
+		if cj := metav1.GetControllerOf(j); cj != nil && cj.Kind == "CronJob" {
+			return cj.Kind, cj.Name, nil
+		}
+	}
 	if ref.Kind != "ReplicaSet" {
 		return ref.Kind, ref.Name, nil
 	}

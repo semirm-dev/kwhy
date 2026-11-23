@@ -352,7 +352,7 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 
 | Flag | Meaning |
 |---|---|
-| `<name>` (argument) | a pod (`x`, `pod/x`) or a workload (`deploy/x`, `sts/x`, `ds/x`, `job/x`) |
+| `<name>` (argument) | a pod (`x`, `pod/x`) or a workload (`deploy/x`, `sts/x`, `ds/x`, `rs/x`, `job/x`, `cj/x`: a CronJob is followed to its newest Job) |
 | `-n, --namespace NS` | namespace (default: the kube context's) |
 | `--context NAME` | kube context to read from, read-only |
 | `-o, --output` | `human` (default), `markdown` or `json` (`"schema": "kwhy.pod/v1"`, every node with all failing checks and the scheduler's first) |
@@ -385,7 +385,6 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
   real `DynamicResources` plugin over the cluster's ResourceSlices (v0.8). What's missing across all three commands is in the [backlog](docs/plans/backlog.md).
 - `change` classifies Deployments, StatefulSets, DaemonSets, Jobs, Services, PVCs, ConfigMaps and Secrets. A changed
   CronJob or bare Pod gets no line, and a CronJob or Job reading a changed ConfigMap isn't listed as a consumer.
-- `pod` takes pods and `deploy/`, `sts/`, `ds/`, `job/`; for a CronJob or ReplicaSet, name one of its pods.
 - `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
 
 ## Development

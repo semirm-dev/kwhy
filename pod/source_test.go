@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -44,13 +45,19 @@ func TestOwner(t *testing.T) {
 	}
 
 	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "api-7d9f", Namespace: "ml", OwnerReferences: controller("Deployment", "api")}}
-	c := fake.NewClientset(rs)
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "backup-29", Namespace: "ml", OwnerReferences: controller("CronJob", "backup")}}
+	plainJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "migrate", Namespace: "ml"}}
+	c := fake.NewClientset(rs, job, plainJob)
 
 	fromRS := newPod("api-7d9f-x", "", "1", "1Gi")
 	fromRS.OwnerReferences = controller("ReplicaSet", "api-7d9f")
 	fromSTS := newPod("db-0", "", "1", "1Gi")
 	fromSTS.OwnerReferences = controller("StatefulSet", "db")
 	bare := newPod("debug", "", "1", "1Gi")
+	fromCron := newPod("backup-29-x", "", "1", "1Gi")
+	fromCron.OwnerReferences = controller("Job", "backup-29")
+	fromJob := newPod("migrate-x", "", "1", "1Gi")
+	fromJob.OwnerReferences = controller("Job", "migrate")
 
 	for _, tc := range []struct {
 		p          *v1.Pod
@@ -59,6 +66,8 @@ func TestOwner(t *testing.T) {
 		{fromRS, "Deployment", "api"},
 		{fromSTS, "StatefulSet", "db"},
 		{bare, "Pod", "debug"},
+		{fromCron, "CronJob", "backup"},
+		{fromJob, "Job", "migrate"},
 	} {
 		kind, name, err := pod.Owner(t.Context(), c, tc.p)
 		if err != nil || kind != tc.kind || name != tc.name {

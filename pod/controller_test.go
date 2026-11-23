@@ -36,8 +36,14 @@ func TestController(t *testing.T) {
 		Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: v1.ConditionTrue,
 			Reason: "BackoffLimitExceeded", Message: "Job has reached the specified backoff limit"}}}}
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "ml", UID: "s1"}}
+	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: "ml", UID: "cj1"}}
+	cjJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "nightly-1", Namespace: "ml", UID: "j2",
+		OwnerReferences: []metav1.OwnerReference{{Kind: "CronJob", Name: "nightly", UID: "cj1", Controller: new(true)}}},
+		Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: v1.ConditionTrue,
+			Reason: "DeadlineExceeded", Message: "Job was active longer than specified deadline"}}}}
 
-	c := fake.NewClientset(d, rsFailed, rsEvents, other, job, sts,
+	c := fake.NewClientset(d, rsFailed, rsEvents, other, job, sts, cj, cjJob,
+		ev("cj1", `Error creating job: jobs.batch "nightly-2" is forbidden: exceeded quota`),
 		ev("rs3", `pods "web-3-y" is forbidden: violates PodSecurity "restricted:latest"`),
 		ev("s1", `create Pod db-0 in StatefulSet db failed error: pods "db-0" is forbidden: exceeded quota`))
 
@@ -49,6 +55,9 @@ func TestController(t *testing.T) {
 			"create: replicaset web-3: pods \"web-3-y\" is forbidden: violates PodSecurity"}},
 		{"job/migrate", []string{"job: backoff limit"}},
 		{"sts/db", []string{"create: statefulset db: create Pod db-0"}},
+		{"rs/web-2", []string{"create: replicaset web-2: pods \"web-2-x\" is forbidden: exceeded quota"}},
+		{"rs/web-3", []string{"create: replicaset web-3: pods \"web-3-y\" is forbidden: violates PodSecurity"}},
+		{"cj/nightly", []string{"create: cronjob nightly: Error creating job", "job: active longer than specified deadline"}},
 		{"web-1", nil},
 	} {
 		ps, err := pod.Controller(t.Context(), c, "ml", tc.ref)

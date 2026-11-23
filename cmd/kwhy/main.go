@@ -495,7 +495,7 @@ func podCmd() *cobra.Command {
 	helm := cli.New()
 
 	cmd := &cobra.Command{
-		Use:   "pod <name|pod/name|deploy/name|sts/name|job/name>",
+		Use:   "pod <name|pod/name|deploy/name|sts/name|ds/name|rs/name|job/name|cj/name>",
 		Short: "Why a pod is not scheduled: every scheduler check on every node",
 		Example: `  kwhy pod api-7d9f-x2x -n shop
   kwhy pod deploy/api -n shop --context prod -o markdown
@@ -763,14 +763,10 @@ type wanted struct {
 
 // podWanted lists the fields of a rendered workload (or bare Pod) obj that r's failing checks and problems read.
 func podWanted(r pod.Result, kind string, obj map[string]any) []wanted {
-	// A workload's pod spec sits under .spec.template; a bare Pod's is the document itself.
-	prefix := ".spec.template"
-	spec, _ := obj["spec"].(map[string]any)
-	if kind == "Pod" {
-		prefix = ""
-	} else {
-		tmpl, _ := spec["template"].(map[string]any)
-		spec, _ = tmpl["spec"].(map[string]any)
+	prefix := templatePrefix(kind)
+	spec := obj
+	for _, k := range strings.Split(strings.TrimPrefix(prefix+".spec", "."), ".") {
+		spec, _ = spec[k].(map[string]any)
 	}
 
 	type matcher struct {
@@ -820,10 +816,7 @@ func podWanted(r pod.Result, kind string, obj map[string]any) []wanted {
 
 // sourceOf turns an answer into the pod's Source line: the field in pod-spec terms, its value and where it's set.
 func sourceOf(w wanted, a value.Answer, kind string) pod.Source {
-	prefix := ".spec.template"
-	if kind == "Pod" {
-		prefix = ""
-	}
+	prefix := templatePrefix(kind)
 
 	var from []string
 	for _, l := range a.Leaves {
@@ -838,6 +831,18 @@ func sourceOf(w wanted, a value.Answer, kind string) pod.Source {
 	s.Field, s.Value, s.From = strings.TrimPrefix(w.path, prefix), a.Value, strings.Join(from, ", ")
 
 	return s
+}
+
+// templatePrefix is where a workload's pod template sits; a bare Pod is the document itself.
+func templatePrefix(kind string) string {
+	switch kind {
+	case "Pod":
+		return ""
+	case "CronJob":
+		return ".spec.jobTemplate.spec.template"
+	}
+
+	return ".spec.template"
 }
 
 // containerIndex is the position of the container named name in a rendered pod spec, -1 if absent.
