@@ -289,20 +289,6 @@ func withoutImages(cs any) []obj {
 	return out
 }
 
-// podSpec is the pod spec a workload, Job, CronJob or bare Pod runs, nil for any other kind.
-func podSpec(d render.Doc) any {
-	switch {
-	case workloads[d.Kind] || d.Kind == "Job":
-		return get(d.Object, "spec", "template", "spec")
-	case d.Kind == "CronJob":
-		return get(d.Object, "spec", "jobTemplate", "spec", "template", "spec")
-	case d.Kind == "Pod":
-		return get(d.Object, "spec")
-	}
-
-	return nil
-}
-
 // consumers reports how each workload using a changed ConfigMap or Secret sees the new data.
 func consumers(cm render.Doc, h map[string]render.Doc, restarted map[string]bool) []Impact {
 	var out []Impact
@@ -332,6 +318,20 @@ func consumers(cm render.Doc, h map[string]render.Doc, restarted map[string]bool
 	}
 
 	return out
+}
+
+// podSpec is the pod spec a workload, Job, CronJob or bare Pod runs, nil for any other kind.
+func podSpec(d render.Doc) any {
+	switch {
+	case workloads[d.Kind] || d.Kind == "Job":
+		return get(d.Object, "spec", "template", "spec")
+	case d.Kind == "CronJob":
+		return get(d.Object, "spec", "jobTemplate", "spec", "template", "spec")
+	case d.Kind == "Pod":
+		return get(d.Object, "spec")
+	}
+
+	return nil
 }
 
 // uses reports how a pod spec consumes the named ConfigMap or Secret.

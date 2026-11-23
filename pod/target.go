@@ -18,11 +18,6 @@ import (
 // templateUID marks a pod Target built from a workload's template.
 const templateUID = "kwhy-template"
 
-// IsTemplate says whether p was built by Target from a workload's template rather than read from the cluster.
-func IsTemplate(p *v1.Pod) bool {
-	return p.UID == templateUID
-}
-
 // Healthy is returned by Target for a workload whose pods are all running and ready.
 type Healthy struct{ Pods int }
 
@@ -32,6 +27,11 @@ func (h Healthy) Error() string {
 	}
 
 	return fmt.Sprintf("all %d pods ready", h.Pods)
+}
+
+// IsTemplate says whether p was built by Target from a workload's template rather than read from the cluster.
+func IsTemplate(p *v1.Pod) bool {
+	return p.UID == templateUID
 }
 
 // Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, ds/x, rs/x, job/x, cj/x);
@@ -130,6 +130,24 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 	return template(ns, name, owner, tmpl), nil
 }
 
+// Warnings says when the answer may differ from what the cluster's scheduler decides.
+func Warnings(cl *Cluster, p *v1.Pod) []string {
+	var ws []string
+	if s := p.Spec.SchedulerName; s != "" && s != v1.DefaultSchedulerName && (cl.profile == nil || cl.profile.SchedulerName != s) {
+		ws = append(ws, fmt.Sprintf("pod uses scheduler %q; kwhy runs the default scheduler's checks (give its --scheduler-config)", s))
+	}
+
+	if compiled := schedulerVersion(); compiled != nil {
+		if server, err := version.ParseGeneric(cl.Version); err == nil && server.Major() == compiled.Major() {
+			if d := int(server.Minor()) - int(compiled.Minor()); d > 1 || d < -1 {
+				ws = append(ws, fmt.Sprintf("cluster is %s, kwhy runs the v%s scheduler; checks may differ", cl.Version, compiled))
+			}
+		}
+	}
+
+	return ws
+}
+
 // template is a new pod built from the template of the workload owner/name.
 func template(ns, name, owner string, tmpl v1.PodTemplateSpec) *v1.Pod {
 	return &v1.Pod{
@@ -180,24 +198,6 @@ func restarts(p *v1.Pod) int {
 	}
 
 	return n
-}
-
-// Warnings says when the answer may differ from what the cluster's scheduler decides.
-func Warnings(cl *Cluster, p *v1.Pod) []string {
-	var ws []string
-	if s := p.Spec.SchedulerName; s != "" && s != v1.DefaultSchedulerName && (cl.profile == nil || cl.profile.SchedulerName != s) {
-		ws = append(ws, fmt.Sprintf("pod uses scheduler %q; kwhy runs the default scheduler's checks (give its --scheduler-config)", s))
-	}
-
-	if compiled := schedulerVersion(); compiled != nil {
-		if server, err := version.ParseGeneric(cl.Version); err == nil && server.Major() == compiled.Major() {
-			if d := int(server.Minor()) - int(compiled.Minor()); d > 1 || d < -1 {
-				ws = append(ws, fmt.Sprintf("cluster is %s, kwhy runs the v%s scheduler; checks may differ", cl.Version, compiled))
-			}
-		}
-	}
-
-	return ws
 }
 
 // schedulerVersion is the k8s.io/kubernetes version compiled in, nil if the build info doesn't say.

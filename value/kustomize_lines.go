@@ -13,6 +13,27 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+var (
+	selectorKeys = []string{"apiVersion", "kind", "name", "op", "path", "group", "version", "$patch"}
+
+	// lineValue matches a line that sets one scalar: "key: value" or "- value", with an optional trailing comment.
+	lineValue = regexp.MustCompile(`^(\s*(?:-\s+)?(?:["']?[\w./$-]+["']?:\s+)?)(\S.*?)\s*(#.*)?$`)
+)
+
+// LineShows reports whether line of file (relative to the working directory) shows v, as the guard checks it.
+func (o *Overlay) LineShows(file string, line int, v any) bool {
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(o.root, abs)
+	if err != nil {
+		return false
+	}
+
+	return o.lineShows(filepath.ToSlash(rel), line, v)
+}
+
 // stackLines lists the value lines of every kustomization in stack and every patch file its entries name.
 func (o *Overlay) stackLines(stack []*kfile) []kline {
 	files := map[string]int{} // file -> entry of a patch file, -1 for a kustomization
@@ -58,76 +79,6 @@ func (o *Overlay) stackLines(stack []*kfile) []kline {
 	return out
 }
 
-// forBuild adds to the overlay's own kustomization the buildMetadata LoadOverlay gives it.
-func (o *Overlay) forBuild(file string, data []byte) []byte {
-	if file == o.top {
-		return append(data, "\nbuildMetadata: [originAnnotations]\n"...)
-	}
-	return data
-}
-
-// lineMark is the suffix line j's string gets in the shared build; "_" ends it, so line 1's isn't part of 12's.
-func lineMark(j int) string { return "p9_" + strconv.Itoa(j) + "_" }
-
-var selectorKeys = []string{"apiVersion", "kind", "name", "op", "path", "group", "version", "$patch"}
-
-// lineValue matches a line that sets one scalar: "key: value" or "- value", with an optional trailing comment.
-var lineValue = regexp.MustCompile(`^(\s*(?:-\s+)?(?:["']?[\w./$-]+["']?:\s+)?)(\S.*?)\s*(#.*)?$`)
-
-// valueLines are the 1-based lines perturbLine can change.
-func valueLines(data []byte) []int {
-	var ls []int
-	for i := range strings.Count(string(data), "\n") + 1 {
-		if _, ok, _ := perturbLine(data, i+1, "p9"); ok {
-			ls = append(ls, i+1)
-		}
-	}
-	return ls
-}
-
-// perturbLine changes the scalar value line sets, as perturb does for Helm values: a string gets a suffix, an
-// integer goes up by one, a boolean flips. Inline patches and block scalars are text, so their lines count too.
-// A string gets mark as its suffix; str reports a string.
-func perturbLine(data []byte, line int, mark string) (out []byte, ok, str bool) {
-	lines := strings.Split(string(data), "\n")
-	m := lineValue.FindStringSubmatch(lines[line-1])
-	if m == nil || strings.TrimSpace(m[1]) == "" {
-		return nil, false, false
-	}
-	v := m[2]
-	str = true
-	switch {
-	case strings.ContainsAny(v[:1], "|>{[&*!") || strings.HasSuffix(v, ":"):
-		return nil, false, false
-	case len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0]:
-		v = v[:len(v)-1] + mark + v[len(v)-1:]
-	case v == "true" || v == "false":
-		v, str = strconv.FormatBool(v == "false"), false
-	default:
-		if n, err := strconv.Atoi(v); err == nil {
-			v, str = strconv.Itoa(n+1), false
-		} else {
-			v += mark
-		}
-	}
-	lines[line-1] = m[1] + v
-	return []byte(strings.Join(lines, "\n")), true, str
-}
-
-// LineShows reports whether line of file (relative to the working directory) shows v, as the guard checks it.
-func (o *Overlay) LineShows(file string, line int, v any) bool {
-	abs, err := filepath.Abs(file)
-	if err != nil {
-		return false
-	}
-	rel, err := filepath.Rel(o.root, abs)
-	if err != nil {
-		return false
-	}
-
-	return o.lineShows(filepath.ToSlash(rel), line, v)
-}
-
 // names says whether Explain may name line of file for field f: the line shows the value, and with Confirm, its own
 // edit moves the field. A line that can't be edited, or whose edited build gives no answer, has only the guard.
 func (o *Overlay) names(file string, line int, f KField) bool {
@@ -150,6 +101,14 @@ func (o *Overlay) names(file string, line int, f KField) bool {
 	_, moved := r.diff[f]
 
 	return moved
+}
+
+// forBuild adds to the overlay's own kustomization the buildMetadata LoadOverlay gives it.
+func (o *Overlay) forBuild(file string, data []byte) []byte {
+	if file == o.top {
+		return append(data, "\nbuildMetadata: [originAnnotations]\n"...)
+	}
+	return data
 }
 
 // lineShows is the guard: the line shows the value, or the part of it the line sets (a namePrefix, an image tag).
@@ -177,28 +136,6 @@ func (o *Overlay) lineShows(file string, line int, v any) bool {
 	after = strings.Trim(strings.TrimSpace(after), `"'`)
 
 	return ok && len(after) >= 2 && strings.Contains(want, after)
-}
-
-func (o *Overlay) parsedFile(file string) []*yaml.Node {
-	if ds, ok := o.parsed[file]; ok {
-		return ds
-	}
-	var ds []*yaml.Node
-	if data, err := o.mem.ReadFile(file); err == nil {
-		dec := yaml.NewDecoder(strings.NewReader(string(data)))
-		for {
-			var n yaml.Node
-			if dec.Decode(&n) != nil {
-				break
-			}
-			if len(n.Content) > 0 {
-				ds = append(ds, n.Content[0])
-			}
-		}
-	}
-	o.parsed[file] = ds
-
-	return ds
 }
 
 // resourceLine is where the field sits in the document's own source: its resource file, or for a generated
@@ -242,6 +179,51 @@ func (o *Overlay) findLineDoc(file, fpath string, rendered map[string]any, kind 
 	return 0
 }
 
+func (o *Overlay) parsedFile(file string) []*yaml.Node {
+	if ds, ok := o.parsed[file]; ok {
+		return ds
+	}
+	var ds []*yaml.Node
+	if data, err := o.mem.ReadFile(file); err == nil {
+		dec := yaml.NewDecoder(strings.NewReader(string(data)))
+		for {
+			var n yaml.Node
+			if dec.Decode(&n) != nil {
+				break
+			}
+			if len(n.Content) > 0 {
+				ds = append(ds, n.Content[0])
+			}
+		}
+	}
+	o.parsed[file] = ds
+
+	return ds
+}
+
+func (o *Overlay) patchLine(file, fpath string, obj map[string]any) int {
+	switch fpath {
+	case ".apiVersion", ".kind", ".metadata.name", ".metadata.namespace":
+		return 0
+	}
+	if ds := o.parsedFile(file); len(ds) == 1 && ds[0].Kind == yaml.SequenceNode {
+		return opLine(ds[0], fpath, obj)
+	}
+
+	kind, _ := obj["kind"].(string)
+	steps := kparsePath(fpath)
+	for _, d := range o.parsedFile(file) {
+		if k := kget(d, "kind").Node; kind != "" && k != nil && k.Value != kind {
+			continue
+		}
+		if l := kwalk(d, steps, obj); l > 0 {
+			return l
+		}
+	}
+
+	return 0
+}
+
 // lineFor is the line inside the entry that sets the field.
 func (e *kentry) lineFor(o *Overlay, fpath string, obj map[string]any) (string, int) {
 	kf := strings.TrimPrefix(e.kf.path, "/")
@@ -270,6 +252,49 @@ func (e *kentry) lineFor(o *Overlay, fpath string, obj map[string]any) (string, 
 	return kf, e.line
 }
 
+// lineMark is the suffix line j's string gets in the shared build; "_" ends it, so line 1's isn't part of 12's.
+func lineMark(j int) string { return "p9_" + strconv.Itoa(j) + "_" }
+
+// valueLines are the 1-based lines perturbLine can change.
+func valueLines(data []byte) []int {
+	var ls []int
+	for i := range strings.Count(string(data), "\n") + 1 {
+		if _, ok, _ := perturbLine(data, i+1, "p9"); ok {
+			ls = append(ls, i+1)
+		}
+	}
+	return ls
+}
+
+// perturbLine changes the scalar value line sets, as perturb does for Helm values: a string gets a suffix, an
+// integer goes up by one, a boolean flips. Inline patches and block scalars are text, so their lines count too.
+// A string gets mark as its suffix; str reports a string.
+func perturbLine(data []byte, line int, mark string) (out []byte, ok, str bool) {
+	lines := strings.Split(string(data), "\n")
+	m := lineValue.FindStringSubmatch(lines[line-1])
+	if m == nil || strings.TrimSpace(m[1]) == "" {
+		return nil, false, false
+	}
+	v := m[2]
+	str = true
+	switch {
+	case strings.ContainsAny(v[:1], "|>{[&*!") || strings.HasSuffix(v, ":"):
+		return nil, false, false
+	case len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0]:
+		v = v[:len(v)-1] + mark + v[len(v)-1:]
+	case v == "true" || v == "false":
+		v, str = strconv.FormatBool(v == "false"), false
+	default:
+		if n, err := strconv.Atoi(v); err == nil {
+			v, str = strconv.Itoa(n+1), false
+		} else {
+			v += mark
+		}
+	}
+	lines[line-1] = m[1] + v
+	return []byte(strings.Join(lines, "\n")), true, str
+}
+
 func inlineLine(p *yaml.Node, fpath string, obj map[string]any) int {
 	var n yaml.Node
 	if yaml.Unmarshal([]byte(p.Value), &n) != nil || len(n.Content) == 0 {
@@ -284,29 +309,6 @@ func inlineLine(p *yaml.Node, fpath string, obj map[string]any) int {
 	}
 	if l := kwalk(root, kparsePath(fpath), obj); l > 0 {
 		return p.Line + l
-	}
-
-	return 0
-}
-
-func (o *Overlay) patchLine(file, fpath string, obj map[string]any) int {
-	switch fpath {
-	case ".apiVersion", ".kind", ".metadata.name", ".metadata.namespace":
-		return 0
-	}
-	if ds := o.parsedFile(file); len(ds) == 1 && ds[0].Kind == yaml.SequenceNode {
-		return opLine(ds[0], fpath, obj)
-	}
-
-	kind, _ := obj["kind"].(string)
-	steps := kparsePath(fpath)
-	for _, d := range o.parsedFile(file) {
-		if k := kget(d, "kind").Node; kind != "" && k != nil && k.Value != kind {
-			continue
-		}
-		if l := kwalk(d, steps, obj); l > 0 {
-			return l
-		}
 	}
 
 	return 0

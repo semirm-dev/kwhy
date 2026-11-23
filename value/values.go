@@ -111,24 +111,6 @@ type layer struct {
 	line  int            // --set flag index
 }
 
-func fileLayer(name string, data []byte) (layer, error) {
-	// Helm's reader, so values have the same types as in the coalesced values.
-	tree, err := loader.LoadValues(bytes.NewReader(data))
-	if err != nil {
-		return layer{}, fmt.Errorf("parse %s: %w", name, err)
-	}
-
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return layer{}, fmt.Errorf("parse %s: %w", name, err)
-	}
-
-	l := layer{file: name, tree: tree, lines: map[string]int{}}
-	lines(&doc, nil, l.lines)
-
-	return l, nil
-}
-
 // PathString formats a values path like --set does: "resources.requests.memory", "list[0].x", `a\.b`.
 func PathString(path []any) string {
 	var b strings.Builder
@@ -225,6 +207,24 @@ func loadLayers(c *render.Chart, user map[string]any, opts values.Options) ([]la
 	}
 
 	return layers, subcharts, nil
+}
+
+func fileLayer(name string, data []byte) (layer, error) {
+	// Helm's reader, so values have the same types as in the coalesced values.
+	tree, err := loader.LoadValues(bytes.NewReader(data))
+	if err != nil {
+		return layer{}, fmt.Errorf("parse %s: %w", name, err)
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return layer{}, fmt.Errorf("parse %s: %w", name, err)
+	}
+
+	l := layer{file: name, tree: tree, lines: map[string]int{}}
+	lines(&doc, nil, l.lines)
+
+	return l, nil
 }
 
 // readFile reads a values file or URL the way Helm's -f does.

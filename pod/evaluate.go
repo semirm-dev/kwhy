@@ -84,6 +84,15 @@ type Result struct {
 	Sources []Source `json:"sources,omitempty"`
 }
 
+// nominator hands the scheduler the pods already nominated to each node; filters count those of equal or higher
+// priority there.
+type nominator map[string][]fwk.PodInfo
+
+func (n nominator) AddNominatedPod(klog.Logger, fwk.PodInfo, *fwk.NominatingInfo) {}
+func (n nominator) DeleteNominatedPodIfExists(*v1.Pod)                            {}
+func (n nominator) UpdateNominatedPod(klog.Logger, *v1.Pod, fwk.PodInfo)          {}
+func (n nominator) NominatedPodsForNode(node string) []fwk.PodInfo                { return n[node] }
+
 // Evaluate runs the default scheduler profile's filters for p on every node of cl. The scheduler stops at a
 // node's first failing filter; Evaluate runs each filter plugin in a framework of its own, so a node shows
 // every failing check.
@@ -286,15 +295,6 @@ func newPreemption(ctx context.Context, fw framework.Framework, base *config.Kub
 
 	return dp, nil
 }
-
-// nominator hands the scheduler the pods already nominated to each node; filters count those of equal or higher
-// priority there.
-type nominator map[string][]fwk.PodInfo
-
-func (n nominator) AddNominatedPod(klog.Logger, fwk.PodInfo, *fwk.NominatingInfo) {}
-func (n nominator) DeleteNominatedPodIfExists(*v1.Pod)                            {}
-func (n nominator) UpdateNominatedPod(klog.Logger, *v1.Pod, fwk.PodInfo)          {}
-func (n nominator) NominatedPodsForNode(node string) []fwk.PodInfo                { return n[node] }
 
 // newFramework builds the default profile without DynamicResources. With filter set, the framework runs only
 // that filter plugin, and only its own PreFilter if it has one, so a rejection is never blamed on another plugin.

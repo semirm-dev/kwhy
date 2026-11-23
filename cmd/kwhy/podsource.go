@@ -40,6 +40,12 @@ func (src podChart) sources(ctx context.Context, c kubernetes.Interface, p *core
 	return nil, nil
 }
 
+// wanted is a field of the rendered workload a failing check or problem reads.
+type wanted struct {
+	path string // in the rendered document, list items by index
+	src  pod.Source
+}
+
 // podSources finds, with kwhy value, the values lines that set the fields p's failing checks read. It renders the
 // chart, finds the workload that owns p in the render, and explains only the fields those checks read.
 func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r pod.Result, src podChart,
@@ -143,12 +149,6 @@ func podKustomizeSources(ctx context.Context, c kubernetes.Interface, p *corev1.
 	}
 
 	return out, nil
-}
-
-// wanted is a field of the rendered workload a failing check or problem reads.
-type wanted struct {
-	path string // in the rendered document, list items by index
-	src  pod.Source
 }
 
 // podWanted lists the fields of a rendered workload (or bare Pod) obj that r's failing checks and problems read.

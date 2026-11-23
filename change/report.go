@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+const (
+	// maxComment is GitHub's PR comment limit, in characters.
+	maxComment = 65000
+	more       = "\n…and %d more, run `kwhy change` locally for the full list.\n"
+)
+
 var icons = map[Verdict]string{
 	Restart: "↻", Ordered: "⏱", Scale: "⇅", Resize: "⤢", Recreate: "⟲", Hook: "⚙", NoEffect: "!", Delayed: "~", PickedUp: "✓",
 	WillFail: "✗", Orphaned: "⊘", Data: "⚠", Create: "+", Delete: "-",
@@ -38,9 +44,6 @@ func WriteHuman(w io.Writer, is []Impact) error {
 	_, err := io.WriteString(w, b.String())
 	return err
 }
-
-// maxComment is GitHub's PR comment limit, in characters.
-const maxComment = 65000
 
 // WriteMarkdown writes impacts as a PR comment. Past GitHub's comment limit it keeps failures, data
 // warnings and recreates in view and folds the rest into a collapsed list, cut to fit.
@@ -96,21 +99,6 @@ func WriteMarkdown(w io.Writer, is []Impact) error {
 	return err
 }
 
-const more = "\n…and %d more, run `kwhy change` locally for the full list.\n"
-
-// fit writes the rows of is to b while b stays reserve bytes under the comment limit, and says how many it wrote.
-func fit(b *strings.Builder, is []Impact, reserve int) int {
-	for n, i := range is {
-		r := row(i)
-		if b.Len()+len(r)+reserve > maxComment {
-			return n
-		}
-		b.WriteString(r)
-	}
-
-	return len(is)
-}
-
 // WriteJSON writes impacts as kwhy.change/v1 JSON.
 func WriteJSON(w io.Writer, is []Impact) error {
 	if is == nil {
@@ -124,6 +112,19 @@ func WriteJSON(w io.Writer, is []Impact) error {
 		Schema  string   `json:"schema"`
 		Impacts []Impact `json:"impacts"`
 	}{"kwhy.change/v1", is})
+}
+
+// fit writes the rows of is to b while b stays reserve bytes under the comment limit, and says how many it wrote.
+func fit(b *strings.Builder, is []Impact, reserve int) int {
+	for n, i := range is {
+		r := row(i)
+		if b.Len()+len(r)+reserve > maxComment {
+			return n
+		}
+		b.WriteString(r)
+	}
+
+	return len(is)
 }
 
 func row(i Impact) string {

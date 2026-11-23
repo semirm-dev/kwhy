@@ -15,6 +15,40 @@ import (
 	"github.com/semirm-dev/kwhy/render"
 )
 
+// maxAge is how long a cache file is kept. Every new build of kwhy or of the chart changes the key, so old files are
+// never read again.
+const maxAge = 30 * 24 * time.Hour
+
+func init() {
+	// Rendered objects hold these behind any.
+	gob.Register(map[string]any{})
+	gob.Register([]any{})
+}
+
+// Explain is explain, read from the trace's cache when it holds this field's answer.
+func (idx *Index) Explain(ctx context.Context, f Field) (Answer, error) {
+	if idx.cacheKey == "" {
+		return idx.explain(ctx, f)
+	}
+
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d\x00%s", f.Doc, f.Path))
+	path := filepath.Join(idx.cacheDir, idx.cacheKey+"-"+hex.EncodeToString(sum[:8])+".gob")
+
+	var a Answer
+	if read(path, &a) == nil {
+		return a, nil
+	}
+
+	a, err := idx.explain(ctx, f)
+	if err != nil {
+		return Answer{}, err
+	}
+
+	write(idx.cacheDir, path, a)
+
+	return a, nil
+}
+
 // cached is what a trace cache file holds: the Index's exported fields.
 type cached struct {
 	Docs       []render.Doc
@@ -22,12 +56,6 @@ type cached struct {
 	Hits       map[Field][]Hit
 	Random     map[Field]bool
 	Unmarkable map[int]string
-}
-
-func init() {
-	// Rendered objects hold these behind any.
-	gob.Register(map[string]any{})
-	gob.Register([]any{})
 }
 
 // Trace is trace, read from cacheDir when it holds this trace; the Index's Explain caches answers there too.
@@ -62,30 +90,6 @@ func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, ch
 	idx.c, idx.v, idx.o, idx.cacheDir, idx.cacheKey = c, v, o, cacheDir, key
 
 	return idx, nil
-}
-
-// Explain is explain, read from the trace's cache when it holds this field's answer.
-func (idx *Index) Explain(ctx context.Context, f Field) (Answer, error) {
-	if idx.cacheKey == "" {
-		return idx.explain(ctx, f)
-	}
-
-	sum := sha256.Sum256(fmt.Appendf(nil, "%d\x00%s", f.Doc, f.Path))
-	path := filepath.Join(idx.cacheDir, idx.cacheKey+"-"+hex.EncodeToString(sum[:8])+".gob")
-
-	var a Answer
-	if read(path, &a) == nil {
-		return a, nil
-	}
-
-	a, err := idx.explain(ctx, f)
-	if err != nil {
-		return Answer{}, err
-	}
-
-	write(idx.cacheDir, path, a)
-
-	return a, nil
 }
 
 func cacheKey(c *render.Chart, v *Values, o render.Options, chunkSize int) (string, error) {
@@ -153,10 +157,6 @@ func read(path string, out any) error {
 
 	return nil
 }
-
-// maxAge is how long a cache file is kept. Every new build of kwhy or of the chart changes the key, so old files are
-// never read again.
-const maxAge = 30 * 24 * time.Hour
 
 // prune deletes kwhy's files in dir not used for maxAge (read refreshes the time). It runs once per computed trace
 // or overlay, not per answer.

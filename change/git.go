@@ -35,6 +35,105 @@ type tree struct {
 	ref, root, dir string
 }
 
+// discover is Discover on the checkout: the apps as its ref defines them, their paths anchored at the repo root so
+// they resolve wherever kwhy runs. An apps directory the ref doesn't have holds none.
+func (t *tree) discover(dir, remote, tmp string) ([]Target, []string, error) {
+	d := inTree(t.root, t.dir, dir)
+	if _, err := os.Stat(d); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil
+	}
+
+	ts, warnings, err := Discover(t.dir, d, remote, tmp)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	rooted := func(p string) string {
+		if p == "" || filepath.IsAbs(p) { // absolute: an inline values file under tmp
+			return p
+		}
+		return filepath.Join(t.root, p)
+	}
+	for i := range ts {
+		ts[i].Chart, ts[i].Manifests = rooted(ts[i].Chart), rooted(ts[i].Manifests)
+		for j, f := range ts[i].Values.ValueFiles {
+			ts[i].Values.ValueFiles[j] = rooted(f)
+		}
+	}
+
+	return ts, warnings, nil
+}
+
+// render renders src in the checkout.
+func (t *tree) render(ctx context.Context, src Source, o render.Options, helm *cli.EnvSettings) ([]render.Doc, error) {
+	// An app added or removed by the change has no path at one ref: nothing renders there.
+	if !t.has(src) {
+		return nil, nil
+	}
+
+	path := t.path(src)
+	if src.Manifests != "" {
+		var docs []render.Doc
+		var err error
+		if ns := cmp.Or(o.Namespace, "default"); isKustomize(path) {
+			root := t.dir // the ref's overlay may come from a pull request: it stays in the checkout
+			if rel, err := filepath.Rel(t.dir, path); err != nil || !filepath.IsLocal(rel) {
+				root = "" // a directory outside the repo, given by the user, is read as it is
+			}
+			docs, err = render.Kustomize(root, path, ns)
+		} else {
+			docs, err = render.ReadManifests(path, ns)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", t.ref, err)
+		}
+
+		return docs, nil
+	}
+
+	opts := src.Values
+	opts.ValueFiles = make([]string, len(src.Values.ValueFiles))
+	for i, f := range src.Values.ValueFiles {
+		opts.ValueFiles[i] = inTree(t.root, t.dir, f)
+	}
+	opts.FileValues = make([]string, len(src.Values.FileValues))
+	for i, s := range src.Values.FileValues {
+		// shortcut: rewrites a single key=path; a comma-separated list is read from the working directory.
+		if k, p, ok := strings.Cut(s, "="); ok && !strings.Contains(s, ",") {
+			s = k + "=" + inTree(t.root, t.dir, p)
+		}
+		opts.FileValues[i] = s
+	}
+
+	c, err := render.LoadChart(path, "", helm)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", t.ref, err)
+	}
+
+	user, err := opts.MergeValues(getter.All(helm))
+	if err != nil {
+		return nil, fmt.Errorf("%s: merge values: %w", t.ref, err)
+	}
+
+	docs, err := c.Render(ctx, user, o)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", t.ref, err)
+	}
+
+	return docs, nil
+}
+
+// path is src's chart or manifests path in the checkout.
+func (t *tree) path(src Source) string {
+	return inTree(t.root, t.dir, cmp.Or(src.Manifests, src.Chart))
+}
+
+// has says whether src's chart or manifests path exists in the checkout; a URL always does.
+func (t *tree) has(src Source) bool {
+	path := t.path(src)
+	return exists(path) || strings.Contains(path, "://")
+}
+
 // Render renders targets at base and head, each read from a checkout of its ref. With apps, a directory of Argo CD
 // Applications or Flux objects, each ref's own app definitions are the targets instead, and warnings say which apps
 // were skipped and why. Every chart renders for kubeVersion, with helm's settings.
@@ -175,105 +274,6 @@ func linksInside(dir string) error {
 
 		return nil
 	})
-}
-
-// discover is Discover on the checkout: the apps as its ref defines them, their paths anchored at the repo root so
-// they resolve wherever kwhy runs. An apps directory the ref doesn't have holds none.
-func (t *tree) discover(dir, remote, tmp string) ([]Target, []string, error) {
-	d := inTree(t.root, t.dir, dir)
-	if _, err := os.Stat(d); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil
-	}
-
-	ts, warnings, err := Discover(t.dir, d, remote, tmp)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	rooted := func(p string) string {
-		if p == "" || filepath.IsAbs(p) { // absolute: an inline values file under tmp
-			return p
-		}
-		return filepath.Join(t.root, p)
-	}
-	for i := range ts {
-		ts[i].Chart, ts[i].Manifests = rooted(ts[i].Chart), rooted(ts[i].Manifests)
-		for j, f := range ts[i].Values.ValueFiles {
-			ts[i].Values.ValueFiles[j] = rooted(f)
-		}
-	}
-
-	return ts, warnings, nil
-}
-
-// has says whether src's chart or manifests path exists in the checkout; a URL always does.
-func (t *tree) has(src Source) bool {
-	path := t.path(src)
-	return exists(path) || strings.Contains(path, "://")
-}
-
-// path is src's chart or manifests path in the checkout.
-func (t *tree) path(src Source) string {
-	return inTree(t.root, t.dir, cmp.Or(src.Manifests, src.Chart))
-}
-
-// render renders src in the checkout.
-func (t *tree) render(ctx context.Context, src Source, o render.Options, helm *cli.EnvSettings) ([]render.Doc, error) {
-	// An app added or removed by the change has no path at one ref: nothing renders there.
-	if !t.has(src) {
-		return nil, nil
-	}
-
-	path := t.path(src)
-	if src.Manifests != "" {
-		var docs []render.Doc
-		var err error
-		if ns := cmp.Or(o.Namespace, "default"); isKustomize(path) {
-			root := t.dir // the ref's overlay may come from a pull request: it stays in the checkout
-			if rel, err := filepath.Rel(t.dir, path); err != nil || !filepath.IsLocal(rel) {
-				root = "" // a directory outside the repo, given by the user, is read as it is
-			}
-			docs, err = render.Kustomize(root, path, ns)
-		} else {
-			docs, err = render.ReadManifests(path, ns)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", t.ref, err)
-		}
-
-		return docs, nil
-	}
-
-	opts := src.Values
-	opts.ValueFiles = make([]string, len(src.Values.ValueFiles))
-	for i, f := range src.Values.ValueFiles {
-		opts.ValueFiles[i] = inTree(t.root, t.dir, f)
-	}
-	opts.FileValues = make([]string, len(src.Values.FileValues))
-	for i, s := range src.Values.FileValues {
-		// shortcut: rewrites a single key=path; a comma-separated list is read from the working directory.
-		if k, p, ok := strings.Cut(s, "="); ok && !strings.Contains(s, ",") {
-			s = k + "=" + inTree(t.root, t.dir, p)
-		}
-		opts.FileValues[i] = s
-	}
-
-	c, err := render.LoadChart(path, "", helm)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", t.ref, err)
-	}
-
-	user, err := opts.MergeValues(getter.All(helm))
-	if err != nil {
-		return nil, fmt.Errorf("%s: merge values: %w", t.ref, err)
-	}
-
-	docs, err := c.Render(ctx, user, o)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", t.ref, err)
-	}
-
-	return docs, nil
 }
 
 // remoteURL is the URL of the repo's origin remote, "" if there is none.

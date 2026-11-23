@@ -71,15 +71,15 @@ func LoadConfig(path string) ([]Target, error) {
 	return ts, nil
 }
 
+// isChart says whether dir holds a Helm chart.
+func isChart(dir string) bool {
+	return exists(filepath.Join(dir, "Chart.yaml"))
+}
+
 // exists says whether path exists in the working tree.
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return !errors.Is(err, fs.ErrNotExist)
-}
-
-// isChart says whether dir holds a Helm chart.
-func isChart(dir string) bool {
-	return exists(filepath.Join(dir, "Chart.yaml"))
 }
 
 // isKustomize says whether dir holds a kustomization file.

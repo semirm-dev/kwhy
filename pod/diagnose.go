@@ -14,8 +14,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// Problem kinds. The strings are part of the kwhy.pod/v1 JSON contract.
 const (
+	// Problem kinds. The strings are part of the kwhy.pod/v1 JSON contract.
 	Pull    = "pull"        // the image can't be pulled
 	Crash   = "crash"       // the container exits with an error
 	OOM     = "oom"         // the container was killed at its memory limit
@@ -28,10 +28,14 @@ const (
 	Stuck   = "terminating" // the pod was deleted but is still there past its grace period
 	Scaler  = "autoscaler"  // Cluster Autoscaler or Karpenter says what it does about this Pending pod
 	Other   = "other"       // not running or not ready for a reason not listed above
+
+	// maxEvents caps the event messages kept per problem.
+	maxEvents = 3
 )
 
-// maxEvents caps the event messages kept per problem.
-const maxEvents = 3
+// scalerReasons are the pod events Cluster Autoscaler (TriggeredScaleUp, NotTriggerScaleUp) and Karpenter
+// (Nominated) post about a pod waiting for a node; some are Normal events.
+var scalerReasons = []string{"TriggeredScaleUp", "NotTriggerScaleUp", "Nominated"}
 
 // Problem is one reason a pod on a node isn't running or ready, as kubelet reported it.
 type Problem struct {
@@ -107,10 +111,6 @@ func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem
 	return ps, nil
 }
 
-// scalerReasons are the pod events Cluster Autoscaler (TriggeredScaleUp, NotTriggerScaleUp) and Karpenter
-// (Nominated) post about a pod waiting for a node; some are Normal events.
-var scalerReasons = []string{"TriggeredScaleUp", "NotTriggerScaleUp", "Nominated"}
-
 // Autoscaler reports what a node autoscaler last said about the Pending pod p: a node is being added for it, or why
 // none will be. Nothing when no autoscaler runs or it said nothing.
 func Autoscaler(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem, error) {
@@ -132,6 +132,37 @@ func Autoscaler(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Probl
 // timestamp is already the end of the grace period.
 func Terminating(p *v1.Pod) bool {
 	return p.DeletionTimestamp != nil && time.Since(p.DeletionTimestamp.Time) > time.Minute
+}
+
+// AddLogs fills Logs of each current crash or OOM problem with the last n lines of the container's last run.
+// A container that crashed is waiting or terminated, so its latest instance is the run that died; the previous
+// instance is tried when that has no logs. Logs are best effort: when kubelet has none, the line says why.
+func AddLogs(ctx context.Context, c kubernetes.Interface, p *v1.Pod, ps []Problem, n int64) {
+	for i := range ps {
+		pr := &ps[i]
+		if pr.Earlier || pr.Kind != Crash && pr.Kind != OOM {
+			continue
+		}
+
+		var msg string
+		for _, previous := range []bool{false, true} {
+			raw, err := c.CoreV1().Pods(p.Namespace).GetLogs(p.Name,
+				&v1.PodLogOptions{Container: pr.Container, Previous: previous, TailLines: &n}).DoRaw(ctx)
+			if err != nil {
+				msg = err.Error()
+				continue
+			}
+			// Kubelet answers 200 with this text when the instance's log file is gone.
+			if msg = strings.TrimSpace(string(raw)); msg == "" || strings.HasPrefix(msg, "unable to retrieve container logs") {
+				continue
+			}
+			pr.Logs = strings.Split(msg, "\n")
+			break
+		}
+		if pr.Logs == nil {
+			pr.Logs = []string{"(no logs: " + cmp.Or(msg, "empty") + ")"}
+		}
+	}
 }
 
 // terminating describes what holds a deleted pod: its finalizers, else the kubelet that hasn't confirmed.
@@ -292,35 +323,4 @@ func lastSeen(e v1.Event) time.Time {
 	}
 
 	return e.EventTime.Time
-}
-
-// AddLogs fills Logs of each current crash or OOM problem with the last n lines of the container's last run.
-// A container that crashed is waiting or terminated, so its latest instance is the run that died; the previous
-// instance is tried when that has no logs. Logs are best effort: when kubelet has none, the line says why.
-func AddLogs(ctx context.Context, c kubernetes.Interface, p *v1.Pod, ps []Problem, n int64) {
-	for i := range ps {
-		pr := &ps[i]
-		if pr.Earlier || pr.Kind != Crash && pr.Kind != OOM {
-			continue
-		}
-
-		var msg string
-		for _, previous := range []bool{false, true} {
-			raw, err := c.CoreV1().Pods(p.Namespace).GetLogs(p.Name,
-				&v1.PodLogOptions{Container: pr.Container, Previous: previous, TailLines: &n}).DoRaw(ctx)
-			if err != nil {
-				msg = err.Error()
-				continue
-			}
-			// Kubelet answers 200 with this text when the instance's log file is gone.
-			if msg = strings.TrimSpace(string(raw)); msg == "" || strings.HasPrefix(msg, "unable to retrieve container logs") {
-				continue
-			}
-			pr.Logs = strings.Split(msg, "\n")
-			break
-		}
-		if pr.Logs == nil {
-			pr.Logs = []string{"(no logs: " + cmp.Or(msg, "empty") + ")"}
-		}
-	}
 }
