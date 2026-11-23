@@ -185,19 +185,20 @@ func classify(b, h render.Doc) (Impact, bool) {
 	}
 
 	bt, ht := get(b.Object, "spec", "template"), get(h.Object, "spec", "template")
+	tpl := !reflect.DeepEqual(bt, ht)
 	partition, _ := get(h.Object, "spec", "updateStrategy", "rollingUpdate", "partition").(int)
 	switch {
-	case !reflect.DeepEqual(bt, ht) && str(h.Object, "spec", "updateStrategy", "type") == "OnDelete":
+	case tpl && str(h.Object, "spec", "updateStrategy", "type") == "OnDelete":
 		i.Verdict, i.Detail = NoEffect, "OnDelete: pods keep the old template until someone deletes them"
-	case !reflect.DeepEqual(bt, ht) && h.Kind == "DaemonSet":
+	case tpl && h.Kind == "DaemonSet":
 		i.Verdict, i.Detail = Restart, "one pod per node"
-	case !reflect.DeepEqual(bt, ht) && h.Kind == "StatefulSet" && partition >= replicas(h.Object):
+	case tpl && h.Kind == "StatefulSet" && partition >= replicas(h.Object):
 		i.Verdict, i.Detail = NoEffect, fmt.Sprintf("partition %d: no pod is updated", partition)
-	case !reflect.DeepEqual(bt, ht) && h.Kind == "StatefulSet" && partition > 0:
+	case tpl && h.Kind == "StatefulSet" && partition > 0:
 		i.Verdict, i.Pods, i.Detail = Ordered, replicas(h.Object)-partition, fmt.Sprintf("one at a time, ordinals %d and up", partition)
-	case !reflect.DeepEqual(bt, ht) && h.Kind == "StatefulSet":
+	case tpl && h.Kind == "StatefulSet":
 		i.Verdict, i.Pods, i.Detail = Ordered, replicas(h.Object), "one at a time"
-	case !reflect.DeepEqual(bt, ht):
+	case tpl:
 		i.Verdict, i.Pods, i.Detail = Restart, replicas(h.Object), "pod template"
 		if !slices.Equal(images(bt), images(ht)) {
 			i.Detail = "image"

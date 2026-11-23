@@ -2,11 +2,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 
@@ -58,7 +61,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
 	root.AddCommand(valueCmd(), changeCmd(), podCmd())
 
-	err := root.Execute()
+	// Helm logs through slog; kwhy reports errors itself.
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	err := root.ExecuteContext(ctx)
 	if err == nil {
 		return 0
 	}

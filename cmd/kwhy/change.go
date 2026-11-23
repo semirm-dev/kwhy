@@ -1,13 +1,10 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
-	"os/signal"
 	"reflect"
 	"strings"
 
@@ -97,10 +94,7 @@ func changeCmd() *cobra.Command {
 				fail[v] = true
 			}
 
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-			defer stop()
-
-			slog.SetDefault(slog.New(slog.DiscardHandler))
+			ctx := cmd.Context()
 
 			targets := []change.Target{{Source: src, Release: release, Namespace: namespace}}
 			if config != "" {

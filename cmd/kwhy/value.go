@@ -1,13 +1,9 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"os"
-	"os/signal"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -86,10 +82,7 @@ func valueChartCmd() *cobra.Command {
 				selectNS = namespace
 			}
 
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-			defer stop()
-
-			slog.SetDefault(slog.New(slog.DiscardHandler))
+			ctx := cmd.Context()
 
 			c, err := render.LoadChart(chartRef, chartVersion, helm)
 			if err != nil {
@@ -192,8 +185,7 @@ func valueKustomizeCmd() *cobra.Command {
 				root = gitRoot()
 			}
 
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-			defer stop()
+			ctx := cmd.Context()
 
 			o, err := value.LoadOverlay(ctx, root, dir, traceCache(noCache))
 			if err != nil {

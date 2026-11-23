@@ -1,13 +1,10 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"os"
-	"os/signal"
+	"reflect"
 
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v4/pkg/cli"
@@ -46,6 +43,9 @@ func podCmd() *cobra.Command {
 			if src.chart != "" && src.kustomize != "" {
 				return usageError{errors.New("give --chart or --kustomize, not both")}
 			}
+			if src.chart == "" && !reflect.ValueOf(src.values).IsZero() {
+				return usageError{errors.New("values flags apply to --chart only")}
+			}
 			if src.kustomize != "" && src.root == "" {
 				src.root = gitRoot()
 			}
@@ -54,12 +54,10 @@ func podCmd() *cobra.Command {
 				return usageError{fmt.Errorf("--logs must be 0 or more, got %d", logs)}
 			}
 
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-			defer stop()
+			ctx := cmd.Context()
 
 			klog.SetOutput(io.Discard) // the scheduler framework logs through klog
 			klog.LogToStderr(false)
-			slog.SetDefault(slog.New(slog.DiscardHandler)) // and Helm, with --chart, through slog
 
 			c, err := kubeClient(helm)
 			if err != nil {

@@ -26,6 +26,8 @@ var publicCharts = []string{
 func TestAccuracy(t *testing.T) {
 	for _, name := range publicCharts {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			dir := filepath.Join("..", "testdata", "charts", "public")
 			c, err := render.LoadChart(filepath.Join(dir, name+".tgz"), "", cli.New())
 			if err != nil {

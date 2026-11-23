@@ -53,6 +53,13 @@ func LoadConfig(path string) ([]Target, error) {
 		if (t.Chart == "") == (t.Manifests == "") {
 			return nil, fmt.Errorf("read config %s: target %d: give exactly one of chart or manifests", path, i+1)
 		}
+		// The config may come from a pull request: keep it to the repo, as Discover does for apps.
+		for _, p := range append([]string{cmp.Or(t.Chart, t.Manifests)}, t.Values...) {
+			if !filepath.IsLocal(p) || strings.Contains(p, "://") {
+				return nil, fmt.Errorf("read config %s: target %d: %s is outside the repo", path, i+1, p)
+			}
+		}
+
 		tg := Target{Chart: t.Chart, Manifests: t.Manifests, Release: cmp.Or(t.Release, "rel"), Namespace: cmp.Or(t.Namespace, "default")}
 		tg.Values.ValueFiles, tg.Values.Values, tg.Values.StringValues, tg.Values.JSONValues = t.Values, t.Set, t.SetString, t.SetJSON
 		ts = append(ts, tg)

@@ -58,6 +58,7 @@ func TestRunExitCodes(t *testing.T) {
 		{"pod two names", []string{"pod", "a", "b"}, 2},
 		{"pod bad output", []string{"pod", "x", "-o", "yaml"}, 2},
 		{"pod negative logs", []string{"pod", "x", "--logs", "-1"}, 2},
+		{"pod values without chart", []string{"pod", "x", "-f", "a.yaml"}, 2},
 		{"change bad fail-on", []string{"change", "main..feature", "--chart", "c", "--fail-on", "fail,nope"}, 2},
 	}
 	for _, tt := range tests {

@@ -308,7 +308,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 |---|---|
 | `--chart DIR` | chart directory in the repo |
 | `--manifests DIR` | plain YAML, or a Kustomize overlay, in the repo |
-| `--config FILE` | several targets: `targets: [{chart or manifests, values, set, setString, setJSON, release, namespace}]`; `.kwhy.yaml` is used when no source flag is given |
+| `--config FILE` | several targets: `targets: [{chart or manifests, values, set, setString, setJSON, release, namespace}]`; `.kwhy.yaml` is used when no source flag is given; its paths are relative to the repo root and may not leave it |
 | `--apps DIR` | Argo CD `Application`s and Flux `HelmRelease`s under DIR, read at each ref |
 | `-f`, `--set`, `--set-string`, `--set-json`, `--set-file`, `--set-literal` | as for `helm`; files in the repo are read at each ref |
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |

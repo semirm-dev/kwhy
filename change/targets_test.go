@@ -44,7 +44,10 @@ targets:
 		t.Errorf("targets = %+v", ts)
 	}
 
-	for _, bad := range []string{"targets: [{chart: a, manifests: b}]", "targets: []", "targets: [{chart: a, typo: 1}]"} {
+	// The config may come from a pull request: no path may leave the repo or reach the network.
+	for _, bad := range []string{"targets: [{chart: a, manifests: b}]", "targets: []", "targets: [{chart: a, typo: 1}]",
+		"targets: [{chart: /etc}]", "targets: [{manifests: ../x}]", "targets: [{chart: a, values: [/etc/x.yaml]}]",
+		"targets: [{chart: a, values: [../x.yaml]}]", "targets: [{chart: a, values: ['http://169.254.169.254/x']}]"} {
 		root := writeTree(t, map[string]string{".kwhy.yaml": bad})
 		if _, err := change.LoadConfig(filepath.Join(root, ".kwhy.yaml")); err == nil {
 			t.Errorf("%q: want an error", bad)
