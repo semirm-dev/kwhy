@@ -60,18 +60,22 @@ func changeCmd() *cobra.Command {
 					given++
 				}
 			}
+
 			if given == 0 {
 				if _, err := os.Stat(".kwhy.yaml"); err != nil {
 					return usageError{errors.New("give one of --chart, --manifests, --config or --apps (or add a .kwhy.yaml)")}
 				}
 				config = ".kwhy.yaml"
 			}
+
 			if given > 1 {
 				return usageError{errors.New("give only one of --chart, --manifests, --config or --apps")}
 			}
+
 			if src.Chart == "" && !reflect.ValueOf(src.Values).IsZero() {
 				return usageError{errors.New("values flags apply to --chart only")}
 			}
+
 			if (config != "" || apps != "") && (cmd.Flags().Changed("release") || cmd.Flags().Changed("namespace")) {
 				return usageError{errors.New("--release and --namespace come from the config or the apps, not flags")}
 			}
@@ -99,77 +103,23 @@ func changeCmd() *cobra.Command {
 			slog.SetDefault(slog.New(slog.DiscardHandler))
 
 			targets := []change.Target{{Source: src, Release: release, Namespace: namespace}}
-			var err error
 			if config != "" {
+				var err error
 				if targets, err = change.LoadConfig(config); err != nil {
 					return err
 				}
 			}
-			// What to render at each ref; with --apps, each ref's own app definitions.
-			at := map[string][]change.Target{base: targets, head: targets}
 
-			trees := map[string]*change.Tree{}
-			for _, ref := range []string{base, head} {
-				if trees[ref] != nil {
-					continue
-				}
-				t, done, err := change.Checkout(ctx, ref)
-				if err != nil {
-					return err
-				}
-				defer done()
-				trees[ref] = t
+			b, h, warnings, err := change.Render(ctx, base, head, targets, apps, kubeVersion, helm)
+			if errors.Is(err, change.ErrNotFound) {
+				return usageError{err}
+			}
+			if err != nil {
+				return err
 			}
 
-			// A path at neither ref renders nothing and would report no effect: a typo, not a change.
-			if apps == "" {
-				for _, t := range targets {
-					if !trees[base].Has(t.Source) && !trees[head].Has(t.Source) {
-						return usageError{fmt.Errorf("%s: not found at %s or %s (uncommitted? commit it first)", t.Chart+t.Manifests, base, head)}
-					}
-				}
-			}
-
-			if apps != "" {
-				tmp, err := os.MkdirTemp("", "kwhy-apps-")
-				if err != nil {
-					return err
-				}
-				defer os.RemoveAll(tmp)
-
-				said := map[string]bool{}
-				for _, ref := range []string{base, head} {
-					ts, warnings, err := trees[ref].Discover(apps, change.Remote(ctx), tmp)
-					if err != nil {
-						return err
-					}
-					for _, w := range warnings {
-						if !said[w] {
-							said[w] = true
-							fmt.Fprintln(cmd.ErrOrStderr(), "kwhy: warning:", w)
-						}
-					}
-					at[ref] = ts
-				}
-				if len(at[base])+len(at[head]) == 0 {
-					return fmt.Errorf("--apps %s: no Argo CD Application or Flux HelmRelease this repo can render", apps)
-				}
-			}
-
-			// One diff over every target's documents, so an object one app changes and another consumes is seen.
-			var b, h []render.Doc
-			for _, side := range []struct {
-				ref  string
-				docs *[]render.Doc
-			}{{base, &b}, {head, &h}} {
-				for _, t := range at[side.ref] {
-					o := render.Options{Release: t.Release, Namespace: t.Namespace, KubeVersion: kubeVersion}
-					ds, err := trees[side.ref].Render(ctx, t.Source, o, helm)
-					if err != nil {
-						return err
-					}
-					*side.docs = append(*side.docs, ds...)
-				}
+			for _, w := range warnings {
+				fmt.Fprintln(cmd.ErrOrStderr(), "kwhy: warning:", w)
 			}
 
 			is := change.Diff(b, h)
@@ -178,10 +128,12 @@ func changeCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("--context: %w", err)
 				}
+
 				drift, err := change.Drift(ctx, c, h, is)
 				if err != nil {
 					return err
 				}
+
 				is = append(is, drift...)
 				if err := change.Live(ctx, c, is); err != nil {
 					return err

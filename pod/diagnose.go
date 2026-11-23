@@ -1,6 +1,7 @@
 package pod
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -143,7 +144,7 @@ func terminating(p *v1.Pod) string {
 		return d + "; finalizers: " + strings.Join(p.Finalizers, ", ")
 	}
 
-	return d + "; no finalizers, so the kubelet on " + or(p.Spec.NodeName, "its node") + " hasn't confirmed the containers stopped"
+	return d + "; no finalizers, so the kubelet on " + cmp.Or(p.Spec.NodeName, "its node") + " hasn't confirmed the containers stopped"
 }
 
 // nodeProblem names the node's condition when it isn't Ready or is under pressure. Best effort: many users can't
@@ -161,7 +162,7 @@ func nodeProblem(ctx context.Context, c kubernetes.Interface, name string) (Prob
 		pressure := cond.Type != v1.NodeReady && cond.Status == v1.ConditionTrue && strings.HasSuffix(string(cond.Type), "Pressure")
 		if notReady || pressure {
 			bad = append(bad, fmt.Sprintf("%s=%s (%s)", cond.Type, cond.Status, cond.Message))
-			reason = or(reason, cond.Reason)
+			reason = cmp.Or(reason, cond.Reason)
 		}
 	}
 	if len(bad) == 0 {
@@ -317,7 +318,7 @@ func AddLogs(ctx context.Context, c kubernetes.Interface, p *v1.Pod, ps []Proble
 			break
 		}
 		if pr.Logs == nil {
-			pr.Logs = []string{"(no logs: " + or(msg, "empty") + ")"}
+			pr.Logs = []string{"(no logs: " + cmp.Or(msg, "empty") + ")"}
 		}
 	}
 }

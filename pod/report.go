@@ -1,6 +1,7 @@
 package pod
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -227,7 +228,7 @@ func writeEvidence(b *strings.Builder, ps []Problem) {
 	var events []string
 	for _, pr := range ps {
 		for _, e := range pr.Events {
-			events = append(events, fmt.Sprintf("  %s: %s", or(pr.Container, "pod"), e))
+			events = append(events, fmt.Sprintf("  %s: %s", cmp.Or(pr.Container, "pod"), e))
 		}
 	}
 	if len(events) > 0 {
@@ -246,14 +247,6 @@ func writeEvidence(b *strings.Builder, ps []Problem) {
 			}
 		}
 	}
-}
-
-func or(s, def string) string {
-	if s == "" {
-		return def
-	}
-
-	return s
 }
 
 func plural(n int, s string) string {

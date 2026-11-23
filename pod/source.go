@@ -1,6 +1,7 @@
 package pod
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -38,7 +39,7 @@ type Source struct {
 }
 
 func (s Source) label() string {
-	return or(s.Plugin, s.Problem)
+	return cmp.Or(s.Plugin, s.Problem)
 }
 
 // Reads says whether check c reads the pod spec field at path (".spec.containers[0].resources.requests.cpu").

@@ -30,7 +30,7 @@ The open work and the decisions any future change must respect. What's built is 
   the field already had, so `LoadOverlay` also edits the value lines of every kustomization and patch. Strings
   share one build, each with its own mark (`p9_<n>_`), split by file then line if it fails; numbers and booleans get
   a build each. Keys that only pick a target (`name`, `kind`, `path`, `op`, ...) and resource paths are skipped.
-  `value/kustomize_accuracy_test.go` measures precision and recall the same way, as Helm's test does.
+  `value/kustomize_accuracy_internal_test.go` measures precision and recall the same way, as Helm's test does.
 - **Accepted, not fixed:** Helm bisection groups where two leaves cancel (postgresql loses one hit; recall
   0.98–1.00). Ruling it out needs each leaf tested alone for every field.
 - **Booleans aren't credited** behind a field that already has a match: flipping one switches template blocks,

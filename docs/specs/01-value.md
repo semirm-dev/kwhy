@@ -106,7 +106,7 @@ v0.1, 8 cores): 0.02–1.7s for most charts, argo-cd 3.8s, kube-prometheus-stack
 
 **Built 2026-11-20 (v0.9), experimental, redesigned**: the spike's rules 1–5,
 no override chains, and a line guard (a line is named only when it shows the value; else the entry). Public
-overlays: 39,316 fields, 0 wrong lines, 6 entry- or file-only (`value/kustomize_accuracy_test.go`).
+overlays: 39,316 fields, 0 wrong lines, 6 entry- or file-only (`value/kustomize_accuracy_internal_test.go`).
 **2026-11-23, no longer experimental:** lines are confirmed by editing them and rebuilding (an entry that writes the
 value the field already had is found too); 12 public overlays nightly, precision 1.00, recall 0.87–1.00.
 

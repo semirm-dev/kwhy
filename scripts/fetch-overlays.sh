@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetches the public Kustomize overlays value/kustomize_accuracy_test.go runs against, at pinned commits (the first
+# Fetches the public Kustomize overlays value/kustomize_accuracy_internal_test.go runs against, at pinned commits (the first
 # four from the spike, docs/spikes/kustomize/README.md). Shallow, one commit each, only the listed directories when
 # given; the clones are gitignored.
 set -euo pipefail

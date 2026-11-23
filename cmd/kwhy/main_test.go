@@ -179,6 +179,49 @@ func TestRunChange(t *testing.T) {
 	}
 }
 
+// A pull request's symlink to a file outside the repo would let its chart print that file: refused.
+func TestRunChangeSymlinkOutside(t *testing.T) {
+	repo, outside := t.TempDir(), t.TempDir()
+	if err := os.CopyFS(filepath.Join(repo, "chart"), os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-qm", "base")
+
+	git("checkout", "-qb", "feature")
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("topsecret123"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(repo, "chart", "leak")); err != nil {
+		t.Fatal(err)
+	}
+	leak := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: x-{{ .Files.Get \"leak\" | trim }}\n"
+	if err := os.WriteFile(filepath.Join(repo, "chart", "templates", "leak.yaml"), []byte(leak), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-qm", "head")
+	git("checkout", "-q", "main")
+
+	t.Chdir(repo)
+	var out, errb bytes.Buffer
+	code := run([]string{"change", "main..feature", "--chart", "chart"}, &out, &errb)
+	if code == 0 || strings.Contains(out.String()+errb.String(), "topsecret123") ||
+		!strings.Contains(errb.String(), "links outside the repo") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+}
+
 func TestRunChangeManifests(t *testing.T) {
 	repo := t.TempDir()
 	git := func(args ...string) {
@@ -288,6 +331,16 @@ func TestRunChangeTargets(t *testing.T) {
 		!strings.Contains(out.String(), "Deployment shop/api-api  4 pods  image") || !strings.Contains(out.String(), "create   ConfigMap infra/limits") {
 		t.Fatalf("--apps changed at head: code %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
+
+	// App paths are relative to the repo root, wherever kwhy runs.
+	t.Chdir(filepath.Join(repo, "apps"))
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"change", "main..feature", "--apps", "."}, &out, &errb); code != 0 ||
+		!strings.Contains(out.String(), "Deployment shop/api-api  2 pods  image") {
+		t.Fatalf("--apps from a subdirectory: code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+	t.Chdir(repo)
 
 	if code := run([]string{"change", "main..feature", "--apps", "apps", "-n", "x"}, io.Discard, io.Discard); code != 2 {
 		t.Errorf("--apps with -n: code %d, want 2", code)

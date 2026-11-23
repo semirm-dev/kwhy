@@ -158,7 +158,9 @@ kwhy: --fail-on: will fail Job kwhy-demo/migrate
 
 It renders both refs in temporary git worktrees. Sources: a chart (`--chart`), plain YAML or a Kustomize overlay
 (`--manifests`), several targets in a `.kwhy.yaml`, or every Argo CD `Application` and Flux `HelmRelease` under
-`--apps DIR` that points into the repo. Offline, pod counts come from `replicas`. With `--context` it reads the
+`--apps DIR` that points into the repo. App paths are read as Argo CD and Flux read them, from the repo root and
+never above it, and a ref with a symlink out of the repo is refused, so a pull request can't point kwhy at the
+runner's files. Offline, pod counts come from `replicas`. With `--context` it reads the
 cluster (get and list only) for live replicas, HPA ranges, DaemonSet node counts, StorageClass expansion, the
 namespace's ResourceQuota and a rollout time estimate.
 
@@ -349,7 +351,7 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 
 ## Known limits
 
-- Kustomize: no remote bases, `helmCharts:` or plugins. `value kustomize` names no override chain, and a name built
+- Kustomize: no remote bases or URLs (refused before anything is fetched), `helmCharts:` or plugins. `value kustomize` names no override chain, and a name built
   from `namePrefix` names only the `namePrefix` line, not the resource's own `name:` line.
 - `lookup` returns empty, as with `helm template`.
 - `change --apps` skips apps from other repos, Helm repositories and Flux `valuesFrom`. Offline, DaemonSet pod

@@ -72,3 +72,45 @@ func TestKustomize(t *testing.T) {
 		t.Errorf("docs = %+v", docs)
 	}
 }
+
+// A kustomization from a pull request must not make kwhy fetch anything: remote bases and URLs are refused before
+// Kustomize sees them. A URL that is only a label or annotation value is fine.
+func TestKustomizeOffline(t *testing.T) {
+	for _, k := range []string{
+		"resources: [https://example.com/deploy.yaml]",
+		"resources: ['github.com/acme/platform//base?ref=v1']",
+		"resources: [git@github.com:acme/platform.git]",
+		"components: [gitlab.com/acme/platform/monitoring]",
+		"resources: [base]\npatches: [{path: https://example.com/patch.yaml}]",
+		"resources: [base]\nconfigMapGenerator: [{name: c, files: [conf=https://example.com/app.conf]}]",
+		"resources: [remote-base]",
+	} {
+		dir := t.TempDir()
+		write(t, dir, "overlay/kustomization.yaml", k+"\n")
+		write(t, dir, "overlay/base/kustomization.yaml", "resources: [cm.yaml]\n")
+		write(t, dir, "overlay/base/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: c}\n")
+		write(t, dir, "overlay/remote-base/kustomization.yaml", "resources: [https://example.com/base.yaml]\n")
+		_, err := render.Kustomize(filepath.Join(dir, "overlay"), "default")
+		if err == nil || !strings.Contains(err.Error(), "kwhy doesn't fetch") {
+			t.Errorf("%s: err = %v, want a refusal", k, err)
+		}
+	}
+
+	dir := t.TempDir()
+	write(t, dir, "k/kustomization.yaml", "resources: [cm.yaml]\ncommonAnnotations: {docs: 'https://example.com'}\n")
+	write(t, dir, "k/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: c}\n")
+	if _, err := render.Kustomize(filepath.Join(dir, "k"), "default"); err != nil {
+		t.Errorf("URL annotation: %v", err)
+	}
+}
+
+func write(t *testing.T, dir, name, content string) {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

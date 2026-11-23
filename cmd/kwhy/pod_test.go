@@ -9,6 +9,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kversion "k8s.io/apimachinery/pkg/version"
+	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/semirm-dev/kwhy/pod"
@@ -26,6 +28,7 @@ func TestPodSources(t *testing.T) {
 			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "api", Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")}}}}}}}}
 	c := fake.NewClientset(node, deploy)
+	c.Discovery().(*fakediscovery.FakeDiscovery).FakedServerVersion = &kversion.Info{GitVersion: "v1.37.0"}
 
 	p, err := pod.Target(t.Context(), c, "default", "deploy/rel-api")
 	if err != nil {
@@ -41,7 +44,7 @@ func TestPodSources(t *testing.T) {
 	}
 
 	src := podChart{chart: mini, release: "rel", values: values.Options{ValueFiles: []string{prod}}}
-	got, err := podSources(t.Context(), c, p, r, src, "v1.37.0", cli.New())
+	got, err := src.sources(t.Context(), c, p, r, cli.New())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +57,7 @@ func TestPodSources(t *testing.T) {
 
 	// Only a limit: Kubernetes defaults the request to it, so the limit is the source.
 	limitOnly := podChart{chart: mini, release: "rel", values: values.Options{Values: []string{"resources.requests=null", "resources.limits.memory=2Gi"}}}
-	got, err = podSources(t.Context(), c, p, r, limitOnly, "v1.37.0", cli.New())
+	got, err = limitOnly.sources(t.Context(), c, p, r, cli.New())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +69,7 @@ func TestPodSources(t *testing.T) {
 
 	// Request and limit: only the request is the source.
 	both := podChart{chart: mini, release: "rel", values: values.Options{ValueFiles: []string{prod}, Values: []string{"resources.limits.memory=4Gi"}}}
-	got, err = podSources(t.Context(), c, p, r, both, "v1.37.0", cli.New())
+	got, err = both.sources(t.Context(), c, p, r, cli.New())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +78,7 @@ func TestPodSources(t *testing.T) {
 	}
 
 	// Without --release, the instance label is required.
-	if _, err := podSources(t.Context(), c, p, r, podChart{chart: mini}, "v1.37.0", cli.New()); err == nil {
+	if _, err := (podChart{chart: mini}).sources(t.Context(), c, p, r, cli.New()); err == nil {
 		t.Error("no release: want an error")
 	}
 }
@@ -90,7 +93,7 @@ func TestPodSourcesProblem(t *testing.T) {
 	r := pod.Result{Problems: []pod.Problem{{Container: "api", Kind: pod.OOM}}}
 
 	src := podChart{chart: mini, release: "rel", values: values.Options{ValueFiles: []string{prod}, Values: []string{"resources.limits.memory=4Gi"}}}
-	got, err := podSources(t.Context(), c, p, r, src, "v1.37.0", cli.New())
+	got, err := src.sources(t.Context(), c, p, r, cli.New())
 	if err != nil {
 		t.Fatal(err)
 	}

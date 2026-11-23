@@ -184,6 +184,45 @@ spec: {url: ssh://git@github.com/acme/platform}
 	}
 }
 
+// Argo CD and Flux read every path inside the repo: a leading / is the repo root and .. stops there. A path from a
+// pull request must never reach the runner's files.
+func TestDiscoverPathsStayInRepo(t *testing.T) {
+	dir := writeTree(t, map[string]string{"app.yaml": `apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: abs}
+spec: {source: {repoURL: x, path: /etc}}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: up}
+spec: {source: {repoURL: x, path: ../../../etc, helm: {valueFiles: [../../../../root/x.yaml, /secrets.yaml]}}}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: ks}
+spec: {path: ../../.., sourceRef: {kind: GitRepository, name: r}}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: hr}
+spec: {chart: {spec: {chart: /charts/api, sourceRef: {kind: GitRepository, name: r}, valuesFiles: [../../x.yaml]}}}
+`})
+	ts, _, err := change.Discover(dir, dir, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, tg := range ts {
+		got = append(got, tg.Release+":"+tg.Chart+tg.Manifests)
+		got = append(got, tg.Values.ValueFiles...)
+	}
+	want := []string{"abs:etc", "up:etc", filepath.Join("root", "x.yaml"), "secrets.yaml", "ks:.", "hr:" + filepath.Join("charts", "api"), "x.yaml"}
+	if !slices.Equal(got, want) {
+		t.Errorf("paths = %q, want %q", got, want)
+	}
+}
+
 // Inline values of two sources of one app, and values next to valuesObject, each keep their own file.
 func TestDiscoverInlineValuesApart(t *testing.T) {
 	dir := writeTree(t, map[string]string{"app.yaml": `apiVersion: argoproj.io/v1alpha1

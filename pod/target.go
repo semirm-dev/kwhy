@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,10 +44,6 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 		kind, name = "pod", ref
 	}
 
-	var (
-		sel  *metav1.LabelSelector
-		tmpl v1.PodTemplateSpec
-	)
 	if kind == "pod" || kind == "pods" || kind == "po" {
 		p, err := c.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
@@ -56,32 +53,11 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 	}
 
 	owner := workloadKind(kind)
-	switch owner {
-	case "Deployment":
-		d, err := c.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get deployment: %w", err)
-		}
-		sel, tmpl = d.Spec.Selector, d.Spec.Template
-	case "StatefulSet":
-		s, err := c.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get statefulset: %w", err)
-		}
-		sel, tmpl = s.Spec.Selector, s.Spec.Template
-	case "DaemonSet":
-		d, err := c.AppsV1().DaemonSets(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get daemonset: %w", err)
-		}
-		sel, tmpl = d.Spec.Selector, d.Spec.Template
-	case "ReplicaSet":
-		r, err := c.AppsV1().ReplicaSets(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get replicaset: %w", err)
-		}
-		sel, tmpl = r.Spec.Selector, r.Spec.Template
-	case "CronJob":
+	if owner == "" {
+		return nil, fmt.Errorf("unsupported kind %q: want pod, deploy, sts, ds, rs, job or cj", kind)
+	}
+
+	if owner == "CronJob" {
 		cj, j, err := lastJob(ctx, c, ns, name)
 		if err != nil {
 			return nil, err
@@ -89,19 +65,29 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 		if j != nil {
 			return Target(ctx, c, ns, "job/"+j.Name)
 		}
-		tmpl = cj.Spec.JobTemplate.Spec.Template
-	case "Job":
-		j, err := c.BatchV1().Jobs(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get job: %w", err)
-		}
-		sel, tmpl = j.Spec.Selector, j.Spec.Template
-	default:
-		return nil, fmt.Errorf("unsupported kind %q: want pod, deploy, sts, ds, rs, job or cj", kind)
+		return template(ns, name, owner, cj.Spec.JobTemplate.Spec.Template), nil // no Job yet: its next one
 	}
 
-	if owner == "CronJob" { // no Job yet: its next one
-		return template(ns, name, owner, tmpl), nil
+	w, err := fetch(ctx, c, ns, owner, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		sel  *metav1.LabelSelector
+		tmpl v1.PodTemplateSpec
+	)
+	switch w := w.(type) {
+	case *appsv1.Deployment:
+		sel, tmpl = w.Spec.Selector, w.Spec.Template
+	case *appsv1.StatefulSet:
+		sel, tmpl = w.Spec.Selector, w.Spec.Template
+	case *appsv1.DaemonSet:
+		sel, tmpl = w.Spec.Selector, w.Spec.Template
+	case *appsv1.ReplicaSet:
+		sel, tmpl = w.Spec.Selector, w.Spec.Template
+	case *batchv1.Job:
+		sel, tmpl = w.Spec.Selector, w.Spec.Template
 	}
 
 	pods, err := c.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: metav1.FormatLabelSelector(sel)})

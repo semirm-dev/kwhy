@@ -13,7 +13,7 @@ const fixture = "../testdata/kustomize/fixture"
 
 func TestOverlay(t *testing.T) {
 	t.Chdir(fixture)
-	o, err := value.LoadOverlay(".", "overlays/prod", "")
+	o, err := value.LoadOverlay(t.Context(), ".", "overlays/prod", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestOverlay(t *testing.T) {
 // The guard: every line the overlay names shows the field's value; nothing is named on a guess.
 func TestOverlayLinesShowValues(t *testing.T) {
 	t.Chdir(fixture)
-	o, err := value.LoadOverlay(".", "overlays/prod", "")
+	o, err := value.LoadOverlay(t.Context(), ".", "overlays/prod", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestOverlayCache(t *testing.T) {
 
 	answers := func() []value.Answer {
 		t.Helper()
-		o, err := value.LoadOverlay(".", "overlays/prod", cache)
+		o, err := value.LoadOverlay(t.Context(), ".", "overlays/prod", cache)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -147,7 +147,7 @@ func TestOverlayCache(t *testing.T) {
 // An overlay at the root itself ("kwhy value kustomize .") loads.
 func TestOverlayAtRoot(t *testing.T) {
 	t.Chdir(filepath.Join(fixture, "base"))
-	o, err := value.LoadOverlay(".", ".", "")
+	o, err := value.LoadOverlay(t.Context(), ".", ".", "")
 	if err != nil {
 		t.Fatal(err)
 	}

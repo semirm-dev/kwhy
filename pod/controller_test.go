@@ -59,6 +59,7 @@ func TestController(t *testing.T) {
 		{"rs/web-3", []string{"create: replicaset web-3: pods \"web-3-y\" is forbidden: violates PodSecurity"}},
 		{"cj/nightly", []string{"create: cronjob nightly: Error creating job", "job: active longer than specified deadline"}},
 		{"web-1", nil},
+		{"job", nil}, // a pod named like a kind: no slash, so a pod
 	} {
 		ps, err := pod.Controller(t.Context(), c, "ml", tc.ref)
 		if err != nil {

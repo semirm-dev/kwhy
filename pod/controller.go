@@ -24,102 +24,131 @@ const (
 // Job. A pod ref has none. These come from the controller's conditions and Warning events, in its own words.
 func Controller(ctx context.Context, c kubernetes.Interface, ns, ref string) ([]Problem, error) {
 	kind, name, ok := strings.Cut(ref, "/")
-	if !ok {
+	owner := workloadKind(kind)
+	if !ok || owner == "" {
 		return nil, nil
 	}
 
-	var ps []Problem
-	switch workloadKind(kind) {
-	case "Deployment":
-		d, err := c.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get deployment: %w", err)
-		}
-		for _, cond := range d.Status.Conditions {
-			if cond.Type == appsv1.DeploymentProgressing && cond.Status == v1.ConditionFalse {
-				ps = append(ps, Problem{Kind: Rollout, Reason: cond.Reason, Detail: cond.Message})
-			}
-		}
-
-		rss, err := c.AppsV1().ReplicaSets(ns).List(ctx, metav1.ListOptions{LabelSelector: metav1.FormatLabelSelector(d.Spec.Selector)})
-		if err != nil {
-			return nil, fmt.Errorf("list replicasets: %w", err)
-		}
-		for _, rs := range rss.Items {
-			if !metav1.IsControlledBy(&rs, d) {
-				continue
-			}
-			found := false
-			for _, cond := range rs.Status.Conditions {
-				if cond.Type == appsv1.ReplicaSetReplicaFailure && cond.Status == v1.ConditionTrue {
-					ps = append(ps, Problem{Kind: Create, Reason: cond.Reason, Detail: "replicaset " + rs.Name + ": " + cond.Message})
-					found = true
-				}
-			}
-			if !found {
-				p, err := createEvents(ctx, c, ns, rs.UID, "replicaset "+rs.Name)
-				if err != nil {
-					return nil, err
-				}
-				ps = append(ps, p...)
-			}
-		}
-	case "StatefulSet":
-		s, err := c.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get statefulset: %w", err)
-		}
-		return createEvents(ctx, c, ns, s.UID, "statefulset "+name)
-	case "DaemonSet":
-		d, err := c.AppsV1().DaemonSets(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get daemonset: %w", err)
-		}
-		return createEvents(ctx, c, ns, d.UID, "daemonset "+name)
-	case "ReplicaSet":
-		r, err := c.AppsV1().ReplicaSets(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get replicaset: %w", err)
-		}
-		for _, cond := range r.Status.Conditions {
-			if cond.Type == appsv1.ReplicaSetReplicaFailure && cond.Status == v1.ConditionTrue {
-				return []Problem{{Kind: Create, Reason: cond.Reason, Detail: "replicaset " + name + ": " + cond.Message}}, nil
-			}
-		}
-		return createEvents(ctx, c, ns, r.UID, "replicaset "+name)
-	case "CronJob":
+	if owner == "CronJob" {
 		cj, j, err := lastJob(ctx, c, ns, name)
 		if err != nil {
 			return nil, err
 		}
-		if ps, err = createEvents(ctx, c, ns, cj.UID, "cronjob "+name); err != nil {
+
+		ps, err := createEvents(ctx, c, ns, cj.UID, "cronjob "+name)
+		if err != nil || j == nil {
+			return ps, err
+		}
+
+		p, err := Controller(ctx, c, ns, "job/"+j.Name)
+		if err != nil {
 			return nil, err
 		}
-		if j != nil {
-			p, err := Controller(ctx, c, ns, "job/"+j.Name)
-			if err != nil {
-				return nil, err
-			}
-			ps = append(ps, p...)
+
+		return append(ps, p...), nil
+	}
+
+	w, err := fetch(ctx, c, ns, owner, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var ps []Problem
+	switch w := w.(type) {
+	case *appsv1.Deployment:
+		return deploymentProblems(ctx, c, w)
+	case *appsv1.ReplicaSet:
+		if ps := replicaFailure(w); len(ps) > 0 {
+			return ps, nil
 		}
-	case "Job":
-		j, err := c.BatchV1().Jobs(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get job: %w", err)
-		}
-		for _, cond := range j.Status.Conditions {
+	case *batchv1.Job:
+		for _, cond := range w.Status.Conditions {
 			if cond.Type == batchv1.JobFailed && cond.Status == v1.ConditionTrue {
 				ps = append(ps, Problem{Kind: JobFail, Reason: cond.Reason, Detail: cond.Message})
 			}
 		}
-		p, err := createEvents(ctx, c, ns, j.UID, "job "+name)
+	}
+
+	evs, err := createEvents(ctx, c, ns, w.GetUID(), strings.ToLower(owner)+" "+name)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(ps, evs...), nil
+}
+
+// fetch gets the workload of API kind named name: a Deployment, StatefulSet, DaemonSet, ReplicaSet or Job.
+func fetch(ctx context.Context, c kubernetes.Interface, ns, kind, name string) (metav1.Object, error) {
+	var (
+		w    metav1.Object
+		err  error
+		opts = metav1.GetOptions{}
+	)
+	switch kind {
+	case "Deployment":
+		w, err = c.AppsV1().Deployments(ns).Get(ctx, name, opts)
+	case "StatefulSet":
+		w, err = c.AppsV1().StatefulSets(ns).Get(ctx, name, opts)
+	case "DaemonSet":
+		w, err = c.AppsV1().DaemonSets(ns).Get(ctx, name, opts)
+	case "ReplicaSet":
+		w, err = c.AppsV1().ReplicaSets(ns).Get(ctx, name, opts)
+	case "Job":
+		w, err = c.BatchV1().Jobs(ns).Get(ctx, name, opts)
+	default:
+		return nil, fmt.Errorf("unsupported workload kind %s", kind)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get %s: %w", strings.ToLower(kind), err)
+	}
+
+	return w, nil
+}
+
+// deploymentProblems is a stuck rollout of d, and what each of its ReplicaSets can't create.
+func deploymentProblems(ctx context.Context, c kubernetes.Interface, d *appsv1.Deployment) ([]Problem, error) {
+	var ps []Problem
+	for _, cond := range d.Status.Conditions {
+		if cond.Type == appsv1.DeploymentProgressing && cond.Status == v1.ConditionFalse {
+			ps = append(ps, Problem{Kind: Rollout, Reason: cond.Reason, Detail: cond.Message})
+		}
+	}
+
+	rss, err := c.AppsV1().ReplicaSets(d.Namespace).List(ctx, metav1.ListOptions{LabelSelector: metav1.FormatLabelSelector(d.Spec.Selector)})
+	if err != nil {
+		return nil, fmt.Errorf("list replicasets: %w", err)
+	}
+
+	for _, rs := range rss.Items {
+		if !metav1.IsControlledBy(&rs, d) {
+			continue
+		}
+
+		if f := replicaFailure(&rs); len(f) > 0 {
+			ps = append(ps, f...)
+			continue
+		}
+
+		evs, err := createEvents(ctx, c, d.Namespace, rs.UID, "replicaset "+rs.Name)
 		if err != nil {
 			return nil, err
 		}
-		ps = append(ps, p...)
+		ps = append(ps, evs...)
 	}
 
 	return ps, nil
+}
+
+// replicaFailure is the create problem rs's ReplicaFailure condition reports, if it is true.
+func replicaFailure(rs *appsv1.ReplicaSet) []Problem {
+	var ps []Problem
+	for _, cond := range rs.Status.Conditions {
+		if cond.Type == appsv1.ReplicaSetReplicaFailure && cond.Status == v1.ConditionTrue {
+			ps = append(ps, Problem{Kind: Create, Reason: cond.Reason, Detail: "replicaset " + rs.Name + ": " + cond.Message})
+		}
+	}
+
+	return ps
 }
 
 // createEvents turns an object's FailedCreate Warning events into one create problem with the newest message.

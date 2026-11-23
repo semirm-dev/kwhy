@@ -1,6 +1,7 @@
 package value
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -38,8 +39,13 @@ func copyMem(from, to filesys.FileSystem) error {
 	})
 }
 
-func (o *Overlay) copyTree() error {
-	return filepath.WalkDir(o.root, func(p string, d fs.DirEntry, err error) error {
+// copyDir copies the file or directory p, an in-memory path, from disk into memory, each file once. A path that isn't
+// on disk copies nothing: render.Offline or Kustomize reports it.
+func (o *Overlay) copyDir(p string) error {
+	return filepath.WalkDir(filepath.Join(o.root, filepath.FromSlash(p)), func(dp string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -49,24 +55,34 @@ func (o *Overlay) copyTree() error {
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		rel, err := filepath.Rel(o.root, p)
+
+		rel, err := filepath.Rel(o.root, dp)
 		if err != nil {
 			return err
 		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
+
 		mp := "/" + filepath.ToSlash(rel)
+		if _, ok := o.orig[mp]; ok {
+			return nil
+		}
+
+		data, err := os.ReadFile(dp)
+		if err != nil {
+			return err
+		}
 		if o.mem.WriteFile(mp, data) != nil {
 			return nil // a name the in-memory filesystem refuses ("..file.txt"); Kustomize couldn't read it either
 		}
 		o.orig[mp] = data
+
 		return nil
 	})
 }
 
-// loadStack returns the kustomization in dir and every local one it pulls in, dir first.
+// loadStack returns the kustomization in dir and every local one it pulls in, dir first. Loading the overlay (root
+// set), it copies each directory of the stack, and each file it names, from disk as it finds them: Kustomize reads no
+// file outside a kustomization's own directory, so the rest of the repo stays on disk. A worker's copy (root unset)
+// has the stack in memory already.
 func (o *Overlay) loadStack(dir string) ([]*kfile, error) {
 	var out []*kfile
 	seen := map[string]bool{}
@@ -76,6 +92,12 @@ func (o *Overlay) loadStack(dir string) ([]*kfile, error) {
 			return nil
 		}
 		seen[dir] = true
+
+		if o.root != "" {
+			if err := o.copyDir(dir); err != nil {
+				return err
+			}
+		}
 
 		var kpath string
 		for _, n := range []string{"kustomization.yaml", "kustomization.yml", "Kustomization"} {
@@ -92,8 +114,11 @@ func (o *Overlay) loadStack(dir string) ([]*kfile, error) {
 			return err
 		}
 		var n yaml.Node
-		if err := yaml.Unmarshal(data, &n); err != nil || len(n.Content) == 0 {
-			return fmt.Errorf("read %s: %v", kpath, err)
+		if err := yaml.Unmarshal(data, &n); err != nil {
+			return fmt.Errorf("read %s: %w", kpath, err)
+		}
+		if len(n.Content) == 0 {
+			return fmt.Errorf("read %s: empty kustomization", kpath)
 		}
 		m := n.Content[0]
 		for _, key := range []string{"helmCharts", "generators", "transformers", "validators"} {
@@ -105,10 +130,13 @@ func (o *Overlay) loadStack(dir string) ([]*kfile, error) {
 
 		for _, key := range []string{"resources", "bases", "components"} {
 			for _, it := range kget(m, key).contentOrNil() {
-				if strings.Contains(it.Value, "://") || strings.HasPrefix(it.Value, "github.com/") {
-					return fmt.Errorf("%s: remote base %s isn't supported (kwhy stays offline)", strings.TrimPrefix(kpath, "/"), it.Value)
+				p := path.Join(dir, it.Value)
+				if o.root != "" {
+					if err := o.copyDir(p); err != nil {
+						return err
+					}
 				}
-				if p := path.Join(dir, it.Value); o.mem.IsDir(p) {
+				if o.mem.IsDir(p) {
 					if err := visit(p); err != nil {
 						return err
 					}

@@ -136,7 +136,11 @@ func Evaluate(ctx context.Context, cl *Cluster, p *v1.Pod) (Result, error) {
 
 	// Plugins register their listers while being built, so start the informers after.
 	inf.Start(ctx.Done())
-	inf.WaitForCacheSync(ctx.Done())
+	for typ, ok := range inf.WaitForCacheSync(ctx.Done()) {
+		if !ok {
+			return Result{}, fmt.Errorf("sync %v cache: %w", typ, context.Cause(ctx))
+		}
+	}
 
 	infos, err := snap.NodeInfos().List()
 	if err != nil {

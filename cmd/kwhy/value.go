@@ -179,9 +179,11 @@ func valueKustomizeCmd() *cobra.Command {
 		Args:    usageArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, args := args[0], args[1:]
+
 			if err := onePathOrAll(len(args) == 2, all); err != nil {
 				return err
 			}
+
 			if writers[output] == nil {
 				return usageError{fmt.Errorf("--output must be human, markdown or json, got %q", output)}
 			}
@@ -190,10 +192,14 @@ func valueKustomizeCmd() *cobra.Command {
 				root = gitRoot()
 			}
 
-			o, err := value.LoadOverlay(root, dir, traceCache(noCache))
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer stop()
+
+			o, err := value.LoadOverlay(ctx, root, dir, traceCache(noCache))
 			if err != nil {
 				return err
 			}
+
 			d, err := o.Select(args[0])
 			if err != nil {
 				return err
@@ -204,6 +210,7 @@ func valueKustomizeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+
 				return writers[output](cmd.OutOrStdout(), as)
 			}
 
@@ -211,6 +218,7 @@ func valueKustomizeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
 			a, err := o.Explain(value.KField{Doc: d.ID, Path: p})
 			if err != nil {
 				return err
