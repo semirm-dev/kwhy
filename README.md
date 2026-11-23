@@ -120,7 +120,7 @@ scripts and agents.
 **How it works:** kwhy doesn't read templates. It renders the chart with Helm, changes values on purpose and
 watches which output lines change. The [illustrated walkthrough](https://claude.ai/artifact/DUEg6FMnDfw65yfdUWJj4v)
 shows every step. The first question about a chart traces it whole (0.02s to 21s, see
-[below](#how-we-know-its-right)); later questions about the same chart and values come from a cache.
+[below](#how-we-know-its-right)); later questions about the same chart and values come from a cache (files unused for 30 days are removed).
 
 **Kustomize:** `kwhy value kustomize <overlay> <kind>/<name> [<path>|--all]` names the kustomization
 entry, and the line, that sets a field:

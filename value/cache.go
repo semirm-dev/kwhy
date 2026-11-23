@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/semirm-dev/kwhy/render"
 )
@@ -52,6 +54,7 @@ func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, ch
 			return nil, err
 		}
 		if key != "" {
+			prune(cacheDir)
 			write(cacheDir, path, cached{idx.Docs, idx.Fields, idx.Hits, idx.Random, idx.Unmarkable})
 		}
 	}
@@ -142,7 +145,29 @@ func read(path string, out any) error {
 	}
 	defer f.Close()
 
-	return gob.NewDecoder(f).Decode(out)
+	if err := gob.NewDecoder(f).Decode(out); err != nil {
+		return err
+	}
+	now := time.Now()
+	os.Chtimes(path, now, now) //nolint:errcheck // only keeps a file in use from being pruned
+
+	return nil
+}
+
+// maxAge is how long a cache file is kept. Every new build of kwhy or of the chart changes the key, so old files are
+// never read again.
+const maxAge = 30 * 24 * time.Hour
+
+// prune deletes kwhy's files in dir not used for maxAge (read refreshes the time). It runs once per computed trace
+// or overlay, not per answer.
+func prune(dir string) {
+	es, _ := os.ReadDir(dir)
+	for _, e := range es {
+		ours := filepath.Ext(e.Name()) == ".gob" || strings.HasPrefix(e.Name(), "tmp-")
+		if fi, err := e.Info(); err == nil && ours && fi.Mode().IsRegular() && time.Since(fi.ModTime()) > maxAge {
+			os.Remove(filepath.Join(dir, e.Name())) //nolint:errcheck // a file left behind is tried again next time
+		}
+	}
 }
 
 // write stores v at path through a temp file, so a reader never sees half a file.

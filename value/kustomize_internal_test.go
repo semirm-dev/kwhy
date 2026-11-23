@@ -58,3 +58,29 @@ func TestLoadOverlayCopiesOnlyTheStack(t *testing.T) {
 		t.Errorf("copied %q, want %q", got, want)
 	}
 }
+
+// Cache files unused for maxAge go; recent ones, and files that aren't kwhy's, stay.
+func TestPrune(t *testing.T) {
+	dir := t.TempDir()
+	old := time.Now().Add(-maxAge - time.Hour)
+	for name, mtime := range map[string]time.Time{"old.gob": old, "tmp-1": old, "notes.txt": old, "new.gob": time.Now()} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	prune(dir)
+
+	es, _ := os.ReadDir(dir)
+	var left []string
+	for _, e := range es {
+		left = append(left, e.Name())
+	}
+	if !slices.Equal(left, []string{"new.gob", "notes.txt"}) {
+		t.Errorf("left %q, want new.gob and notes.txt", left)
+	}
+}

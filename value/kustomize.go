@@ -116,6 +116,7 @@ func LoadOverlay(ctx context.Context, root, dir, cache string) (*Overlay, error)
 	}
 
 	if file != "" {
+		prune(cache)
 		write(cache, file, kc)
 	}
 
