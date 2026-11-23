@@ -25,58 +25,58 @@ type Source struct {
 	Values           values.Options
 }
 
-// checkout checks ref out into a temporary git worktree of the repo at root; done removes it.
-func checkout(ctx context.Context, ref string) (root, dir string, done func(), err error) {
-	if root, err = git(ctx, "", "rev-parse", "--show-toplevel"); err != nil {
-		return "", "", nil, err
+// Tree is a temporary git worktree with ref checked out, of the repo at root.
+type Tree struct {
+	ref, root, dir string
+}
+
+// Checkout checks ref out into a temporary git worktree; done removes it.
+func Checkout(ctx context.Context, ref string) (t *Tree, done func(), err error) {
+	root, err := git(ctx, "", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, nil, err
 	}
 
 	tmp, err := os.MkdirTemp("", "kwhy-change-")
 	if err != nil {
-		return "", "", nil, fmt.Errorf("checkout %s: %w", ref, err)
+		return nil, nil, fmt.Errorf("checkout %s: %w", ref, err)
 	}
 
-	dir = filepath.Join(tmp, "wt")
+	dir := filepath.Join(tmp, "wt")
 	if _, err := git(ctx, root, "worktree", "add", "--detach", "--quiet", dir, ref); err != nil {
 		os.RemoveAll(tmp)
-		return "", "", nil, err
+		return nil, nil, err
 	}
 
-	return root, dir, func() {
+	return &Tree{ref, root, dir}, func() {
 		// Background context: the worktree must go even after Ctrl-C.
 		git(context.Background(), root, "worktree", "remove", "--force", dir) //nolint:errcheck
 		os.RemoveAll(tmp)
 	}, nil
 }
 
-// DiscoverAt is Discover on the checkout of ref: the apps as ref defines them. An apps directory ref doesn't
+// Discover is Discover on the checkout: the apps as its ref defines them. An apps directory the ref doesn't
 // have holds none.
-func DiscoverAt(ctx context.Context, ref, dir, remote, tmp string) ([]Target, []string, error) {
-	root, wt, done, err := checkout(ctx, ref)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer done()
-
-	d := inTree(root, wt, dir)
+func (t *Tree) Discover(dir, remote, tmp string) ([]Target, []string, error) {
+	d := inTree(t.root, t.dir, dir)
 	if _, err := os.Stat(d); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil, nil
 	}
 
-	return Discover(wt, d, remote, tmp)
+	return Discover(t.dir, d, remote, tmp)
 }
 
-// Render checks ref out into a temporary git worktree, renders src there and removes the worktree.
-func Render(ctx context.Context, ref string, src Source, o render.Options, helm *cli.EnvSettings) ([]render.Doc, error) {
-	root, dir, done, err := checkout(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	defer done()
+// Has says whether src's chart or manifests path exists in the checkout; a URL always does.
+func (t *Tree) Has(src Source) bool {
+	path := inTree(t.root, t.dir, or(src.Manifests, src.Chart))
+	return exists(path) || strings.Contains(path, "://")
+}
 
+// Render renders src in the checkout.
+func (t *Tree) Render(ctx context.Context, src Source, o render.Options, helm *cli.EnvSettings) ([]render.Doc, error) {
 	// An app added or removed by the change has no path at one ref: nothing renders there.
-	path := inTree(root, dir, or(src.Manifests, src.Chart))
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) && !strings.Contains(path, "://") {
+	path := inTree(t.root, t.dir, or(src.Manifests, src.Chart))
+	if !exists(path) && !strings.Contains(path, "://") {
 		return nil, nil
 	}
 
@@ -91,7 +91,7 @@ func Render(ctx context.Context, ref string, src Source, o render.Options, helm 
 		}
 		docs, err := read(path, ns)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", ref, err)
+			return nil, fmt.Errorf("%s: %w", t.ref, err)
 		}
 		return docs, nil
 	}
@@ -99,30 +99,30 @@ func Render(ctx context.Context, ref string, src Source, o render.Options, helm 
 	opts := src.Values
 	opts.ValueFiles = make([]string, len(src.Values.ValueFiles))
 	for i, f := range src.Values.ValueFiles {
-		opts.ValueFiles[i] = inTree(root, dir, f)
+		opts.ValueFiles[i] = inTree(t.root, t.dir, f)
 	}
 	opts.FileValues = make([]string, len(src.Values.FileValues))
 	for i, s := range src.Values.FileValues {
 		// shortcut: rewrites a single key=path; a comma-separated list is read from the working directory.
 		if k, p, ok := strings.Cut(s, "="); ok && !strings.Contains(s, ",") {
-			s = k + "=" + inTree(root, dir, p)
+			s = k + "=" + inTree(t.root, t.dir, p)
 		}
 		opts.FileValues[i] = s
 	}
 
 	c, err := render.LoadChart(path, "", helm)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", ref, err)
+		return nil, fmt.Errorf("%s: %w", t.ref, err)
 	}
 
 	user, err := opts.MergeValues(getter.All(helm))
 	if err != nil {
-		return nil, fmt.Errorf("%s: merge values: %w", ref, err)
+		return nil, fmt.Errorf("%s: merge values: %w", t.ref, err)
 	}
 
 	docs, err := c.Render(ctx, user, o)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", ref, err)
+		return nil, fmt.Errorf("%s: %w", t.ref, err)
 	}
 
 	return docs, nil

@@ -73,26 +73,7 @@ func Drift(ctx context.Context, c kubernetes.Interface, head []render.Doc, is []
 			continue
 		}
 
-		var live []corev1.Container
-		var pods int32
-		var err error
-		switch d.Kind {
-		case "Deployment":
-			o, e := c.AppsV1().Deployments(d.Namespace).Get(ctx, d.Name, metav1.GetOptions{})
-			if err = e; e == nil {
-				live, pods = o.Spec.Template.Spec.Containers, deref(o.Spec.Replicas)
-			}
-		case "StatefulSet":
-			o, e := c.AppsV1().StatefulSets(d.Namespace).Get(ctx, d.Name, metav1.GetOptions{})
-			if err = e; e == nil {
-				live, pods = o.Spec.Template.Spec.Containers, deref(o.Spec.Replicas)
-			}
-		case "DaemonSet":
-			o, e := c.AppsV1().DaemonSets(d.Namespace).Get(ctx, d.Name, metav1.GetOptions{})
-			if err = e; e == nil {
-				live, pods = o.Spec.Template.Spec.Containers, o.Status.DesiredNumberScheduled
-			}
-		}
+		live, pods, err := running(ctx, c, d)
 		if apierrors.IsNotFound(err) {
 			continue
 		}
@@ -119,28 +100,8 @@ func Drift(ctx context.Context, c kubernetes.Interface, head []render.Doc, is []
 // rollout sets the pods a workload restarts from the cluster and estimates how long that takes.
 // Objects not in the cluster yet keep the manifest's count.
 func rollout(ctx context.Context, c kubernetes.Interface, i *Impact, hpas []autoscalingv2.HorizontalPodAutoscaler) error {
-	d, opts := i.doc, metav1.GetOptions{}
-	var (
-		live int32
-		err  error
-	)
-	switch d.Kind {
-	case "Deployment":
-		o, e := c.AppsV1().Deployments(d.Namespace).Get(ctx, d.Name, opts)
-		if err = e; e == nil {
-			live = deref(o.Spec.Replicas)
-		}
-	case "StatefulSet":
-		o, e := c.AppsV1().StatefulSets(d.Namespace).Get(ctx, d.Name, opts)
-		if err = e; e == nil {
-			live = deref(o.Spec.Replicas)
-		}
-	case "DaemonSet":
-		o, e := c.AppsV1().DaemonSets(d.Namespace).Get(ctx, d.Name, opts)
-		if err = e; e == nil {
-			live = o.Status.DesiredNumberScheduled
-		}
-	}
+	d := i.doc
+	_, live, err := running(ctx, c, d)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("get %s: %w", i.Resource, err)
 	}
@@ -171,6 +132,33 @@ func rollout(ctx context.Context, c kubernetes.Interface, i *Impact, hpas []auto
 	}
 
 	return nil
+}
+
+// running is the live workload's containers and pods: its replicas, or for a DaemonSet the nodes it should run on.
+func running(ctx context.Context, c kubernetes.Interface, d render.Doc) ([]corev1.Container, int32, error) {
+	opts := metav1.GetOptions{}
+	switch d.Kind {
+	case "Deployment":
+		o, err := c.AppsV1().Deployments(d.Namespace).Get(ctx, d.Name, opts)
+		if err != nil {
+			return nil, 0, err
+		}
+		return o.Spec.Template.Spec.Containers, deref(o.Spec.Replicas), nil
+	case "StatefulSet":
+		o, err := c.AppsV1().StatefulSets(d.Namespace).Get(ctx, d.Name, opts)
+		if err != nil {
+			return nil, 0, err
+		}
+		return o.Spec.Template.Spec.Containers, deref(o.Spec.Replicas), nil
+	case "DaemonSet":
+		o, err := c.AppsV1().DaemonSets(d.Namespace).Get(ctx, d.Name, opts)
+		if err != nil {
+			return nil, 0, err
+		}
+		return o.Spec.Template.Spec.Containers, o.Status.DesiredNumberScheduled, nil
+	}
+
+	return nil, 0, nil
 }
 
 // surgeQuota notes when a Deployment's surge pods don't fit a ResourceQuota of the namespace: the new ReplicaSet

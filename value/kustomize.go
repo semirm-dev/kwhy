@@ -300,6 +300,11 @@ func (o *Overlay) runBuilds(base map[KField]any, jobs []buildJob) ([]buildResult
 	g := new(errgroup.Group)
 	for range min(runtime.GOMAXPROCS(0), len(jobs)) {
 		g.Go(func() error {
+			// A worker that fails still drains, so the sender never blocks.
+			defer func() {
+				for range next {
+				}
+			}()
 			w := &Overlay{mem: filesys.MakeFsInMemory(), target: o.target}
 			if err := copyMem(o.mem, w.mem); err != nil {
 				return err

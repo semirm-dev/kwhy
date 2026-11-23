@@ -64,8 +64,16 @@ func Discover(tree, dir, remote, tmp string) (ts []Target, warnings []string, er
 		} else if data, err = yaml.Marshal(values); err != nil {
 			return "", err
 		}
-		f := filepath.Join(tmp, strings.ReplaceAll(name, "/", "_")+".values.yaml")
-		return f, os.WriteFile(f, data, 0o600)
+		// A unique file each: sources of one app, and values next to valuesObject, share the app's name.
+		f, err := os.CreateTemp(tmp, strings.ReplaceAll(name, "/", "_")+"-*.values.yaml")
+		if err != nil {
+			return "", err
+		}
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			return "", err
+		}
+		return f.Name(), f.Close()
 	}
 
 	for _, o := range objs {

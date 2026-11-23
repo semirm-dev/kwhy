@@ -183,3 +183,30 @@ spec: {url: ssh://git@github.com/acme/platform}
 		}
 	}
 }
+
+// Inline values of two sources of one app, and values next to valuesObject, each keep their own file.
+func TestDiscoverInlineValuesApart(t *testing.T) {
+	dir := writeTree(t, map[string]string{"app.yaml": `apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: shop}
+spec:
+  sources:
+    - {repoURL: x, path: a, helm: {values: "who: a"}}
+    - {repoURL: x, path: b, helm: {values: "who: b", valuesObject: {also: b}}}
+`})
+	ts, _, err := change.Discover(dir, dir, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, tg := range ts {
+		for _, f := range tg.Values.ValueFiles {
+			data, _ := os.ReadFile(f)
+			got = append(got, tg.Chart+":"+strings.TrimSpace(string(data)))
+		}
+	}
+	if want := []string{"a:who: a", "b:who: b", "b:also: b"}; !slices.Equal(got, want) {
+		t.Errorf("values files = %q, want %q", got, want)
+	}
+}

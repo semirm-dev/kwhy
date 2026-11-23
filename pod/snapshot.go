@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -114,22 +117,34 @@ func Snapshot(ctx context.Context, c kubernetes.Interface) (*Cluster, error) {
 	cl := &Cluster{Version: v.GitVersion}
 	dra := map[string]bool{"resourceclaims": true, "resourceslices": true, "deviceclasses": true}
 
-	var objs []runtime.Object
+	var (
+		objs []runtime.Object
+		mu   sync.Mutex
+	)
+	g, gctx := errgroup.WithContext(ctx)
 	for kind, list := range lists {
-		l, _, err := pager.New(list).List(ctx, metav1.ListOptions{})
-		if apierrors.IsNotFound(err) && dra[kind] {
-			continue // a cluster that doesn't serve resource.k8s.io/v1 has no DRA objects
-		}
-		if err != nil {
-			return nil, fmt.Errorf("list %s: %w", kind, err)
-		}
+		g.Go(func() error {
+			l, _, err := pager.New(list).List(gctx, metav1.ListOptions{})
+			if apierrors.IsNotFound(err) && dra[kind] {
+				return nil // a cluster that doesn't serve resource.k8s.io/v1 has no DRA objects
+			}
+			if err != nil {
+				return fmt.Errorf("list %s: %w", kind, err)
+			}
 
-		items, err := meta.ExtractList(l)
-		if err != nil {
-			return nil, fmt.Errorf("list %s: %w", kind, err)
-		}
+			items, err := meta.ExtractList(l)
+			if err != nil {
+				return fmt.Errorf("list %s: %w", kind, err)
+			}
 
-		objs = append(objs, items...)
+			mu.Lock()
+			objs = append(objs, items...)
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	for _, o := range objs {

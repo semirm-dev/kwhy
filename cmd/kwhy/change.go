@@ -8,9 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -77,11 +75,6 @@ func changeCmd() *cobra.Command {
 			if (config != "" || apps != "") && (cmd.Flags().Changed("release") || cmd.Flags().Changed("namespace")) {
 				return usageError{errors.New("--release and --namespace come from the config or the apps, not flags")}
 			}
-			if p := src.Chart + src.Manifests; p != "" {
-				if _, err := os.Stat(p); err != nil {
-					return usageError{fmt.Errorf("%s: %w", p, err)}
-				}
-			}
 
 			if _, err := common.ParseKubeVersion(kubeVersion); err != nil {
 				return usageError{fmt.Errorf("--kube-version: %w", err)}
@@ -115,6 +108,28 @@ func changeCmd() *cobra.Command {
 			// What to render at each ref; with --apps, each ref's own app definitions.
 			at := map[string][]change.Target{base: targets, head: targets}
 
+			trees := map[string]*change.Tree{}
+			for _, ref := range []string{base, head} {
+				if trees[ref] != nil {
+					continue
+				}
+				t, done, err := change.Checkout(ctx, ref)
+				if err != nil {
+					return err
+				}
+				defer done()
+				trees[ref] = t
+			}
+
+			// A path at neither ref renders nothing and would report no effect: a typo, not a change.
+			if apps == "" {
+				for _, t := range targets {
+					if !trees[base].Has(t.Source) && !trees[head].Has(t.Source) {
+						return usageError{fmt.Errorf("%s: not found at %s or %s (uncommitted? commit it first)", t.Chart+t.Manifests, base, head)}
+					}
+				}
+			}
+
 			if apps != "" {
 				tmp, err := os.MkdirTemp("", "kwhy-apps-")
 				if err != nil {
@@ -123,13 +138,8 @@ func changeCmd() *cobra.Command {
 				defer os.RemoveAll(tmp)
 
 				said := map[string]bool{}
-				for i, ref := range []string{base, head} {
-					// Each ref's inline values in their own directory: the file names repeat.
-					dir := filepath.Join(tmp, strconv.Itoa(i))
-					if err := os.Mkdir(dir, 0o700); err != nil {
-						return err
-					}
-					ts, warnings, err := change.DiscoverAt(ctx, ref, apps, change.Remote(ctx), dir)
+				for _, ref := range []string{base, head} {
+					ts, warnings, err := trees[ref].Discover(apps, change.Remote(ctx), tmp)
 					if err != nil {
 						return err
 					}
@@ -154,7 +164,7 @@ func changeCmd() *cobra.Command {
 			}{{base, &b}, {head, &h}} {
 				for _, t := range at[side.ref] {
 					o := render.Options{Release: t.Release, Namespace: t.Namespace, KubeVersion: kubeVersion}
-					ds, err := change.Render(ctx, side.ref, t.Source, o, helm)
+					ds, err := trees[side.ref].Render(ctx, t.Source, o, helm)
 					if err != nil {
 						return err
 					}

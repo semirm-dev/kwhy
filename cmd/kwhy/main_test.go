@@ -295,6 +295,11 @@ func TestRunChangeTargets(t *testing.T) {
 	if code := run([]string{"change", "main..feature", "--chart", "nope"}, io.Discard, io.Discard); code != 2 {
 		t.Errorf("--chart to a missing path: code %d, want 2", code)
 	}
+	// A config path at neither ref is a typo, not "no effect".
+	write("typo.yaml", "targets:\n  - {chart: chartz}\n")
+	if code := run([]string{"change", "main..feature", "--config", "typo.yaml"}, io.Discard, io.Discard); code != 2 {
+		t.Errorf("config path at neither ref: code %d, want 2", code)
+	}
 }
 
 func TestRunChangeKustomize(t *testing.T) {
