@@ -57,6 +57,9 @@ func TestOverlayAccuracy(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Measure the line guard alone: the rebuild a stack with replacements gets for every named line takes hours
+			// on large CRDs (a known limit, see the README).
+			o.replaces = false
 
 			// Every named file:line, and the files the stack reads.
 			named := map[string][]KField{}
