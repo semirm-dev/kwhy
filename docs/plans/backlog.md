@@ -9,7 +9,7 @@ The open work and the decisions any future change must respect. What's built is 
 |---|---|---|---|---|---|
 | `value` | done: every spec item, all `--set*` flags, cache | n/a | experimental, cached | 10 charts nightly (precision 1.00, recall 0.98–1.00); 7 overlays, on demand | #1–3 |
 | `change` | done: every spec rule, `--context`, Action, `.kwhy.yaml`, Argo CD / Flux read at each ref, CronJob and bare Pod | done | experimental | 25 kind fixtures on 1.35/1.37, 4 real chart upgrades | |
-| `pod` | Pending (real scheduler, DRA, custom profiles) and not-running (kubelet, controllers) done; `--chart`; `rs/`, `cj/` | n/a | `--kustomize`, experimental | kind parity suite on 1.35–1.37 | #5 |
+| `pod` | Pending (real scheduler, DRA, custom profiles) and not-running (kubelet, controllers) done; `--chart`; `rs/`, `cj/`; scheduler's own preemption dry run | n/a | `--kustomize`, experimental | kind parity suite on 1.35–1.37 | |
 
 ## Open
 
@@ -18,7 +18,6 @@ The open work and the decisions any future change must respect. What's built is 
 | 1 | **Kustomize: wider testing before dropping "experimental"**: more real overlays in `value/kustomize_accuracy_test.go`, and a nightly run like Helm's | 7 overlays so far; Helm has 10 charts nightly | M |
 | 2 | Kustomize remote bases: clone each once into a cache at its ref, map the clones into the in-memory copy; opt-in, since it breaks "offline" | stops with a message today | M |
 | 3 | Kustomize `helmCharts:` inside a kustomization | stops with a message today | M, spike first |
-| 5 | `kwhy pod` preemption hint that weighs PodDisruptionBudgets and nominated pods | the hint may name a node the scheduler wouldn't preempt on | M |
 
 ## Decisions to keep
 
@@ -34,6 +33,8 @@ The open work and the decisions any future change must respect. What's built is 
 - **Exact scheduler parity:** `pod` runs the real scheduler (k8s.io/kubernetes, pinned with
   `scripts/k8s-replace.sh`); a new Kubernetes version means bumping it and running the kind parity suite.
   Each per-check framework gets its own profile name, since DynamicResources indexes the shared pod informer by it.
+  Preemption is the scheduler's `DefaultPreemption` as a dry run (`DryRunPreemption`, `SelectCandidate`); never
+  call `Preempt()`, which evicts. Its random pick between tied nodes is reported as a tie, not as a node.
 - **No `go install …@version`:** the scheduler import needs `replace` directives, which `go install` refuses.
   Install is GitHub Releases binaries.
 - **JSON contracts** (`kwhy.value/v1`, `kwhy.change/v1`, `kwhy.pod/v1`) change additively only.

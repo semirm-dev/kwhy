@@ -194,14 +194,17 @@ Logs (app, last run):
 
 func TestWritePreempt(t *testing.T) {
 	p := newPod("api", "", "2", "1Gi")
-	r := pod.Result{Plugins: []string{"NodeResourcesFit"}, Preempt: []string{"n1"},
+	r := pod.Result{Plugins: []string{"NodeResourcesFit"}, Preempt: []string{"n1", "n2"}, PreemptNode: "n1",
+		Victims: []string{"ml/batch"}, PDBViolations: 1,
 		Nodes: []pod.Node{{Name: "n1", Failed: []pod.Check{{Plugin: "NodeResourcesFit", Reasons: []string{"Insufficient cpu"}}}}}}
 
 	var b bytes.Buffer
 	if err := pod.WriteHuman(&b, p, r); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(b.String(), "\nWould fit on 1 node (n1) if lower-priority pods there were preempted;") {
+	want := "\nPreempting lower-priority pods would make room on 2 nodes (n1, n2). The scheduler would pick n1 and evict " +
+		"ml/batch. That breaks 1 PodDisruptionBudget; it goes ahead because every node here would break one.\n"
+	if !strings.Contains(b.String(), want) {
 		t.Errorf("no preemption line in\n%s", b.String())
 	}
 }

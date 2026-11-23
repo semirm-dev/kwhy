@@ -46,8 +46,8 @@ kwhy pod <name|pod/name|deploy/name|sts/name|job/name> [-n ns] [--context ctx] [
   `pod/` never imports `value/`: `pod.Reads` says which fields a check reads, `cmd/kwhy` joins the two.
 
 **Non-goals:** out-of-tree scheduler plugins (they fail by name), scoring/placement ("why did it land on node X"),
-and an exact preemption decision (the hint ignores PodDisruptionBudgets and nominated pods; backlog). DRA, autoscaler
-events, `--scheduler-config` and the preemption hint were non-goals for v0.4 and shipped later (v0.6–v0.8).
+and acting on a preemption (the dry run never evicts). DRA, autoscaler events, `--scheduler-config` and preemption
+were non-goals for v0.4 and shipped later (v0.6–v0.9).
 
 ## Output (human)
 
@@ -88,7 +88,11 @@ config, mount, probe and init failures (`pod/kind_running_test.go`).
 **v0.6 (built 2026-11-20):** the workload's controller speaks too (`create`: pods it can't create, `rollout`:
 progress deadline exceeded, `job`: a failed Job), pods stuck `terminating`, `ds/` targets, Cluster Autoscaler and
 Karpenter events on a Pending pod (`autoscaler`), and a preemption hint (nodes it would fit on without
-lower-priority pods).
+lower-priority pods). Since 2026-11-23 the hint is the scheduler's `DefaultPreemption` as a dry run
+(`PodEligibleToPreemptOthers`, `DryRunPreemption` over every node, `SelectCandidate`): the node it picks, the
+victims and the PodDisruptionBudgets that breaks, or a tie it settles at random. Nominated pods count in every
+filter, as in `RunFilterPluginsWithNominatedPods`. JSON adds `preemptNode`, `victims`, `pdbViolations` and
+`preemptSampled`; the snapshot also lists PodDisruptionBudgets.
 `--scheduler-config FILE` (2026-11-20) runs a profile of the cluster's `KubeSchedulerConfiguration` (decoded with
 the scheduler's own scheme and defaults) instead of the default one. What's still missing:
 `docs/plans/backlog.md`.

@@ -119,14 +119,31 @@ func WriteJSON(w io.Writer, p *v1.Pod, r Result) error {
 		Plugins   []string  `json:"plugins,omitempty"`
 		Nodes     []Node    `json:"nodes,omitempty"`
 		Preempt   []string  `json:"preempt,omitempty"`
+		Node      string    `json:"preemptNode,omitempty"`
+		Victims   []string  `json:"victims,omitempty"`
+		PDBs      int64     `json:"pdbViolations,omitempty"`
+		Sampled   bool      `json:"preemptSampled,omitempty"`
 		Problems  []Problem `json:"problems,omitempty"`
 		Sources   []Source  `json:"sources,omitempty"`
-	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, p.Spec.NodeName, r.Plugins, r.Nodes, r.Preempt, r.Problems, r.Sources})
+	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, p.Spec.NodeName, r.Plugins, r.Nodes, r.Preempt,
+		r.PreemptNode, r.Victims, r.PDBViolations, r.PreemptSampled, r.Problems, r.Sources})
 }
 
 func preempt(r Result) string {
-	return fmt.Sprintf("Would fit on %s (%s) if lower-priority pods there were preempted; the scheduler does that only when "+
-		"PodDisruptionBudgets allow it.", plural(len(r.Preempt), "node"), strings.Join(r.Preempt, ", "))
+	s := fmt.Sprintf("Preempting lower-priority pods would make room on %s (%s).", plural(len(r.Preempt), "node"), strings.Join(r.Preempt, ", "))
+	if r.PreemptNode == "" {
+		s += " Several tie by the scheduler's rules, so it picks one of those at random."
+	} else {
+		s += fmt.Sprintf(" The scheduler would pick %s and evict %s.", r.PreemptNode, strings.Join(r.Victims, ", "))
+	}
+	if r.PDBViolations > 0 {
+		s += fmt.Sprintf(" That breaks %s; it goes ahead because every node here would break one.", plural(int(r.PDBViolations), "PodDisruptionBudget"))
+	}
+	if r.PreemptSampled {
+		s += " On a cluster this size the scheduler checks only a random sample of these nodes, so it may pick another."
+	}
+
+	return s
 }
 
 // heading is the first line: a pod on a node, a pod being scheduled, or a workload only its controller speaks for.

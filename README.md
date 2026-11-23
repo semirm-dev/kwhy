@@ -238,8 +238,9 @@ CONTAINER     PROBLEM  DETAIL
 
 **Not scheduled (Pending)** (v0.4): runs the real kube-scheduler filters on every node and shows every failing
 check, not just the first one the scheduler reports. It adds what Cluster Autoscaler or Karpenter last said about
-the pod (`autoscaler`), and, for a pod that may preempt, the nodes it would fit on if lower-priority pods there were
-preempted (v0.6).
+the pod (`autoscaler`), and, for a pod that may preempt, what the scheduler's own preemption would do as a dry run:
+the nodes it could make room on, the node it picks, the pods it evicts and the PodDisruptionBudgets that breaks.
+Pods already nominated to a node hold room there, as they do for the scheduler.
 
 Real output, for a Deployment asking for a gpu node and 40 CPUs on a 3-node kind cluster:
 
@@ -382,7 +383,8 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
   and values come from the cache (argo-cd: 9s → 0.2s).
 - `pod` runs the scheduler compiled into kwhy (v1.37) and warns when the cluster is more than one minor version
   away. A custom profile needs `--scheduler-config`; out-of-tree scheduler plugins can't run.
-- `pod`'s preemption hint ignores PodDisruptionBudgets and nominated pods. Pods with DRA resource claims run the
+- `pod`'s preemption dry run checks every node; on clusters where the scheduler samples nodes (over 100
+  candidates) it says the scheduler may pick another. Pods with DRA resource claims run the
   real `DynamicResources` plugin over the cluster's ResourceSlices (v0.8). What's missing across all three commands is in the [backlog](docs/plans/backlog.md).
 - `change` classifies Deployments, StatefulSets, DaemonSets, Jobs, CronJobs, bare Pods, Services, PVCs, ConfigMaps
   and Secrets.

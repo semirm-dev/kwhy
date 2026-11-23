@@ -23,10 +23,12 @@ type Cluster struct {
 	// Version is the API server's version, e.g. v1.36.4.
 	Version string
 
-	client  kubernetes.Interface
-	nodes   []*v1.Node
-	pods    []*v1.Pod
-	profile *config.KubeSchedulerProfile // nil: the default profile
+	client kubernetes.Interface
+	nodes  []*v1.Node
+	pods   []*v1.Pod
+	// nominated are pods not yet bound that a scheduler nominated to a node; the scheduler counts them there.
+	nominated []*v1.Pod
+	profile   *config.KubeSchedulerProfile // nil: the default profile
 }
 
 // UseSchedulerConfig makes Evaluate run a profile of the cluster's KubeSchedulerConfiguration file instead of the
@@ -101,6 +103,9 @@ func Snapshot(ctx context.Context, c kubernetes.Interface) (*Cluster, error) {
 		"deviceclasses": func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
 			return c.ResourceV1().DeviceClasses().List(ctx, o)
 		},
+		"poddisruptionbudgets": func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
+			return c.PolicyV1().PodDisruptionBudgets("").List(ctx, o)
+		},
 		"csistoragecapacities": func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
 			return c.StorageV1().CSIStorageCapacities("").List(ctx, o)
 		},
@@ -135,6 +140,9 @@ func Snapshot(ctx context.Context, c kubernetes.Interface) (*Cluster, error) {
 			// Only pods bound to a node and not finished hold resources there.
 			if o.Spec.NodeName != "" && o.Status.Phase != v1.PodSucceeded && o.Status.Phase != v1.PodFailed {
 				cl.pods = append(cl.pods, o)
+			}
+			if o.Spec.NodeName == "" && o.Status.NominatedNodeName != "" && o.DeletionTimestamp == nil {
+				cl.nominated = append(cl.nominated, o)
 			}
 		}
 	}

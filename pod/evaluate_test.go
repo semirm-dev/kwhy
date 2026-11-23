@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -180,8 +181,8 @@ func TestEvaluatePreempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(r.Preempt, []string{"n1"}) {
-		t.Errorf("preempt = %v, want [n1]", r.Preempt)
+	if !slices.Equal(r.Preempt, []string{"n1"}) || r.PreemptNode != "n1" || !slices.Equal(r.Victims, []string{"ml/batch"}) {
+		t.Errorf("preempt = %v on %q evicting %v, want [n1] on n1 evicting [ml/batch]", r.Preempt, r.PreemptNode, r.Victims)
 	}
 
 	never := v1.PreemptNever
@@ -193,6 +194,78 @@ func TestEvaluatePreempt(t *testing.T) {
 	high.Spec.PreemptionPolicy, high.Spec.Priority = nil, nil
 	if r, _ := pod.Evaluate(t.Context(), cl, high); r.Preempt != nil {
 		t.Errorf("same priority: preempt = %v", r.Preempt)
+	}
+}
+
+// The scheduler's own preemption: it avoids breaking a PodDisruptionBudget when it can, breaks one when it can't,
+// and picks at random between nodes that tie.
+func TestEvaluatePreemptPDB(t *testing.T) {
+	guarded := map[string]string{"app": "guarded"}
+	pdb := &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: "guard", Namespace: "ml"},
+		Spec: policyv1.PodDisruptionBudgetSpec{Selector: &metav1.LabelSelector{MatchLabels: guarded}}}
+	low := func(name, nodeName string, labels map[string]string) *v1.Pod {
+		p := newPod(name, nodeName, "3", "1Gi")
+		p.Labels = labels
+		return p
+	}
+	high := newPod("api", "", "2", "1Gi")
+	high.Spec.Priority = new(int32(1000))
+
+	for _, tc := range []struct {
+		name    string
+		objs    []runtime.Object
+		preempt []string
+		node    string
+		pdbs    int64
+	}{
+		{"avoids a PDB", []runtime.Object{node("n1", "4", "8Gi", nil), node("n2", "4", "8Gi", nil),
+			low("a", "n1", guarded), low("b", "n2", nil), pdb}, []string{"n1", "n2"}, "n2", 0},
+		{"breaks a PDB when no node avoids it", []runtime.Object{node("n1", "4", "8Gi", nil), low("a", "n1", guarded), pdb},
+			[]string{"n1"}, "n1", 1},
+		{"tie", []runtime.Object{node("n1", "4", "8Gi", nil), node("n2", "4", "8Gi", nil), low("a", "n1", nil), low("b", "n2", nil)},
+			[]string{"n1", "n2"}, "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cl, err := pod.Snapshot(t.Context(), fake.NewClientset(tc.objs...))
+			if err != nil {
+				t.Fatal(err)
+			}
+			r, err := pod.Evaluate(t.Context(), cl, high)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(r.Preempt, tc.preempt) || r.PreemptNode != tc.node || r.PDBViolations != tc.pdbs {
+				t.Errorf("preempt = %v on %q breaking %d, want %v on %q breaking %d", r.Preempt, r.PreemptNode, r.PDBViolations,
+					tc.preempt, tc.node, tc.pdbs)
+			}
+		})
+	}
+}
+
+// A pod nominated to a node holds room there, for the filters and for preemption, against pods of lower priority.
+func TestEvaluateNominated(t *testing.T) {
+	nom := newPod("nom", "", "3", "1Gi")
+	nom.Spec.Priority = new(int32(2000))
+	nom.Status.NominatedNodeName = "n2"
+
+	nodes := evaluate(t, newPod("api", "", "2", "1Gi"), node("n1", "1", "8Gi", nil), node("n2", "4", "8Gi", nil), nom)
+	if !slices.Equal(plugins(nodes["n2"].Failed), []string{"NodeResourcesFit"}) {
+		t.Errorf("n2 failed = %+v, want NodeResourcesFit (room held by ml/nom)", nodes["n2"].Failed)
+	}
+
+	high := newPod("api", "", "2", "1Gi")
+	high.Spec.Priority = new(int32(1000))
+	cl, err := pod.Snapshot(t.Context(), fake.NewClientset(node("n1", "4", "8Gi", nil), node("n2", "4", "8Gi", nil),
+		newPod("a", "n1", "3", "1Gi"), newPod("b", "n2", "3", "1Gi"), nom))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := pod.Evaluate(t.Context(), cl, high)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(r.Preempt, []string{"n1"}) {
+		t.Errorf("preempt = %v, want [n1]", r.Preempt)
 	}
 }
 
