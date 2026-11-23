@@ -50,7 +50,7 @@ func warning(p *v1.Pod, container, reason, msg string) *v1.Event {
 		path = "spec.containers{" + container + "}"
 	}
 
-	return &v1.Event{ObjectMeta: metav1.ObjectMeta{Name: p.Name + "." + reason, Namespace: p.Namespace},
+	return &v1.Event{Name: p.Name + "." + reason, Namespace: p.Namespace,
 		InvolvedObject: v1.ObjectReference{UID: p.UID, FieldPath: path}, Type: v1.EventTypeWarning, Reason: reason, Message: msg,
 		LastTimestamp: metav1.NewTime(time.Now())}
 }
@@ -207,7 +207,7 @@ func TestDiagnoseTerminating(t *testing.T) {
 func TestAutoscaler(t *testing.T) {
 	p := newPod("train", "", "2", "16Gi")
 	normal := func(reason, msg string, ago time.Duration) *v1.Event {
-		return &v1.Event{ObjectMeta: metav1.ObjectMeta{Name: reason, Namespace: p.Namespace}, InvolvedObject: v1.ObjectReference{UID: p.UID},
+		return &v1.Event{Name: reason, Namespace: p.Namespace, InvolvedObject: v1.ObjectReference{UID: p.UID},
 			Type: v1.EventTypeNormal, Reason: reason, Message: msg, LastTimestamp: metav1.NewTime(time.Now().Add(-ago))}
 	}
 

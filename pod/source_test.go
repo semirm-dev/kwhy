@@ -44,9 +44,9 @@ func TestOwner(t *testing.T) {
 		return []metav1.OwnerReference{{Kind: kind, Name: name, Controller: new(true)}}
 	}
 
-	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "api-7d9f", Namespace: "ml", OwnerReferences: controller("Deployment", "api")}}
-	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "backup-29", Namespace: "ml", OwnerReferences: controller("CronJob", "backup")}}
-	plainJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "migrate", Namespace: "ml"}}
+	rs := &appsv1.ReplicaSet{Name: "api-7d9f", Namespace: "ml", OwnerReferences: controller("Deployment", "api")}
+	job := &batchv1.Job{Name: "backup-29", Namespace: "ml", OwnerReferences: controller("CronJob", "backup")}
+	plainJob := &batchv1.Job{Name: "migrate", Namespace: "ml"}
 	c := fake.NewClientset(rs, job, plainJob)
 
 	fromRS := newPod("api-7d9f-x", "", "1", "1Gi")
@@ -76,7 +76,7 @@ func TestOwner(t *testing.T) {
 	}
 
 	// A template pod from Target names its workload.
-	d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "idle", Namespace: "ml"},
+	d := &appsv1.Deployment{Name: "idle", Namespace: "ml",
 		Spec: appsv1.DeploymentSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "idle"}}}}
 	c = fake.NewClientset(d)
 	p, err := pod.Target(t.Context(), c, "ml", "deploy/idle")

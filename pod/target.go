@@ -145,9 +145,9 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 // template is a new pod built from the template of the workload owner/name.
 func template(ns, name, owner string, tmpl v1.PodTemplateSpec) *v1.Pod {
 	return &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: templateUID, Labels: tmpl.Labels,
-			OwnerReferences: []metav1.OwnerReference{{Kind: owner, Name: name, Controller: new(true)}}},
-		Spec: tmpl.Spec,
+		Name: name, Namespace: ns, UID: templateUID, Labels: tmpl.Labels,
+		OwnerReferences: []metav1.OwnerReference{{Kind: owner, Name: name, Controller: new(true)}},
+		Spec:            tmpl.Spec,
 	}
 }
 

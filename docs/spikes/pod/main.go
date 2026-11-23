@@ -10,7 +10,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
@@ -25,12 +24,12 @@ import (
 
 func node(name string, cpu, mem string, labels map[string]string, taints ...v1.Taint) *v1.Node {
 	rl := v1.ResourceList{v1.ResourceCPU: resource.MustParse(cpu), v1.ResourceMemory: resource.MustParse(mem), v1.ResourcePods: resource.MustParse("110")}
-	return &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}, Spec: v1.NodeSpec{Taints: taints},
+	return &v1.Node{Name: name, Labels: labels, Spec: v1.NodeSpec{Taints: taints},
 		Status: v1.NodeStatus{Capacity: rl, Allocatable: rl, Conditions: []v1.NodeCondition{{Type: v1.NodeReady, Status: v1.ConditionTrue}}}}
 }
 
 func pod(name, nodeName, cpu, mem string) *v1.Pod {
-	return &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ml", UID: types.UID("uid-" + name)}, Spec: v1.PodSpec{NodeName: nodeName,
+	return &v1.Pod{Name: name, Namespace: "ml", UID: types.UID("uid-" + name), Spec: v1.PodSpec{NodeName: nodeName,
 		Containers: []v1.Container{{Name: "c", Resources: v1.ResourceRequirements{Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse(cpu), v1.ResourceMemory: resource.MustParse(mem)}}}}}}
 }
 

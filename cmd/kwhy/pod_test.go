@@ -19,8 +19,8 @@ import (
 func TestPodSources(t *testing.T) {
 	mem := corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi"), corev1.ResourceCPU: resource.MustParse("4"),
 		corev1.ResourcePods: resource.MustParse("110")}
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Status: corev1.NodeStatus{Capacity: mem, Allocatable: mem}}
-	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "rel-api", Namespace: "default"}, Spec: appsv1.DeploymentSpec{
+	node := &corev1.Node{Name: "n1", Status: corev1.NodeStatus{Capacity: mem, Allocatable: mem}}
+	deploy := &appsv1.Deployment{Name: "rel-api", Namespace: "default", Spec: appsv1.DeploymentSpec{
 		Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
 		Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
 			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "api", Resources: corev1.ResourceRequirements{
@@ -82,11 +82,11 @@ func TestPodSources(t *testing.T) {
 
 // An OOM kill names the limit, even when the container also sets a request.
 func TestPodSourcesProblem(t *testing.T) {
-	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "rel-api", Namespace: "default"}}
+	deploy := &appsv1.Deployment{Name: "rel-api", Namespace: "default"}
 	c := fake.NewClientset(deploy)
 
-	p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "rel-api-1", Namespace: "default",
-		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "rel-api", Controller: new(true)}}}}
+	p := &corev1.Pod{Name: "rel-api-1", Namespace: "default",
+		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "rel-api", Controller: new(true)}}}
 	r := pod.Result{Problems: []pod.Problem{{Container: "api", Kind: pod.OOM}}}
 
 	src := podChart{chart: mini, release: "rel", values: values.Options{ValueFiles: []string{prod}, Values: []string{"resources.limits.memory=4Gi"}}}
@@ -104,9 +104,9 @@ func TestPodSourcesProblem(t *testing.T) {
 
 // Through a Kustomize overlay: the memory request a failing check reads is set by the prod overlay's patch.
 func TestPodKustomizeSources(t *testing.T) {
-	c := fake.NewClientset(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "prod-api", Namespace: "prod"}})
-	p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "prod-api-1", Namespace: "prod",
-		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "prod-api", Controller: new(true)}}}}
+	c := fake.NewClientset(&appsv1.Deployment{Name: "prod-api", Namespace: "prod"})
+	p := &corev1.Pod{Name: "prod-api-1", Namespace: "prod",
+		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "prod-api", Controller: new(true)}}}
 	r := pod.Result{Nodes: []pod.Node{{Name: "n1", Failed: []pod.Check{{Plugin: "NodeResourcesFit", Reasons: []string{"Insufficient memory"}}}}}}
 
 	t.Chdir("../../testdata/kustomize/fixture")

@@ -52,7 +52,7 @@ func LoadConfig(path string) ([]Target, error) {
 		if (t.Chart == "") == (t.Manifests == "") {
 			return nil, fmt.Errorf("read config %s: target %d: give exactly one of chart or manifests", path, i+1)
 		}
-		tg := Target{Source: Source{Chart: t.Chart, Manifests: t.Manifests}, Release: or(t.Release, "rel"), Namespace: or(t.Namespace, "default")}
+		tg := Target{Chart: t.Chart, Manifests: t.Manifests, Release: or(t.Release, "rel"), Namespace: or(t.Namespace, "default")}
 		tg.Values.ValueFiles, tg.Values.Values, tg.Values.StringValues, tg.Values.JSONValues = t.Values, t.Set, t.SetString, t.SetJSON
 		ts = append(ts, tg)
 	}

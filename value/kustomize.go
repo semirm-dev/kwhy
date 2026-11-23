@@ -314,7 +314,7 @@ func (o *Overlay) FieldPath(d KDoc, expr string) (string, error) {
 		return "", err
 	}
 
-	var p string
+	var p strings.Builder
 	var cur any = d.Object
 	for _, s := range kparsePath(canon) {
 		switch t := s.(type) {
@@ -322,24 +322,31 @@ func (o *Overlay) FieldPath(d KDoc, expr string) (string, error) {
 			m, _ := cur.(map[string]any)
 			cur = m[t]
 			if strings.ContainsAny(t, `.[]"`) || t == "" {
-				p += "[" + strconv.Quote(t) + "]"
+				p.WriteByte('[')
+				p.WriteString(strconv.Quote(t))
+				p.WriteByte(']')
 			} else {
-				p += "." + t
+				p.WriteByte('.')
+				p.WriteString(t)
 			}
 		case int:
 			l, _ := cur.([]any)
 			cur = l[t]
 			if m, ok := cur.(map[string]any); ok {
 				if n, ok := m["name"].(string); ok && !strings.ContainsAny(n, "[]") {
-					p += "[name=" + n + "]"
+					p.WriteString("[name=")
+					p.WriteString(n)
+					p.WriteByte(']')
 					continue
 				}
 			}
-			p += "[" + strconv.Itoa(t) + "]"
+			p.WriteByte('[')
+			p.WriteString(strconv.Itoa(t))
+			p.WriteByte(']')
 		}
 	}
 
-	return p, nil
+	return p.String(), nil
 }
 
 // ExplainOverlay answers where field f was set: the innermost entry that moves it (rule 4), else the document's
@@ -934,7 +941,8 @@ func pointer(fpath string, obj any) string {
 				cur = l[st]
 			}
 		}
-		b.WriteString("/" + strings.ReplaceAll(strings.ReplaceAll(k, "~", "~0"), "/", "~1"))
+		b.WriteByte('/')
+		b.WriteString(strings.ReplaceAll(strings.ReplaceAll(k, "~", "~0"), "/", "~1"))
 	}
 
 	return b.String()

@@ -77,7 +77,7 @@ func (k Cache) Explain(ctx context.Context, idx *Index, c *render.Chart, v *Valu
 		return Explain(ctx, idx, c, v, o, f)
 	}
 
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s", f.Doc, f.Path)))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d\x00%s", f.Doc, f.Path))
 	path := filepath.Join(k.dir, k.key+"-"+hex.EncodeToString(sum[:8])+".gob")
 
 	var a Answer

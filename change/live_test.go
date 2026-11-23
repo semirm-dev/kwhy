@@ -34,8 +34,8 @@ func TestLive(t *testing.T) {
 		pvc("fixed", "standard", corev1.ClaimBound),
 		pvc("grows", "expandable", corev1.ClaimBound),
 		pvc("pending", "standard", corev1.ClaimPending),
-		&storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "standard"}},
-		&storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "expandable"}, AllowVolumeExpansion: new(true)},
+		&storagev1.StorageClass{Name: "standard"},
+		&storagev1.StorageClass{Name: "expandable", AllowVolumeExpansion: new(true)},
 	)
 
 	const (
@@ -93,7 +93,7 @@ spec:
   template: {spec: {containers: [{name: c, image: app:%s, resources: {requests: {cpu: 500m}}}]}}
 `
 	quota := func(used string) *corev1.ResourceQuota {
-		return &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: "compute", Namespace: "default"},
+		return &corev1.ResourceQuota{Name: "compute", Namespace: "default",
 			Status: corev1.ResourceQuotaStatus{
 				Hard: corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse("2")},
 				Used: corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse(used)}}}
@@ -121,7 +121,7 @@ spec:
 func TestDrift(t *testing.T) {
 	const deploy = "kind: Deployment\nmetadata: {name: %s}\nspec: {replicas: 2, template: {spec: {containers: [{name: c, image: %s}]}}}\n"
 	live := func(name, image string) *appsv1.Deployment {
-		return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}, Spec: appsv1.DeploymentSpec{
+		return &appsv1.Deployment{Name: name, Namespace: "default", Spec: appsv1.DeploymentSpec{
 			Replicas: new(int32(3)), Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: image}}}}}}
 	}
 	c := fake.NewClientset(live("api", "app:1-hotfix"), live("web", "web:2"), live("same", "s:1"))

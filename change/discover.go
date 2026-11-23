@@ -104,7 +104,7 @@ func Discover(tree, dir, remote, tmp string) (ts []Target, warnings []string, er
 				warnings = append(warnings, fmt.Sprintf("%s: GitRepository %s is %s, not this repo: skipped", id, ref, url))
 				continue
 			}
-			ts = append(ts, Target{Source: Source{Manifests: filepath.Clean(or(str(o, "spec", "path"), "."))}, Release: name,
+			ts = append(ts, Target{Manifests: filepath.Clean(or(str(o, "spec", "path"), ".")), Release: name,
 				Namespace: or(str(o, "spec", "targetNamespace"), "default")})
 
 		case o["kind"] == "HelmRelease" && strings.HasPrefix(apiVersion, "helm.toolkit.fluxcd.io/"):
@@ -129,7 +129,7 @@ func Discover(tree, dir, remote, tmp string) (ts []Target, warnings []string, er
 					release = targetNS + "-" + name
 				}
 			}
-			t := Target{Source: Source{Chart: path}, Release: release, Namespace: or(targetNS, or(str(o, "metadata", "namespace"), "default"))}
+			t := Target{Chart: path, Release: release, Namespace: or(targetNS, or(str(o, "metadata", "namespace"), "default"))}
 			for _, f := range list(get(spec, "valuesFiles")) {
 				t.Values.ValueFiles = append(t.Values.ValueFiles, filepath.Clean(fmt.Sprint(f)))
 			}

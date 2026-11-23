@@ -26,7 +26,7 @@ func TestTarget(t *testing.T) {
 		return p
 	}
 	deploy := func(name string) *appsv1.Deployment {
-		return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}, Spec: appsv1.DeploymentSpec{
+		return &appsv1.Deployment{Name: name, Namespace: "default", Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
 			Template: v1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}},
 				Spec: v1.PodSpec{Containers: []v1.Container{{Name: "c"}}}}}}
@@ -64,24 +64,24 @@ func TestTarget(t *testing.T) {
 
 func TestTargetCronJobAndReplicaSet(t *testing.T) {
 	tmpl := func(app string) v1.PodTemplateSpec {
-		return v1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": app}},
+		return v1.PodTemplateSpec{Labels: map[string]string{"app": app},
 			Spec: v1.PodSpec{Containers: []v1.Container{{Name: "c"}}}}
 	}
 	cj := func(name string) *batchv1.CronJob {
-		return &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID(name)},
+		return &batchv1.CronJob{Name: name, Namespace: "default", UID: types.UID(name),
 			Spec: batchv1.CronJobSpec{JobTemplate: batchv1.JobTemplateSpec{Spec: batchv1.JobSpec{Template: tmpl(name)}}}}
 	}
 	job := func(name, owner string, age time.Duration) *batchv1.Job {
-		return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", CreationTimestamp: metav1.NewTime(time.Now().Add(-age)),
-			OwnerReferences: []metav1.OwnerReference{{Kind: "CronJob", Name: owner, UID: types.UID(owner), Controller: new(true)}}},
-			Spec: batchv1.JobSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"job-name": name}}, Template: tmpl(owner)}}
+		return &batchv1.Job{Name: name, Namespace: "default", CreationTimestamp: metav1.NewTime(time.Now().Add(-age)),
+			OwnerReferences: []metav1.OwnerReference{{Kind: "CronJob", Name: owner, UID: types.UID(owner), Controller: new(true)}},
+			Spec:            batchv1.JobSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"job-name": name}}, Template: tmpl(owner)}}
 	}
 	pending := func(name, jobName string) *v1.Pod {
 		p := newPod(name, "", "1", "1Gi")
 		p.Namespace, p.Labels = "default", map[string]string{"job-name": jobName}
 		return p
 	}
-	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "web-1", Namespace: "default"}, Spec: appsv1.ReplicaSetSpec{
+	rs := &appsv1.ReplicaSet{Name: "web-1", Namespace: "default", Spec: appsv1.ReplicaSetSpec{
 		Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}, Template: tmpl("web")}}
 
 	c := fake.NewClientset(cj("backup"), cj("report"), rs,
@@ -129,7 +129,7 @@ func TestWarnings(t *testing.T) {
 }
 
 func TestTargetWorstPod(t *testing.T) {
-	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"}, Spec: appsv1.DeploymentSpec{
+	deploy := &appsv1.Deployment{Name: "web", Namespace: "default", Spec: appsv1.DeploymentSpec{
 		Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}}}
 	onNode := func(name string, isReady bool, restarts int32) *v1.Pod {
 		p := newPod(name, "n1", "1", "1Gi")

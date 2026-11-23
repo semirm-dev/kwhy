@@ -277,7 +277,7 @@ func loadStack(mem filesys.FileSystem, dir string) []*kfile {
 	return out
 }
 
-func findEntries(mem filesys.FileSystem, kf *kfile) []*entry {
+func findEntries(_ filesys.FileSystem, kf *kfile) []*entry {
 	var out []*entry
 	m := kf.doc.Content[0]
 	dir := path.Dir(kf.path)
@@ -420,14 +420,9 @@ func flatten(n any, p string, fn func(string, any)) {
 	}
 }
 
-// findLine finds the line of a field path in a YAML file holding one or more documents. List items
-// are matched by their `name` (as strategic merge patches do) when the rendered item has one, else
+// findLineKind finds the line of a field path in a YAML file holding one or more documents of one kind ("" for
+// any). List items are matched by their `name` (as strategic merge patches do) when the rendered item has one, else
 // by index. Documents are tried in turn; the first that has the path wins.
-func findLine(mem filesys.FileSystem, file, fpath string, rendered map[string]any) int {
-	return findLineKind(mem, file, fpath, rendered, "")
-}
-
-// findLineKind is findLine limited to documents of one kind ("" for any), for patch files.
 func findLineKind(mem filesys.FileSystem, file, fpath string, rendered map[string]any, kind string) int {
 	steps := parsePath(fpath)
 	for _, d := range parsed(mem, file) {
@@ -666,13 +661,14 @@ func pointer(fpath string, obj any) string {
 				cur = l[st]
 			}
 		}
-		b.WriteString("/" + strings.ReplaceAll(strings.ReplaceAll(k, "~", "~0"), "/", "~1"))
+		b.WriteByte('/')
+		b.WriteString(strings.ReplaceAll(strings.ReplaceAll(k, "~", "~0"), "/", "~1"))
 	}
 	return b.String()
 }
 
 // lineMatches reports whether the line shows the value, or shows a part of it (a namePrefix, an image tag).
-func lineMatches(mem filesys.FileSystem, file string, line int, v any) bool {
+func lineMatches(_ filesys.FileSystem, file string, line int, v any) bool {
 	data, ok := orig[file]
 	if !ok {
 		return false

@@ -22,7 +22,6 @@ import (
 	"helm.sh/helm/v4/pkg/cli"
 	"helm.sh/helm/v4/pkg/cli/values"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
@@ -573,7 +572,7 @@ func podCmd() *cobra.Command {
 				if len(ctrl) == 0 {
 					return pod.WriteHealthy(cmd.OutOrStdout(), output, namespace, args[0], healthy)
 				}
-				w := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: args[0], Namespace: namespace}}
+				w := &corev1.Pod{Name: args[0], Namespace: namespace}
 				return podWriters[output](cmd.OutOrStdout(), w, pod.Result{Problems: ctrl})
 			}
 
@@ -783,7 +782,7 @@ type wanted struct {
 func podWanted(r pod.Result, kind string, obj map[string]any) []wanted {
 	prefix := templatePrefix(kind)
 	spec := obj
-	for _, k := range strings.Split(strings.TrimPrefix(prefix+".spec", "."), ".") {
+	for k := range strings.SplitSeq(strings.TrimPrefix(prefix+".spec", "."), ".") {
 		spec, _ = spec[k].(map[string]any)
 	}
 

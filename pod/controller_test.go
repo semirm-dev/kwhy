@@ -17,28 +17,28 @@ import (
 
 func TestController(t *testing.T) {
 	sel := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}
-	d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "ml", UID: "d1"}, Spec: appsv1.DeploymentSpec{Selector: sel},
+	d := &appsv1.Deployment{Name: "web", Namespace: "ml", UID: "d1", Spec: appsv1.DeploymentSpec{Selector: sel},
 		Status: appsv1.DeploymentStatus{Conditions: []appsv1.DeploymentCondition{{Type: appsv1.DeploymentProgressing, Status: v1.ConditionFalse,
 			Reason: "ProgressDeadlineExceeded", Message: `ReplicaSet "web-2" has timed out progressing.`}}}}
-	rsFailed := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "web-2", Namespace: "ml", Labels: sel.MatchLabels,
-		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "web", UID: "d1", Controller: new(true)}}},
+	rsFailed := &appsv1.ReplicaSet{Name: "web-2", Namespace: "ml", Labels: sel.MatchLabels,
+		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "web", UID: "d1", Controller: new(true)}},
 		Status: appsv1.ReplicaSetStatus{Conditions: []appsv1.ReplicaSetCondition{{Type: appsv1.ReplicaSetReplicaFailure, Status: v1.ConditionTrue,
 			Reason: "FailedCreate", Message: `pods "web-2-x" is forbidden: exceeded quota: compute, requested: cpu=2, limited: cpu=1`}}}}
-	rsEvents := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "web-3", Namespace: "ml", UID: "rs3", Labels: sel.MatchLabels,
-		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "web", UID: "d1", Controller: new(true)}}}}
-	other := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "ml", Labels: sel.MatchLabels},
+	rsEvents := &appsv1.ReplicaSet{Name: "web-3", Namespace: "ml", UID: "rs3", Labels: sel.MatchLabels,
+		OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "web", UID: "d1", Controller: new(true)}}}
+	other := &appsv1.ReplicaSet{Name: "other", Namespace: "ml", Labels: sel.MatchLabels,
 		Status: appsv1.ReplicaSetStatus{Conditions: []appsv1.ReplicaSetCondition{{Type: appsv1.ReplicaSetReplicaFailure, Status: v1.ConditionTrue}}}}
 	ev := func(uid, msg string) *v1.Event {
-		return &v1.Event{ObjectMeta: metav1.ObjectMeta{Name: uid + ".ev", Namespace: "ml"}, InvolvedObject: v1.ObjectReference{UID: types.UID(uid)},
+		return &v1.Event{Name: uid + ".ev", Namespace: "ml", InvolvedObject: v1.ObjectReference{UID: types.UID(uid)},
 			Type: v1.EventTypeWarning, Reason: "FailedCreate", Message: msg}
 	}
-	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "migrate", Namespace: "ml", UID: "j1"},
+	job := &batchv1.Job{Name: "migrate", Namespace: "ml", UID: "j1",
 		Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: v1.ConditionTrue,
 			Reason: "BackoffLimitExceeded", Message: "Job has reached the specified backoff limit"}}}}
-	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "ml", UID: "s1"}}
-	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: "ml", UID: "cj1"}}
-	cjJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "nightly-1", Namespace: "ml", UID: "j2",
-		OwnerReferences: []metav1.OwnerReference{{Kind: "CronJob", Name: "nightly", UID: "cj1", Controller: new(true)}}},
+	sts := &appsv1.StatefulSet{Name: "db", Namespace: "ml", UID: "s1"}
+	cj := &batchv1.CronJob{Name: "nightly", Namespace: "ml", UID: "cj1"}
+	cjJob := &batchv1.Job{Name: "nightly-1", Namespace: "ml", UID: "j2",
+		OwnerReferences: []metav1.OwnerReference{{Kind: "CronJob", Name: "nightly", UID: "cj1", Controller: new(true)}},
 		Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: v1.ConditionTrue,
 			Reason: "DeadlineExceeded", Message: "Job was active longer than specified deadline"}}}}
 
@@ -77,7 +77,7 @@ func TestController(t *testing.T) {
 }
 
 func TestWriteController(t *testing.T) {
-	w := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "deploy/web", Namespace: "ml"}}
+	w := &v1.Pod{Name: "deploy/web", Namespace: "ml"}
 	r := pod.Result{Problems: []pod.Problem{{Kind: pod.Create, Reason: "FailedCreate", Detail: "replicaset web-2: exceeded quota"}}}
 
 	var b bytes.Buffer

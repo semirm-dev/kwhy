@@ -16,7 +16,8 @@ import (
 // a node.
 func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 	var b strings.Builder
-	b.WriteString(heading(p, r) + "\n")
+	b.WriteString(heading(p, r))
+	b.WriteByte('\n')
 
 	if rows := problemRows(p, r); len(rows) > 0 {
 		b.WriteByte('\n')
@@ -47,7 +48,9 @@ func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 	}
 
 	if len(r.Preempt) > 0 {
-		b.WriteString("\n" + preempt(r) + "\n")
+		b.WriteString("\n")
+		b.WriteString(preempt(r))
+		b.WriteByte('\n')
 	}
 
 	if len(r.Sources) > 0 {
@@ -66,7 +69,9 @@ func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
 // WriteMarkdown writes the matrix or the problems as Markdown tables.
 func WriteMarkdown(w io.Writer, p *v1.Pod, r Result) error {
 	var b strings.Builder
-	b.WriteString("**" + heading(p, r) + "**\n")
+	b.WriteString("**")
+	b.WriteString(heading(p, r))
+	b.WriteString("**\n")
 
 	if rows := problemRows(p, r); len(rows) > 0 {
 		b.WriteString("\n| Container | Problem | Detail |\n|---|---|---|\n")
@@ -90,7 +95,9 @@ func WriteMarkdown(w io.Writer, p *v1.Pod, r Result) error {
 	}
 
 	if len(r.Preempt) > 0 {
-		b.WriteString("\n" + preempt(r) + "\n")
+		b.WriteString("\n")
+		b.WriteString(preempt(r))
+		b.WriteByte('\n')
 	}
 
 	if len(r.Sources) > 0 {
@@ -224,14 +231,18 @@ func writeEvidence(b *strings.Builder, ps []Problem) {
 		}
 	}
 	if len(events) > 0 {
-		b.WriteString("\nEvents:\n" + strings.Join(events, "\n") + "\n")
+		b.WriteString("\nEvents:\n")
+		b.WriteString(strings.Join(events, "\n"))
+		b.WriteByte('\n')
 	}
 
 	for _, pr := range ps {
 		if len(pr.Logs) > 0 {
 			fmt.Fprintf(b, "\nLogs (%s, last run):\n", pr.Container)
 			for _, l := range pr.Logs {
-				b.WriteString("  " + l + "\n")
+				b.WriteString("  ")
+				b.WriteString(l)
+				b.WriteByte('\n')
 			}
 		}
 	}

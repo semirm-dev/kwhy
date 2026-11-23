@@ -24,12 +24,12 @@ var gpuTaint = v1.Taint{Key: "nvidia.com/gpu", Effect: v1.TaintEffectNoSchedule}
 func node(name, cpu, mem string, labels map[string]string, taints ...v1.Taint) *v1.Node {
 	rl := v1.ResourceList{v1.ResourceCPU: resource.MustParse(cpu), v1.ResourceMemory: resource.MustParse(mem), v1.ResourcePods: resource.MustParse("110")}
 
-	return &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}, Spec: v1.NodeSpec{Taints: taints},
+	return &v1.Node{Name: name, Labels: labels, Spec: v1.NodeSpec{Taints: taints},
 		Status: v1.NodeStatus{Capacity: rl, Allocatable: rl, Conditions: []v1.NodeCondition{{Type: v1.NodeReady, Status: v1.ConditionTrue}}}}
 }
 
 func newPod(name, nodeName, cpu, mem string) *v1.Pod {
-	return &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ml", UID: types.UID("uid-" + name)}, Spec: v1.PodSpec{NodeName: nodeName,
+	return &v1.Pod{Name: name, Namespace: "ml", UID: types.UID("uid-" + name), Spec: v1.PodSpec{NodeName: nodeName,
 		Containers: []v1.Container{{Name: "c", Resources: v1.ResourceRequirements{Requests: v1.ResourceList{
 			v1.ResourceCPU: resource.MustParse(cpu), v1.ResourceMemory: resource.MustParse(mem)}}}}}}
 }
@@ -120,8 +120,8 @@ func TestEvaluateFits(t *testing.T) {
 // A PreFilter rejection belongs to its own plugin only: a missing claim fails VolumeBinding, not TaintToleration.
 func TestEvaluatePreFilterOwnPlugin(t *testing.T) {
 	p := newPod("db", "", "1", "1Gi")
-	p.Spec.Volumes = []v1.Volume{{Name: "data", VolumeSource: v1.VolumeSource{
-		PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: "missing"}}}}
+	p.Spec.Volumes = []v1.Volume{{Name: "data",
+		PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: "missing"}}}
 
 	nodes := evaluate(t, p, node("n1", "4", "8Gi", nil))
 
@@ -142,11 +142,11 @@ func TestEvaluateDRA(t *testing.T) {
 	n1 := "n1"
 	objs := []runtime.Object{
 		node("n1", "4", "8Gi", nil), node("n2", "4", "8Gi", nil),
-		&resourcev1.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: "gpu"}},
-		&resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "n1-gpu"}, Spec: resourcev1.ResourceSliceSpec{
+		&resourcev1.DeviceClass{Name: "gpu"},
+		&resourcev1.ResourceSlice{Name: "n1-gpu", Spec: resourcev1.ResourceSliceSpec{
 			Driver: "gpu.example.com", NodeName: &n1, Pool: resourcev1.ResourcePool{Name: "n1", ResourceSliceCount: 1},
 			Devices: []resourcev1.Device{{Name: "gpu-0"}}}},
-		&resourcev1.ResourceClaim{ObjectMeta: metav1.ObjectMeta{Name: "train-gpu", Namespace: "ml"}, Spec: resourcev1.ResourceClaimSpec{
+		&resourcev1.ResourceClaim{Name: "train-gpu", Namespace: "ml", Spec: resourcev1.ResourceClaimSpec{
 			Devices: resourcev1.DeviceClaim{Requests: []resourcev1.DeviceRequest{{Name: "gpu", Exactly: &resourcev1.ExactDeviceRequest{DeviceClassName: "gpu", AllocationMode: resourcev1.DeviceAllocationModeExactCount, Count: 1}}}}}},
 	}
 
@@ -201,7 +201,7 @@ func TestEvaluatePreempt(t *testing.T) {
 // and picks at random between nodes that tie.
 func TestEvaluatePreemptPDB(t *testing.T) {
 	guarded := map[string]string{"app": "guarded"}
-	pdb := &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: "guard", Namespace: "ml"},
+	pdb := &policyv1.PodDisruptionBudget{Name: "guard", Namespace: "ml",
 		Spec: policyv1.PodDisruptionBudgetSpec{Selector: &metav1.LabelSelector{MatchLabels: guarded}}}
 	low := func(name, nodeName string, labels map[string]string) *v1.Pod {
 		p := newPod(name, nodeName, "3", "1Gi")
