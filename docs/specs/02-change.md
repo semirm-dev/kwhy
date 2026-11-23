@@ -71,7 +71,7 @@ Merging this PR will:
 
 ## Rules
 
-**Validated on kind (8/8 matched, `docs/spikes/change`):**
+**Validated on kind (8/8 matched, `docs/spikes/change` at e3dc1f7):**
 
 | Change | Verdict | Observed |
 |---|---|---|

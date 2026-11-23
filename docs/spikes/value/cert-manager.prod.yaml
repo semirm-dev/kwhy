@@ -1,5 +1,0 @@
-crds: {enabled: true}
-replicaCount: 2
-resources: {requests: {cpu: 50m, memory: 128Mi}}
-webhook: {replicaCount: 2}
-nodeSelector: {pool: system}

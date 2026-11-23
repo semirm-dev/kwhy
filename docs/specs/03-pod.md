@@ -98,7 +98,7 @@ evictions (`pod/kind_preempt_test.go`: it avoids the node whose victim a PodDisr
 the scheduler's own scheme and defaults) instead of the default one. What's still missing:
 `docs/plans/backlog.md`.
 
-## Design (validated in `docs/spikes/pod`)
+## Design (validated in a spike, `docs/spikes/pod` at e3dc1f7)
 
 - Import `k8s.io/kubernetes/pkg/scheduler/...` at a pinned version (spike: v1.37.2, 31 `replace`
   directives generated from upstream `go.mod` by a script in the repo).

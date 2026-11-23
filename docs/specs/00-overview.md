@@ -22,7 +22,7 @@ exists) and the base the other two build on.
 
 ## Validation summary (spikes, 2026-11-18)
 
-Spike code and inputs are in `docs/spikes/`.
+Spike code and inputs were in `docs/spikes/`, removed after e3dc1f7 (`git show e3dc1f7:docs/spikes/...`).
 
 | Feature | Question tested | Result | Verdict |
 |---|---|---|---|
@@ -49,7 +49,7 @@ render/                Helm rendering to documents with Source info (shared by v
 value/                 tracing (markers, perturbation), merge replay
 change/                git worktree checkouts, base/head diff, impact rules, report
 pod/                   cluster snapshot, per-filter scheduler runs
-docs/specs, docs/spikes
+docs/specs
 ```
 
 `pod/` is the only package importing `k8s.io/kubernetes`. If its `replace` directives become a burden,

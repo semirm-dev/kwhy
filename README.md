@@ -389,7 +389,7 @@ value/       values leaves, override chains, tracing, cache; Kustomize leave-one
 change/      base/head render, targets (.kwhy.yaml, Argo CD, Flux), impact rules, live refinement, report
 pod/         cluster snapshot, every filter per node, pod and controller diagnosis, report;
              the only package importing k8s.io/kubernetes
-docs/        specs, plans/backlog.md (what's next), spikes
+docs/        specs, plans/backlog.md (what's next)
 ```
 
 Design: [overview](docs/specs/00-overview.md) · [value](docs/specs/01-value.md) ·

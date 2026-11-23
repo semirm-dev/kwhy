@@ -1,6 +1,0 @@
-replicaCount: 3
-image: {tag: 6.7.0}
-ui: {message: "hello prod", color: "#2346b8"}
-resources: {requests: {cpu: 250m, memory: 128Mi}, limits: {memory: 512Mi}}
-nodeSelector: {pool: web}
-podAnnotations: {team: payments}

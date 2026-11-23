@@ -62,7 +62,7 @@ Every answer has one of these **kinds**, shown to the user and in JSON:
 | `structural` | a leaf decides whether the field exists at all (bools, enums) | `ingress.enabled` |
 | `random` | differs between two identical renders | `randAlphaNum` passwords |
 
-## Algorithm (validated in `docs/spikes/value`)
+## Algorithm (validated in a spike, `docs/spikes/value` at e3dc1f7)
 
 1. **Load and merge** chart defaults (including subchart defaults under their key), each `-f` file and
    `--set`, with Helm's own merge semantics (maps merge, lists replace, `null` deletes), keeping
@@ -102,7 +102,7 @@ Spike results, 40 sampled leaves per chart checked against perturbation ground t
 The spike rendered via the `helm` CLI (2–28s per chart, dominated by process start). In-process (measured in
 v0.1, 8 cores): 0.02–1.7s for most charts, argo-cd 3.8s, kube-prometheus-stack 21s; cached repeats ~0.2s.
 
-## Kustomize, validated in `docs/spikes/kustomize`
+## Kustomize, validated in a spike (`docs/spikes/kustomize` at e3dc1f7)
 
 **Built 2026-11-20 (v0.9), experimental, redesigned**: the spike's rules 1–5,
 no override chains, and a line guard (a line is named only when it shows the value; else the entry). Public

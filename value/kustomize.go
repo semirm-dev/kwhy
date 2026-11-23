@@ -23,8 +23,8 @@ import (
 	"github.com/semirm-dev/kwhy/render"
 )
 
-// Kustomize attribution, ported from docs/spikes/kustomize (rules 1–5 of its README). Override chains (rule 6) are
-// left out on purpose: they named wrong lines in the first attempt.
+// Kustomize attribution, ported from the spike (docs/spikes/kustomize at e3dc1f7, rules 1–5 of its README). Override
+// chains (rule 6) are left out on purpose: they named wrong lines in the first attempt.
 
 // Overlay is a Kustomize overlay, copied into memory with its whole local stack, attributed field by field.
 type Overlay struct {
