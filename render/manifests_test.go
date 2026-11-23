@@ -133,15 +133,16 @@ func TestKustomizeStaysInRepo(t *testing.T) {
 	}
 }
 
-func TestReadManifestsSkipsSymlinks(t *testing.T) {
+// A symlink to another file in the repo is read like the file; change refuses links that leave the checkout.
+func TestReadManifestsFollowsSymlinks(t *testing.T) {
 	dir := t.TempDir()
-	write(t, dir, "outside/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: secret}\n")
-	write(t, dir, "repo/app/deploy.yaml", "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\n")
-	symlink(t, filepath.Join(dir, "outside/cm.yaml"), filepath.Join(dir, "repo/app/cm.yaml"))
+	write(t, dir, "shared/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: shared}\n")
+	write(t, dir, "app/deploy.yaml", "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\n")
+	symlink(t, filepath.Join(dir, "shared/cm.yaml"), filepath.Join(dir, "app/cm.yaml"))
 
-	docs, err := render.ReadManifests(filepath.Join(dir, "repo/app"), "default")
-	if err != nil || len(docs) != 1 || docs[0].Kind != "Deployment" {
-		t.Errorf("docs %+v, err %v; want only the Deployment", docs, err)
+	docs, err := render.ReadManifests(filepath.Join(dir, "app"), "default")
+	if err != nil || len(docs) != 2 {
+		t.Errorf("docs %+v, err %v; want the ConfigMap and the Deployment", docs, err)
 	}
 }
 

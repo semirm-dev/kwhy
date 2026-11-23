@@ -33,8 +33,8 @@ func ReadManifests(dir, namespace string) ([]Doc, error) {
 		case "kustomization.yaml", "kustomization.yml", "kustomization":
 			return fmt.Errorf("%s is a Kustomize overlay inside a plain manifests directory; point at the overlay itself", filepath.Dir(path))
 		}
-		if ext := filepath.Ext(path); ext != ".yaml" && ext != ".yml" || !d.Type().IsRegular() {
-			return nil // a symlink could read a file from outside the checkout
+		if ext := filepath.Ext(path); ext != ".yaml" && ext != ".yml" {
+			return nil
 		}
 
 		data, err := os.ReadFile(path)
