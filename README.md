@@ -374,8 +374,8 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 - `lookup` returns empty, as with `helm template` (offline).
 - Kustomize support is experimental: remote bases, `helmCharts:` and plugins aren't supported, and
   `value kustomize` names no override chain.
-- `change --apps` reads Argo CD and Flux definitions from the working tree, not from each ref, and skips apps from
-  other repos, Helm repositories and Flux `valuesFrom`. Without `--context`, DaemonSet pod counts are
+- `change --apps` reads Argo CD and Flux definitions at each ref (an app added in the change is all `create`), and
+  skips apps from other repos, Helm repositories and Flux `valuesFrom`. Without `--context`, DaemonSet pod counts are
   unknown ("one pod per node").
 - The first question about a chart traces it whole (~20s on kube-prometheus-stack); repeats with the same chart
   and values come from the cache (argo-cd: 9s → 0.2s).

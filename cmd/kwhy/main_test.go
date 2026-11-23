@@ -255,6 +255,14 @@ func TestRunChangeTargets(t *testing.T) {
 	write("infra/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: limits}\ndata: {max: '5'}\n")
 	git("add", ".")
 	git("commit", "-qm", "head")
+	// A second branch that also changes the app definitions: a parameter on api, and a new infra app.
+	git("checkout", "-qb", "apps-change")
+	write("apps/api.yaml", "apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata: {name: api}\n"+
+		"spec: {destination: {namespace: shop}, source: {repoURL: x, path: chart, helm: {valueFiles: [../prod.yaml], parameters: [{name: replicaCount, value: '4'}]}}}\n")
+	write("apps/infra.yaml", "apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata: {name: infra}\n"+
+		"spec: {destination: {namespace: infra}, source: {repoURL: x, path: infra}}\n")
+	git("add", ".")
+	git("commit", "-qm", "apps")
 	git("checkout", "-q", "main")
 	t.Chdir(repo)
 
@@ -271,6 +279,14 @@ func TestRunChangeTargets(t *testing.T) {
 	if code := run([]string{"change", "main..feature", "--apps", "apps"}, &out, &errb); code != 0 ||
 		!strings.Contains(out.String(), "Deployment shop/api-api  2 pods  image") {
 		t.Fatalf("--apps: code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+
+	// The working copy is on main: 4 pods and the infra app prove each ref's own definitions were read.
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"change", "main..apps-change", "--apps", "apps"}, &out, &errb); code != 0 ||
+		!strings.Contains(out.String(), "Deployment shop/api-api  4 pods  image") || !strings.Contains(out.String(), "create   ConfigMap infra/limits") {
+		t.Fatalf("--apps changed at head: code %d, stdout %q, stderr %q", code, out.String(), errb.String())
 	}
 
 	if code := run([]string{"change", "main..feature", "--apps", "apps", "-n", "x"}, io.Discard, io.Discard); code != 2 {

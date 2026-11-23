@@ -25,25 +25,54 @@ type Source struct {
 	Values           values.Options
 }
 
-// Render checks ref out into a temporary git worktree, renders src there and removes the worktree.
-func Render(ctx context.Context, ref string, src Source, o render.Options, helm *cli.EnvSettings) ([]render.Doc, error) {
-	root, err := git(ctx, "", "rev-parse", "--show-toplevel")
-	if err != nil {
-		return nil, err
+// checkout checks ref out into a temporary git worktree of the repo at root; done removes it.
+func checkout(ctx context.Context, ref string) (root, dir string, done func(), err error) {
+	if root, err = git(ctx, "", "rev-parse", "--show-toplevel"); err != nil {
+		return "", "", nil, err
 	}
 
 	tmp, err := os.MkdirTemp("", "kwhy-change-")
 	if err != nil {
-		return nil, fmt.Errorf("checkout %s: %w", ref, err)
+		return "", "", nil, fmt.Errorf("checkout %s: %w", ref, err)
 	}
-	defer os.RemoveAll(tmp)
 
-	dir := filepath.Join(tmp, "wt")
+	dir = filepath.Join(tmp, "wt")
 	if _, err := git(ctx, root, "worktree", "add", "--detach", "--quiet", dir, ref); err != nil {
+		os.RemoveAll(tmp)
+		return "", "", nil, err
+	}
+
+	return root, dir, func() {
+		// Background context: the worktree must go even after Ctrl-C.
+		git(context.Background(), root, "worktree", "remove", "--force", dir) //nolint:errcheck
+		os.RemoveAll(tmp)
+	}, nil
+}
+
+// DiscoverAt is Discover on the checkout of ref: the apps as ref defines them. An apps directory ref doesn't
+// have holds none.
+func DiscoverAt(ctx context.Context, ref, dir, remote, tmp string) ([]Target, []string, error) {
+	root, wt, done, err := checkout(ctx, ref)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer done()
+
+	d := inTree(root, wt, dir)
+	if _, err := os.Stat(d); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil
+	}
+
+	return Discover(wt, d, remote, tmp)
+}
+
+// Render checks ref out into a temporary git worktree, renders src there and removes the worktree.
+func Render(ctx context.Context, ref string, src Source, o render.Options, helm *cli.EnvSettings) ([]render.Doc, error) {
+	root, dir, done, err := checkout(ctx, ref)
+	if err != nil {
 		return nil, err
 	}
-	// Background context: the worktree must go even after Ctrl-C.
-	defer git(context.Background(), root, "worktree", "remove", "--force", dir) //nolint:errcheck
+	defer done()
 
 	// An app added or removed by the change has no path at one ref: nothing renders there.
 	path := inTree(root, dir, or(src.Manifests, src.Chart))

@@ -42,7 +42,8 @@ manifests directories with their values, release and namespace; `--apps DIR` bui
 destination namespace) and Flux `HelmRelease`s (`chart` from a `GitRepository`, `valuesFiles`, `values`,
 `releaseName`, `targetNamespace`). Other repos, Helm repositories, `$ref` value files, Flux `valuesFrom` and
 Kustomize are skipped with a warning. All targets' documents go through one diff. A path missing at a ref renders
-as nothing, so a new app is `create`.
+as nothing, so a new app is `create`. The app definitions are read at each ref (since 2026-11-23): a PR that changes an
+Application's parameters or adds an app renders the base with the base's definitions and the head with the head's.
 
 **v0.9 (built 2026-11-20, experimental):** Kustomize overlays in `--manifests` (built with Kustomize's library), Argo CD apps
 pointing at an overlay, and Flux `Kustomization` objects in `--apps`.

@@ -14,10 +14,11 @@ import (
 )
 
 // Discover finds Argo CD Applications and Flux HelmReleases in the YAML under dir and turns each into a target.
+// Their paths are relative to the repo checkout at tree.
 // remote is this repo's git remote URL: sources from another repo are skipped ("" accepts every repoURL). What
 // can't be rendered from this repo is skipped with a warning naming the object and why, never guessed. Inline
 // values are written to temp files under tmp, which the caller removes.
-func Discover(dir, remote, tmp string) (ts []Target, warnings []string, err error) {
+func Discover(tree, dir, remote, tmp string) (ts []Target, warnings []string, err error) {
 	var objs []obj
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -81,7 +82,7 @@ func Discover(dir, remote, tmp string) (ts []Target, warnings []string, err erro
 				if len(srcs) > 1 {
 					id += fmt.Sprintf(" source %d", i+1)
 				}
-				t, warn, err := argoTarget(s, name, str(o, "spec", "destination", "namespace"), remote, id, write)
+				t, warn, err := argoTarget(s, tree, name, str(o, "spec", "destination", "namespace"), remote, id, write)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -150,7 +151,7 @@ func Discover(dir, remote, tmp string) (ts []Target, warnings []string, err erro
 }
 
 // argoTarget turns one Argo CD source into a target, or a warning saying why it can't.
-func argoTarget(s any, name, ns, remote, id string, write func(string, any) (string, error)) (*Target, string, error) {
+func argoTarget(s any, tree, name, ns, remote, id string, write func(string, any) (string, error)) (*Target, string, error) {
 	if str(s, "chart") != "" {
 		return nil, fmt.Sprintf("%s: chart %s from a Helm repository, not this repo: skipped", id, str(s, "chart")), nil
 	}
@@ -169,7 +170,7 @@ func argoTarget(s any, name, ns, remote, id string, write func(string, any) (str
 
 	t := Target{Release: name, Namespace: or(ns, "default")}
 	switch {
-	case !isChart(path) && get(s, "helm") == nil: // plain YAML or a Kustomize overlay
+	case !isChart(filepath.Join(tree, path)) && get(s, "helm") == nil: // plain YAML or a Kustomize overlay
 		t.Manifests = path
 		return &t, "", nil
 	}

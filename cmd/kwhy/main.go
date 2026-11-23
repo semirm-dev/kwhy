@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -395,43 +396,59 @@ func changeCmd() *cobra.Command {
 
 			targets := []change.Target{{Source: src, Release: release, Namespace: namespace}}
 			var err error
-			switch {
-			case config != "":
+			if config != "" {
 				if targets, err = change.LoadConfig(config); err != nil {
 					return err
 				}
-			case apps != "":
+			}
+			// What to render at each ref; with --apps, each ref's own app definitions.
+			at := map[string][]change.Target{base: targets, head: targets}
+
+			if apps != "" {
 				tmp, err := os.MkdirTemp("", "kwhy-apps-")
 				if err != nil {
 					return err
 				}
 				defer os.RemoveAll(tmp)
 
-				var warnings []string
-				if targets, warnings, err = change.Discover(apps, change.Remote(ctx), tmp); err != nil {
-					return err
+				said := map[string]bool{}
+				for i, ref := range []string{base, head} {
+					// Each ref's inline values in their own directory: the file names repeat.
+					dir := filepath.Join(tmp, strconv.Itoa(i))
+					if err := os.Mkdir(dir, 0o700); err != nil {
+						return err
+					}
+					ts, warnings, err := change.DiscoverAt(ctx, ref, apps, change.Remote(ctx), dir)
+					if err != nil {
+						return err
+					}
+					for _, w := range warnings {
+						if !said[w] {
+							said[w] = true
+							fmt.Fprintln(cmd.ErrOrStderr(), "kwhy: warning:", w)
+						}
+					}
+					at[ref] = ts
 				}
-				for _, w := range warnings {
-					fmt.Fprintln(cmd.ErrOrStderr(), "kwhy: warning:", w)
-				}
-				if len(targets) == 0 {
+				if len(at[base])+len(at[head]) == 0 {
 					return fmt.Errorf("--apps %s: no Argo CD Application or Flux HelmRelease this repo can render", apps)
 				}
 			}
 
 			// One diff over every target's documents, so an object one app changes and another consumes is seen.
 			var b, h []render.Doc
-			for _, t := range targets {
-				o := render.Options{Release: t.Release, Namespace: t.Namespace, KubeVersion: kubeVersion}
-				bd, err := change.Render(ctx, base, t.Source, o, helm)
-				if err != nil {
-					return err
+			for _, side := range []struct {
+				ref  string
+				docs *[]render.Doc
+			}{{base, &b}, {head, &h}} {
+				for _, t := range at[side.ref] {
+					o := render.Options{Release: t.Release, Namespace: t.Namespace, KubeVersion: kubeVersion}
+					ds, err := change.Render(ctx, side.ref, t.Source, o, helm)
+					if err != nil {
+						return err
+					}
+					*side.docs = append(*side.docs, ds...)
 				}
-				hd, err := change.Render(ctx, head, t.Source, o, helm)
-				if err != nil {
-					return err
-				}
-				b, h = append(b, bd...), append(h, hd...)
 			}
 
 			is := change.Diff(b, h)

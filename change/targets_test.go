@@ -132,7 +132,7 @@ spec: {url: ssh://git@github.com/acme/platform}
 	})
 	t.Chdir(root)
 
-	ts, warns, err := change.Discover("apps", remote, t.TempDir())
+	ts, warns, err := change.Discover(".", "apps", remote, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
