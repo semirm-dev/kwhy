@@ -177,7 +177,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with: {fetch-depth: 0}   # kwhy needs both refs
-      - uses: semirm-dev/kwhy@v0.14.1
+      - uses: semirm-dev/kwhy@v0.14.2
         with:
           chart: charts/api
           values: values-prod.yaml
@@ -357,6 +357,9 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 
 - Kustomize: no remote bases or URLs (refused before anything is fetched), `helmCharts:` or plugins. `value kustomize` names no override chain, and a name built
   from `namePrefix` names only the `namePrefix` line, not the resource's own `name:` line.
+- `value kustomize --all` on an overlay with `replacements:` is very slow: it rebuilds the overlay to confirm every
+  line it names (one 5,000-field CRD in cluster-api takes about 4 minutes instead of under a second). A single field,
+  or `--all` on an overlay without `replacements:`, is unaffected.
 - `lookup` returns empty, as with `helm template`.
 - `change --apps` skips apps from other repos, Helm repositories and Flux `valuesFrom`. Offline, DaemonSet pod
   counts are unknown.

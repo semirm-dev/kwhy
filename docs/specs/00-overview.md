@@ -75,6 +75,7 @@ it moves to its own Go module without changing the CLI.
 | v0.13 | `change --config` refuses paths that leave the repo or are URLs; `pod` rejects values flags without `--chart` (built 2026-11-23) | |
 | v0.14 | `change` refuses Kustomize bases outside the checkout (`..` or a symlink); `--apps` warns when a file stops decoding; PR comments with only failures stay under GitHub's limit; old cache files are pruned; `value kustomize` confirms a single field's line with a rebuild; `docs/spikes/` removed (built 2026-11-23) | |
 | v0.14.1 | plain manifests read a symlink to another file in the repo again (v0.14.0 skipped it; links out of the repo stay refused at checkout) (built 2026-11-23) | |
+| v0.14.2 | `pod` on a workload passes over evicted and failed pods its controller already replaced; the Action updates only its own PR comment; `value kustomize --all` confirms lines by rebuild in stacks with `replacements:`, slow on large CRDs (built 2026-11-23) | |
 | next | see `docs/plans/backlog.md` | |
 | later | Terraform for `value`; the rest in `docs/plans/backlog.md` | |
 
