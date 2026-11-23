@@ -19,6 +19,11 @@ The open work and the decisions any future change must respect. What's built is 
 | 2 | Kustomize remote bases: clone each once into a cache at its ref, map the clones into the in-memory copy; opt-in, since it breaks "offline" | stops with a message today | M |
 | 3 | Kustomize `helmCharts:` inside a kustomization | stops with a message today | M, spike first |
 | 4 | Fallback if a Kustomize wrong line ever turns up: `value kustomize <field>` edits the line it is about to name and rebuilds (one build per field; too slow for `--all`) | a backstop for "never name a wrong line" | S |
+| 5 | **Security: Kustomize bases escape the checkout** (audit 2026-11-23). `render.Offline` (`render/kustomize.go`) only checks that a `resources`/`bases`/`components` entry exists, not that it stays inside the checkout; a PR overlay with `../../../../some/dir` loads any kustomization dir on the CI runner (reproduced: `change` reported a ConfigMap from outside the repo). Fix: pass the checkout root to `Offline`, refuse entries where `filepath.Rel(root, p)` isn't `filepath.IsLocal`; `change` passes `t.dir`. Failing test first, next to `TestKustomizeOffline` | breaks the 8440ec1 promise; first to fix | S |
+| 6 | `--apps` silently drops apps after the first unparsable YAML doc in a file (`readObjects`, `change/discover.go`): e.g. an ApplicationSet with unquoted `{{ }}` followed by Applications reports "No effect" and passes `--fail-on`. Fix: warn naming the file when a decode fails after an earlier doc in it decoded | false "no effect" in CI | S |
+| 7 | Trace cache only grows: every new build changes the key, old `.gob` files are never read or deleted (`value/cache.go` `write`). Fix: delete `*.gob` older than 30 days on write | disk creep on dev machines | S |
+| 8 | Markdown limit ignores kept rows (`WriteMarkdown`, `change/report.go`): if will-fail/data/recreate rows alone pass 65000 chars, GitHub rejects the comment. Fix: apply the same cut-and-count to the kept rows | very large changes only | S |
+| 9 | Delete `docs/spikes/` (~1,600 lines, 4 separate modules, nothing builds or links them; git history keeps them) | less to read | S |
 
 ## Decisions to keep
 
