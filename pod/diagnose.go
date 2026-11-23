@@ -99,7 +99,9 @@ func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem
 	}
 
 	if len(ps) == 0 && !ready(p) {
-		ps = append(ps, Problem{Kind: Other, Reason: string(p.Status.Phase), Detail: "not ready; kubelet reports no reason"})
+		// A pod the kubelet rejected at admission (OutOfcpu, NodeAffinity, ...) has no container status, only this.
+		ps = append(ps, Problem{Kind: Other, Reason: cmp.Or(p.Status.Reason, string(p.Status.Phase)),
+			Detail: cmp.Or(p.Status.Message, "not ready; kubelet reports no reason")})
 	}
 
 	return ps, nil

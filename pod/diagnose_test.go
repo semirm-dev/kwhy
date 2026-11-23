@@ -86,6 +86,9 @@ func TestDiagnose(t *testing.T) {
 	mount := running(waiting("app", "ContainerCreating", ""), waiting("sidecar", "ContainerCreating", ""))
 	evicted := running()
 	evicted.Status.Phase, evicted.Status.Reason, evicted.Status.Message = v1.PodFailed, "Evicted", "The node was low on resource: memory."
+	rejected := running()
+	rejected.Status.Phase, rejected.Status.Reason, rejected.Status.Message = v1.PodFailed, "OutOfcpu", "Pod was rejected: Node didn't have enough resource: cpu"
+	rejected.Status.Conditions = nil
 
 	for _, tc := range []struct {
 		name string
@@ -104,6 +107,7 @@ func TestDiagnose(t *testing.T) {
 		{"mount", mount, []runtime.Object{warning(mount, "", "FailedMount", `configmap "cfg" not found`)},
 			[]string{pod.Mount, "", `configmap "cfg" not found`}},
 		{"evicted", evicted, nil, []string{pod.Evicted, "", "low on resource: memory"}},
+		{"rejected by kubelet", rejected, nil, []string{pod.Other, "", "didn't have enough resource: cpu"}},
 		{"recovered, earlier oom", running(recovered, ok("sidecar")), nil, []string{pod.OOM, "app", "killed at limit 512Mi, 2 restarts"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
