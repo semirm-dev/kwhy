@@ -49,7 +49,7 @@ func TestOverlay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			a, err := o.ExplainOverlay(value.KField{Doc: d.ID, Path: p})
+			a, err := o.Explain(value.KField{Doc: d.ID, Path: p})
 			if err != nil || len(a.Leaves) != 1 || a.Leaves[0].Chain[0].Line != tc.line {
 				t.Errorf("%s %s: %+v, %v; want line %d", tc.doc, tc.path, a, err, tc.line)
 			}
@@ -58,7 +58,7 @@ func TestOverlay(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", tc.path, err)
 		}
-		a, err := o.ExplainOverlay(value.KField{Doc: d.ID, Path: p})
+		a, err := o.Explain(value.KField{Doc: d.ID, Path: p})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -83,7 +83,7 @@ func TestOverlayLinesShowValues(t *testing.T) {
 	}
 
 	for _, d := range o.Docs {
-		as, err := o.ExplainAllOverlay(d.ID)
+		as, err := o.ExplainAll(d.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,7 +114,7 @@ func TestOverlayCache(t *testing.T) {
 		}
 		var all []value.Answer
 		for _, d := range o.Docs {
-			as, err := o.ExplainAllOverlay(d.ID)
+			as, err := o.ExplainAll(d.ID)
 			if err != nil {
 				t.Fatal(err)
 			}

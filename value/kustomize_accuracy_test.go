@@ -63,7 +63,7 @@ func TestOverlayAccuracy(t *testing.T) {
 			files := map[string]bool{}
 			var lines, entryOnly, fileOnly int
 			for _, d := range o.Docs {
-				as, err := o.ExplainAllOverlay(d.ID)
+				as, err := o.ExplainAll(d.ID)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -177,7 +177,7 @@ func TestOverlayAccuracy(t *testing.T) {
 				for f := range moved {
 					if !predicted[f] {
 						fn++
-						a, _ := o.ExplainOverlay(f)
+						a, _ := o.Explain(f)
 						src := a.Leaves[0].Chain[0]
 						misses = append(misses, fmt.Sprintf("missed: %s -> %s %s (kwhy: %s %s)", at, f.Doc, f.Path, src, a.Leaves[0].Entry))
 
