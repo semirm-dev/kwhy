@@ -175,7 +175,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with: {fetch-depth: 0}   # kwhy needs both refs
-      - uses: semirm-dev/kwhy@v0.11.0
+      - uses: semirm-dev/kwhy@v0.12.0
         with:
           chart: charts/api
           values: values-prod.yaml

@@ -3,7 +3,7 @@
 The open work and the decisions any future change must respect. What's built is in the README and
 `docs/specs/`; how it was built is in git history.
 
-## Where each command stands (2026-11-23, v0.11.0)
+## Where each command stands (2026-11-23, v0.12.0)
 
 | Command | Helm | Plain YAML | Kustomize | Checked by | Gaps |
 |---|---|---|---|---|---|
