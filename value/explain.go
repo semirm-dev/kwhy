@@ -169,9 +169,10 @@ type match struct {
 	removed bool // perturbing the leaf removes the field
 }
 
-// Explain says which values leaves produce field f and how. Marker hits answer most fields; the
+// explain says which values leaves produce field f and how. Marker hits answer most fields; the
 // rest are found by perturbing leaves in groups and watching f.
-func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o render.Options, f Field) (Answer, error) {
+func (idx *Index) explain(ctx context.Context, f Field) (Answer, error) {
+	c, v, o := idx.c, idx.v, idx.o
 	val, ok := idx.Fields[f]
 	if !ok {
 		return Answer{}, fmt.Errorf("unknown field %s", f.Path)
@@ -205,7 +206,7 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 			a.Leaves = append(a.Leaves, v.Leaves[h.Leaf])
 		}
 
-		moved, err := emptyLeaves(ctx, idx, c, v, o, f)
+		moved, err := idx.emptyLeaves(ctx, f)
 		if err != nil {
 			return Answer{}, err
 		}
@@ -265,7 +266,7 @@ func Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o rend
 }
 
 // ExplainAll explains every field of document doc, sorted by path.
-func ExplainAll(ctx context.Context, idx *Index, c *render.Chart, v *Values, o render.Options, doc int) ([]Answer, error) {
+func (idx *Index) ExplainAll(ctx context.Context, doc int) ([]Answer, error) {
 	var fields []Field
 	for f := range idx.Fields {
 		if f.Doc == doc {
@@ -276,7 +277,7 @@ func ExplainAll(ctx context.Context, idx *Index, c *render.Chart, v *Values, o r
 	var out []Answer
 	slices.SortFunc(fields, func(a, b Field) int { return strings.Compare(a.Path, b.Path) })
 	for _, f := range fields {
-		a, err := Explain(ctx, idx, c, v, o, f)
+		a, err := idx.Explain(ctx, f)
 		if err != nil {
 			return nil, err
 		}
@@ -288,7 +289,9 @@ func ExplainAll(ctx context.Context, idx *Index, c *render.Chart, v *Values, o r
 
 // emptyLeaves finds the empty-string leaves that move f, which Trace doesn't mark. One render nudging
 // them all is shared by every field, so a field they don't move costs no render of its own.
-func emptyLeaves(ctx context.Context, idx *Index, c *render.Chart, v *Values, o render.Options, f Field) ([]match, error) {
+func (idx *Index) emptyLeaves(ctx context.Context, f Field) ([]match, error) {
+	v := idx.v
+
 	// Tracing leaves empty strings and zeros unmarked; both are falsy, so `default` and `or` read past them.
 	// Booleans stay out: flipping one switches template blocks, which would credit structure, not the value.
 	var empty []Leaf
@@ -298,7 +301,7 @@ func emptyLeaves(ctx context.Context, idx *Index, c *render.Chart, v *Values, o 
 		}
 	}
 
-	p := perturber{c: c, o: o, idx: idx, user: v.User, field: f}
+	p := perturber{c: idx.c, o: idx.o, idx: idx, user: v.User, field: f}
 	if idx.nudged == nil && !idx.nudgeFail {
 		docs, err := p.render(ctx, empty, false)
 		if ctx.Err() != nil {

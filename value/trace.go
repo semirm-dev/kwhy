@@ -32,13 +32,19 @@ type Index struct {
 	breakers  [2]map[int]bool // per mode (nudge, zero): Leaf.ID → perturbing it alone that way fails the render; nil until Explain needs them
 	nudged    []render.Doc    // render with every empty-string leaf nudged; nil until Explain needs it, or if it failed
 	nudgeFail bool
+
+	// what Trace traced, for Explain
+	c                  *render.Chart
+	v                  *Values
+	o                  render.Options
+	cacheDir, cacheKey string // cacheKey "" when not cached
 }
 
-// Trace renders with the values replaced by unique markers, chunk by chunk, and records which
+// trace renders with the values replaced by unique markers, chunk by chunk, and records which
 // leaves show up in which fields. Non-empty strings and non-zero numbers are marked; bools, zeros
 // and empty strings steer control flow (each `if` they flip would need its own render) and are
 // left to Explain. chunkSize is how many leaves one render marks (ChunkSize unless tuning).
-func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunkSize int) (*Index, error) {
+func trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunkSize int) (*Index, error) {
 	docs, err := c.Render(ctx, v.User, o)
 	if err != nil {
 		return nil, err

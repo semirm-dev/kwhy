@@ -33,11 +33,10 @@ func (h Healthy) Error() string {
 	return fmt.Sprintf("all %d pods ready", h.Pods)
 }
 
-// Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, ds/x, rs/x, job/x, cj/x); a
-// CronJob is followed to its newest Job. For a workload
-// it is the oldest pod not yet on a node, else the not-ready pod with the most restarts, else a pod stuck
-// terminating, else Healthy; a workload
-// with no pods at all gets a new pod built from its template.
+// Target finds the pod to explain. ref is a pod (x, pod/x) or a workload (deploy/x, sts/x, ds/x, rs/x, job/x, cj/x);
+// a CronJob is followed to its newest Job. For a workload it is the oldest pod not yet on a node, else the not-ready
+// pod with the most restarts, else a pod stuck terminating, else Healthy; a workload with no pods at all gets a new
+// pod built from its template.
 func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Pod, error) {
 	kind, name, ok := strings.Cut(ref, "/")
 	if !ok {

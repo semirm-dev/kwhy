@@ -51,7 +51,7 @@ func explainArgoCD(tb testing.TB) {
 		tb.Fatal(err)
 	}
 
-	idx, err := value.Trace(tb.Context(), c, v, render.Options{}, value.ChunkSize)
+	idx, err := value.Trace(tb.Context(), c, v, render.Options{}, value.ChunkSize, "")
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func explainArgoCD(tb testing.TB) {
 		tb.Fatal(err)
 	}
 
-	a, err := value.Explain(tb.Context(), idx, c, v, render.Options{}, value.Field{Doc: doc, Path: ".spec.replicas"})
+	a, err := idx.Explain(tb.Context(), value.Field{Doc: doc, Path: ".spec.replicas"})
 	if err != nil {
 		tb.Fatal(err)
 	}

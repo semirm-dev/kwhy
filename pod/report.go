@@ -132,7 +132,7 @@ func WriteJSON(w io.Writer, p *v1.Pod, r Result) error {
 		Sampled   bool      `json:"preemptSampled,omitempty"`
 		Problems  []Problem `json:"problems,omitempty"`
 		Sources   []Source  `json:"sources,omitempty"`
-	}{"kwhy.pod/v1", p.Namespace, p.Name, p.UID == templateUID, p.Spec.NodeName, r.Plugins, r.Nodes, r.Preempt,
+	}{"kwhy.pod/v1", p.Namespace, p.Name, IsTemplate(p), p.Spec.NodeName, r.Plugins, r.Nodes, r.Preempt,
 		r.PreemptNode, r.Victims, r.PDBViolations, r.PreemptSampled, r.Problems, r.Sources})
 }
 
@@ -278,7 +278,7 @@ func title(p *v1.Pod, r Result) string {
 	}
 
 	state := fmt.Sprintf("%s/%s Pending %s", p.Namespace, p.Name, age(time.Since(p.CreationTimestamp.Time)))
-	if p.UID == templateUID {
+	if IsTemplate(p) {
 		state = fmt.Sprintf("%s/%s has no pod waiting; a new one from its template", p.Namespace, p.Name)
 	}
 

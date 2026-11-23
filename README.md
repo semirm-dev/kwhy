@@ -226,11 +226,6 @@ Source:
   NodeResourcesFit  .spec.containers[0].resources.requests.cpu = 40  ← resources.requests.cpu (--set resources.requests.cpu=40)
 ```
 
-## For AI agents
-
-`kwhy mcp` serves the three commands over the Model Context Protocol (stdio) as `kwhy_value`, `kwhy_change` and
-`kwhy_pod`, returning the same versioned JSON as `-o json`. For Claude Code: `claude mcp add kwhy -- kwhy mcp`.
-
 ## How we know it's right
 
 - **`value`** is checked nightly against 10 public charts (`go test -tags accuracy ./value/`): it never named a wrong
@@ -381,7 +376,7 @@ make kind-test    # change and pod against kind clusters it creates; make kind-d
 `make` alone lists every target.
 
 ```
-cmd/kwhy/    CLI wiring (cobra): flags in, features out; kwhy mcp
+cmd/kwhy/    CLI wiring (cobra): flags in, features out
 render/      Helm rendering, plain manifests and Kustomize builds, shared by value and change
 value/       values leaves, override chains, tracing, cache; Kustomize leave-one-out attribution
 change/      base/head render, targets (.kwhy.yaml, Argo CD, Flux), impact rules, live refinement, report

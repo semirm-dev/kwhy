@@ -234,15 +234,14 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 		return nil, nil
 	}
 
-	cache := value.OpenCache(ch, v, o, value.ChunkSize, traceCache(src.noCache))
-	idx, err := cache.Trace(ctx, ch, v, o, value.ChunkSize)
+	idx, err := value.Trace(ctx, ch, v, o, value.ChunkSize, traceCache(src.noCache))
 	if err != nil {
 		return nil, err
 	}
 
 	var out []pod.Source
 	for _, w := range wants {
-		a, err := cache.Explain(ctx, idx, ch, v, o, value.Field{Doc: doc, Path: w.path})
+		a, err := idx.Explain(ctx, value.Field{Doc: doc, Path: w.path})
 		if err != nil {
 			return nil, err
 		}

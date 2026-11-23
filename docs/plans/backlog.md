@@ -45,4 +45,6 @@ The open work and the decisions any future change must respect. What's built is 
 - **No `go install …@version`:** the scheduler import needs `replace` directives, which `go install` refuses.
   Install is GitHub Releases binaries.
 - **JSON contracts** (`kwhy.value/v1`, `kwhy.change/v1`, `kwhy.pod/v1`) change additively only.
+- **No MCP server for now** (removed 2026-11-23): `kwhy mcp` (v0.8) lagged the CLI (no Kustomize, no `pod --chart`).
+  It is in git history if it comes back; agents can run the CLI with `-o json`.
 - Feature packages don't import each other; `cmd/kwhy` joins them (e.g. `pod` sources through `value`).

@@ -39,7 +39,7 @@ func TestAccuracy(t *testing.T) {
 
 			o := render.Options{}
 
-			idx, err := Trace(t.Context(), c, v, o, ChunkSize)
+			idx, err := Trace(t.Context(), c, v, o, ChunkSize, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,7 +94,7 @@ func TestAccuracy(t *testing.T) {
 					}
 					a, ok := explained[f]
 					if !ok {
-						if a, err = Explain(t.Context(), idx, c, v, o, f); err != nil {
+						if a, err = idx.Explain(t.Context(), f); err != nil {
 							t.Fatal(err)
 						}
 						explained[f] = a

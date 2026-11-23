@@ -406,7 +406,7 @@ func TestMarkerCollisionShift(t *testing.T) {
 }
 
 func TestExplainKinds(t *testing.T) {
-	idx, v, c := trace(t, mini, prod)
+	idx, _, _ := trace(t, mini, prod)
 
 	tests := []struct {
 		sel, path string
@@ -426,7 +426,7 @@ func TestExplainKinds(t *testing.T) {
 		t.Run(string(tt.kind), func(t *testing.T) {
 			f := field(t, idx, tt.sel, tt.path)
 
-			a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, f)
+			a, err := idx.Explain(t.Context(), f)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -444,7 +444,7 @@ func TestExplainKinds(t *testing.T) {
 		})
 	}
 
-	a, _ := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "deploy/api", ".spec.replicas"))
+	a, _ := idx.Explain(t.Context(), field(t, idx, "deploy/api", ".spec.replicas"))
 	if want := (value.Source{File: prod, Line: 1, Value: float64(3)}); a.Leaves[0].Chain[0] != want {
 		t.Fatalf("chain %+v", a.Leaves[0].Chain)
 	}
@@ -464,14 +464,14 @@ func TestExplainRandomNamedHooks(t *testing.T) {
 		}
 	}
 
-	idx, v, c := trace(t, dir, prod)
+	idx, _, _ := trace(t, dir, prod)
 	for i, d := range idx.Docs {
 		if d.Kind != "Pod" {
 			continue
 		}
 
 		f := value.Field{Doc: i, Path: ".spec.restartPolicy"}
-		a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, f)
+		a, err := idx.Explain(t.Context(), f)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -493,8 +493,8 @@ func TestExplainEmptyLeafDefault(t *testing.T) {
 	}
 	files := writeFiles(t, [2]string{"sa.yaml", "saName: \"\"\n"})
 
-	idx, v, c := trace(t, dir, files[0])
-	a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "serviceaccount/api", ".metadata.name"))
+	idx, v, _ := trace(t, dir, files[0])
+	a, err := idx.Explain(t.Context(), field(t, idx, "serviceaccount/api", ".metadata.name"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,8 +516,8 @@ func TestExplainZeroLeafWithHit(t *testing.T) {
 	}
 	files := writeFiles(t, [2]string{"svc.yaml", "svcName: web\nsvcPort: 0\n"})
 
-	idx, v, c := trace(t, dir, files[0])
-	a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "service/web", ".spec.ports[0].name"))
+	idx, _, _ := trace(t, dir, files[0])
+	a, err := idx.Explain(t.Context(), field(t, idx, "service/web", ".spec.ports[0].name"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,9 +544,9 @@ func TestExplainSkipsBreakers(t *testing.T) {
 	}
 	files := writeFiles(t, [2]string{"mode.yaml", "mode: a\n"})
 
-	idx, v, c := trace(t, dir, prod, files[0])
+	idx, v, _ := trace(t, dir, prod, files[0])
 	for range 2 { // the second call reuses the breakers found by the first
-		a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "deploy/api", ".spec.template.spec.containers[0].env[0].value"))
+		a, err := idx.Explain(t.Context(), field(t, idx, "deploy/api", ".spec.template.spec.containers[0].env[0].value"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -570,8 +570,8 @@ func TestExplainBreakerPerMode(t *testing.T) {
 	}
 	files := writeFiles(t, [2]string{"fips.yaml", "fips: \"on\"\n"})
 
-	idx, v, c := trace(t, dir, files[0])
-	a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, "cm/fips", ".data.mode"))
+	idx, v, _ := trace(t, dir, files[0])
+	a, err := idx.Explain(t.Context(), field(t, idx, "cm/fips", ".data.mode"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -581,10 +581,10 @@ func TestExplainBreakerPerMode(t *testing.T) {
 }
 
 func TestExplainAll(t *testing.T) {
-	idx, v, c := trace(t, mini, prod)
+	idx, _, _ := trace(t, mini, prod)
 
 	i, _ := value.SelectDoc(idx.Docs, "cm/config", "")
-	as, err := value.ExplainAll(t.Context(), idx, c, v, render.Options{}, i)
+	as, err := idx.ExplainAll(t.Context(), i)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -745,7 +745,7 @@ func trace(t *testing.T, chart string, files ...string) (*value.Index, *value.Va
 		t.Fatal(err)
 	}
 
-	idx, err := value.Trace(t.Context(), c, v, render.Options{}, value.ChunkSize)
+	idx, err := value.Trace(t.Context(), c, v, render.Options{}, value.ChunkSize, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -773,7 +773,7 @@ func field(t *testing.T, idx *value.Index, sel, path string) value.Field {
 func kindAnswers(t *testing.T) []value.Answer {
 	t.Helper()
 
-	idx, v, c := trace(t, mini, prod)
+	idx, _, _ := trace(t, mini, prod)
 	var as []value.Answer
 	for _, fp := range [][2]string{
 		{"deploy/api", ".spec.replicas"},
@@ -785,7 +785,7 @@ func kindAnswers(t *testing.T) []value.Answer {
 		{"ingress/api", ".spec.ingressClassName"},
 		{"deploy/api", ".spec.template.spec.containers[0].ports[0].containerPort"},
 	} {
-		a, err := value.Explain(t.Context(), idx, c, v, render.Options{}, field(t, idx, fp[0], fp[1]))
+		a, err := idx.Explain(t.Context(), field(t, idx, fp[0], fp[1]))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -811,7 +811,7 @@ func TestCacheTrace(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		idx, err := value.OpenCache(c, v, o, value.ChunkSize, dir).Trace(t.Context(), c, v, o, value.ChunkSize)
+		idx, err := value.Trace(t.Context(), c, v, o, value.ChunkSize, dir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -847,9 +847,7 @@ func TestCacheExplain(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := render.Options{}
-	k := value.OpenCache(c, v, o, value.ChunkSize, t.TempDir())
-
-	idx, err := k.Trace(t.Context(), c, v, o, value.ChunkSize)
+	idx, err := value.Trace(t.Context(), c, v, o, value.ChunkSize, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -859,11 +857,11 @@ func TestCacheExplain(t *testing.T) {
 	}
 	f := value.Field{Doc: doc, Path: ".spec.replicas"}
 
-	fresh, err := k.Explain(t.Context(), idx, c, v, o, f)
+	fresh, err := idx.Explain(t.Context(), f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := k.Explain(t.Context(), idx, c, v, o, f)
+	again, err := idx.Explain(t.Context(), f)
 	if err != nil {
 		t.Fatal(err)
 	}

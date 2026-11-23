@@ -33,7 +33,8 @@ const (
 )
 
 var (
-	order = []Verdict{Restart, Ordered, Scale, Resize, Recreate, Hook, NoEffect, Delayed, PickedUp, WillFail, Orphaned, Data, Create, Delete}
+	// Verdicts lists every verdict, in the order a report lists them.
+	Verdicts = []Verdict{Restart, Ordered, Scale, Resize, Recreate, Hook, NoEffect, Delayed, PickedUp, WillFail, Orphaned, Data, Create, Delete}
 
 	workloads = map[string]bool{"Deployment": true, "StatefulSet": true, "DaemonSet": true}
 
@@ -123,7 +124,7 @@ func Diff(base, head []render.Doc) []Impact {
 
 func sortImpacts(is []Impact) {
 	slices.SortFunc(is, func(x, y Impact) int {
-		if c := slices.Index(order, x.Verdict) - slices.Index(order, y.Verdict); c != 0 {
+		if c := slices.Index(Verdicts, x.Verdict) - slices.Index(Verdicts, y.Verdict); c != 0 {
 			return c
 		}
 		return strings.Compare(x.Resource, y.Resource)

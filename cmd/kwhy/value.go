@@ -123,14 +123,13 @@ func valueChartCmd() *cobra.Command {
 				fields = append(fields, value.Field{Doc: doc, Path: p})
 			}
 
-			cache := value.OpenCache(c, v, o, chunk, traceCache(noCache))
-			idx, err := cache.Trace(ctx, c, v, o, chunk)
+			idx, err := value.Trace(ctx, c, v, o, chunk, traceCache(noCache))
 			if err != nil {
 				return err
 			}
 
 			if all {
-				as, err := value.ExplainAll(ctx, idx, c, v, o, doc)
+				as, err := idx.ExplainAll(ctx, doc)
 				if err != nil {
 					return err
 				}
@@ -140,7 +139,7 @@ func valueChartCmd() *cobra.Command {
 
 			var as []value.Answer
 			for _, f := range fields {
-				a, err := cache.Explain(ctx, idx, c, v, o, f)
+				a, err := idx.Explain(ctx, f)
 				if err != nil {
 					return err
 				}

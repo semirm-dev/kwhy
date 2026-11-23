@@ -56,7 +56,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
-	root.AddCommand(valueCmd(), changeCmd(), podCmd(), mcpCmd())
+	root.AddCommand(valueCmd(), changeCmd(), podCmd())
 
 	err := root.Execute()
 	if err == nil {

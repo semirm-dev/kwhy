@@ -28,69 +28,59 @@ func init() {
 	gob.Register([]any{})
 }
 
-// Cache keeps traces and answers between runs. Its key covers the chart's files, the values Helm renders with,
-// the options, the chunk size and the kwhy binary itself, so any change to them computes again. A zero Cache
-// (no dir, or a key that couldn't be made) computes every time. Files that can't be read or written are ignored:
-// a cache only ever saves time.
-type Cache struct {
-	dir, key string
-}
-
-// OpenCache returns the cache in dir for this chart, values and options; dir "" disables it.
-func OpenCache(c *render.Chart, v *Values, o render.Options, chunkSize int, dir string) Cache {
-	if dir == "" {
-		return Cache{}
+// Trace is trace, read from cacheDir when it holds this trace; the Index's Explain caches answers there too.
+// The key covers the chart's files, the values Helm renders with, the options, the chunk size and the kwhy binary
+// itself, so any change to them computes again. cacheDir "" (or a key that couldn't be made) computes every time.
+// Files that can't be read or written are ignored: a cache only ever saves time.
+func Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunkSize int, cacheDir string) (*Index, error) {
+	var key string
+	if cacheDir != "" {
+		if k, err := cacheKey(c, v, o, chunkSize); err == nil {
+			key = k
+		}
 	}
 
-	key, err := cacheKey(c, v, o, chunkSize)
-	if err != nil {
-		return Cache{}
+	path := filepath.Join(cacheDir, key+".gob")
+	var idx *Index
+	if key != "" {
+		idx, _ = readCache(c, v, path)
 	}
 
-	return Cache{dir: dir, key: key}
-}
-
-// Trace is Trace, read from the cache when it holds this trace.
-func (k Cache) Trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunkSize int) (*Index, error) {
-	if k.key == "" {
-		return Trace(ctx, c, v, o, chunkSize)
+	if idx == nil {
+		var err error
+		if idx, err = trace(ctx, c, v, o, chunkSize); err != nil {
+			return nil, err
+		}
+		if key != "" {
+			write(cacheDir, path, cached{idx.Docs, idx.Fields, idx.Hits, idx.Random, idx.Unmarkable})
+		}
 	}
 
-	path := filepath.Join(k.dir, k.key+".gob")
-	if idx, err := readCache(c, v, path); err == nil {
-		return idx, nil
-	}
-
-	idx, err := Trace(ctx, c, v, o, chunkSize)
-	if err != nil {
-		return nil, err
-	}
-
-	write(k.dir, path, cached{idx.Docs, idx.Fields, idx.Hits, idx.Random, idx.Unmarkable})
+	idx.c, idx.v, idx.o, idx.cacheDir, idx.cacheKey = c, v, o, cacheDir, key
 
 	return idx, nil
 }
 
-// Explain is Explain, read from the cache when it holds this field's answer.
-func (k Cache) Explain(ctx context.Context, idx *Index, c *render.Chart, v *Values, o render.Options, f Field) (Answer, error) {
-	if k.key == "" {
-		return Explain(ctx, idx, c, v, o, f)
+// Explain is explain, read from the trace's cache when it holds this field's answer.
+func (idx *Index) Explain(ctx context.Context, f Field) (Answer, error) {
+	if idx.cacheKey == "" {
+		return idx.explain(ctx, f)
 	}
 
 	sum := sha256.Sum256(fmt.Appendf(nil, "%d\x00%s", f.Doc, f.Path))
-	path := filepath.Join(k.dir, k.key+"-"+hex.EncodeToString(sum[:8])+".gob")
+	path := filepath.Join(idx.cacheDir, idx.cacheKey+"-"+hex.EncodeToString(sum[:8])+".gob")
 
 	var a Answer
 	if read(path, &a) == nil {
 		return a, nil
 	}
 
-	a, err := Explain(ctx, idx, c, v, o, f)
+	a, err := idx.explain(ctx, f)
 	if err != nil {
 		return Answer{}, err
 	}
 
-	write(k.dir, path, a)
+	write(idx.cacheDir, path, a)
 
 	return a, nil
 }
