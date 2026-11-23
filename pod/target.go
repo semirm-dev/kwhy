@@ -97,6 +97,9 @@ func Target(ctx context.Context, c kubernetes.Interface, ns, ref string) (*v1.Po
 
 	var live, pending, broken, stuck []v1.Pod
 	for _, p := range pods.Items {
+		if p.Status.Phase == v1.PodFailed && owner != "Job" {
+			continue // evicted or failed: the controller already replaced it, it only waits for garbage collection
+		}
 		switch {
 		case Terminating(&p):
 			stuck = append(stuck, p)

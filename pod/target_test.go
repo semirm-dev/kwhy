@@ -149,7 +149,10 @@ func TestTargetWorstPod(t *testing.T) {
 		t.Errorf("broken pods: got %v, %v; want web-crashing", p, err)
 	}
 
-	c = fake.NewClientset(deploy, onNode("web-a", true, 0), onNode("web-b", true, 3))
+	// An evicted pod the controller already replaced stays listed until it's garbage-collected: not the workload's state.
+	evicted := onNode("web-old", false, 0)
+	evicted.Status.Phase, evicted.Status.Reason = v1.PodFailed, "Evicted"
+	c = fake.NewClientset(deploy, onNode("web-a", true, 0), onNode("web-b", true, 3), evicted)
 	_, err = pod.Target(t.Context(), c, "default", "deploy/web")
 	var h pod.Healthy
 	if !errors.As(err, &h) || h.Pods != 2 || err.Error() != "all 2 pods ready" {
