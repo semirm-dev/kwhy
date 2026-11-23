@@ -170,6 +170,13 @@ func (k kind) check(i change.Impact, before map[string][]string, failed map[stri
 
 	switch i.Verdict {
 	case change.Restart, change.Ordered:
+		if strings.HasPrefix(i.Resource, "Pod ") { // restarts in place: same pod, new container
+			k.eventually(i.Resource+" restarted", time.Minute, func() bool {
+				p, err := k.c.CoreV1().Pods(k.ns).Get(t.Context(), app, metav1.GetOptions{})
+				return err == nil && len(p.Status.ContainerStatuses) > 0 && p.Status.ContainerStatuses[0].RestartCount > 0
+			})
+			break
+		}
 		if n := gone(); n != i.Pods {
 			t.Errorf("%s: predicted %d pods restarted, %d were", i.Resource, i.Pods, n)
 		}
@@ -259,7 +266,7 @@ func (k kind) value(app string) string {
 // settle waits until every workload in docs has finished rolling out.
 func (k kind) settle(docs []render.Doc) {
 	for _, d := range docs {
-		if !isWorkload(d.Kind) {
+		if !isWorkload(d.Kind) && d.Kind != "Pod" {
 			continue
 		}
 		k.eventually(resourceOf(d)+" settled", 3*time.Minute, func() bool { return k.settled(d) })
@@ -269,6 +276,9 @@ func (k kind) settle(docs []render.Doc) {
 func (k kind) settled(d render.Doc) bool {
 	ctx, apps := k.t.Context(), k.c.AppsV1()
 	switch d.Kind {
+	case "Pod":
+		p, err := k.c.CoreV1().Pods(k.ns).Get(ctx, d.Name, metav1.GetOptions{})
+		return err == nil && p.Status.Phase == "Running"
 	case "Deployment":
 		o, err := apps.Deployments(k.ns).Get(ctx, d.Name, metav1.GetOptions{})
 		if err != nil {

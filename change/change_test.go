@@ -49,6 +49,19 @@ spec:
   serviceName: %s
   template: {spec: {containers: [{name: c, image: %s}]}}
 `
+	cmUsers = `
+kind: CronJob
+metadata: {name: backup}
+spec: {jobTemplate: {spec: {template: {spec: {containers: [{name: c, envFrom: [{configMapRef: {name: cfg}}]}]}}}}}
+---
+kind: Job
+metadata: {name: once}
+spec: {template: {spec: {containers: [{name: c, envFrom: [{configMapRef: {name: cfg}}]}]}}}
+---
+kind: Pod
+metadata: {name: debug}
+spec: {containers: [{name: c, envFrom: [{configMapRef: {name: cfg}}]}]}
+`
 	job = `
 kind: Job
 metadata: {name: migrate%s}
@@ -256,6 +269,52 @@ func TestDiff(t *testing.T) {
 			base: "kind: Deployment\nmetadata: {name: api}\nspec: {template: {spec: {containers: [{name: a, image: app:1}, {name: b, image: 'reg:5000/side'}, {name: c, image: 'x:latest@sha256:ab'}]}}}",
 			head: "kind: Deployment\nmetadata: {name: api}\nspec: {template: {spec: {containers: [{name: a, image: app:2}, {name: b, image: 'reg:5000/side'}, {name: c, image: 'x:latest@sha256:ab'}]}}}",
 			want: []string{"restart|Deployment default/api|1|image, pulls mutable reg:5000/side"},
+		},
+		{
+			name: "cronjob template change waits for the next run",
+			base: "kind: CronJob\nmetadata: {name: backup}\nspec: {schedule: '0 * * * *', jobTemplate: {spec: {template: {spec: {containers: [{name: c, image: b:1}]}}}}}",
+			head: "kind: CronJob\nmetadata: {name: backup}\nspec: {schedule: '0 3 * * *', jobTemplate: {spec: {template: {spec: {containers: [{name: c, image: b:2}]}}}}}",
+			want: []string{"delayed|CronJob default/backup|0|schedule 0 * * * * → 0 3 * * *, job template: the next run picks it up, a running Job keeps the old one"},
+		},
+		{
+			name: "cronjob other change reports nothing",
+			base: "kind: CronJob\nmetadata: {name: backup}\nspec: {schedule: '0 * * * *', successfulJobsHistoryLimit: 3}",
+			head: "kind: CronJob\nmetadata: {name: backup}\nspec: {schedule: '0 * * * *', successfulJobsHistoryLimit: 1}",
+			want: nil,
+		},
+		{
+			name: "bare pod image restarts in place",
+			base: "kind: Pod\nmetadata: {name: debug}\nspec: {tolerations: [{key: a}], containers: [{name: c, image: t:1}]}",
+			head: "kind: Pod\nmetadata: {name: debug}\nspec: {tolerations: [{key: b}, {key: a}], activeDeadlineSeconds: 60, containers: [{name: c, image: t:2}]}",
+			want: []string{"restart|Pod default/debug|1|image: containers restart in place"},
+		},
+		{
+			name: "bare pod other change fails",
+			base: "kind: Pod\nmetadata: {name: debug}\nspec: {tolerations: [{key: a}], containers: [{name: c, image: t:1, args: [x]}]}",
+			head: "kind: Pod\nmetadata: {name: debug}\nspec: {tolerations: [{key: b}], containers: [{name: c, image: t:2, args: [y]}]}",
+			want: []string{"will fail|Pod default/debug|0|spec.containers, spec.tolerations is immutable"},
+		},
+		{
+			name: "bare pod deadline can't be raised",
+			base: "kind: Pod\nmetadata: {name: debug}\nspec: {activeDeadlineSeconds: 60, containers: [{name: c, image: t:1}]}",
+			head: "kind: Pod\nmetadata: {name: debug}\nspec: {activeDeadlineSeconds: 120, containers: [{name: c, image: t:1}]}",
+			want: []string{"will fail|Pod default/debug|0|spec.activeDeadlineSeconds is immutable"},
+		},
+		{
+			name: "bare pod label change reports nothing",
+			base: "kind: Pod\nmetadata: {name: debug, labels: {a: '1'}}\nspec: {containers: [{name: c, image: t:1}]}",
+			head: "kind: Pod\nmetadata: {name: debug, labels: {a: '2'}}\nspec: {containers: [{name: c, image: t:1}]}",
+			want: nil,
+		},
+		{
+			name: "cronjob, job and pod consume a configmap",
+			base: fmt.Sprintf(envCM, "v1") + "---" + cmUsers,
+			head: fmt.Sprintf(envCM, "v2") + "---" + cmUsers,
+			want: []string{
+				"no effect|ConfigMap default/cfg → Job default/once|0|env var: running pods keep the OLD value until they restart",
+				"no effect|ConfigMap default/cfg → Pod default/debug|0|env var: running pods keep the OLD value until they restart",
+				"picked up|ConfigMap default/cfg → CronJob default/backup|0|the next run reads it",
+			},
 		},
 		{
 			name: "unchanged reports nothing",

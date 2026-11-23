@@ -159,6 +159,26 @@ func classify(b, h render.Doc) (Impact, bool) {
 		return i, true
 	}
 
+	switch h.Kind {
+	case "CronJob":
+		var what []string
+		if a, b := str(b.Object, "spec", "schedule"), str(h.Object, "spec", "schedule"); a != b {
+			what = append(what, "schedule "+a+" → "+b)
+		}
+		if !reflect.DeepEqual(get(b.Object, "spec", "jobTemplate"), get(h.Object, "spec", "jobTemplate")) {
+			what = append(what, "job template: the next run picks it up, a running Job keeps the old one")
+		}
+		i.Verdict, i.Detail = Delayed, strings.Join(what, ", ")
+		return i, len(what) > 0
+	case "Pod":
+		// rejected already ruled out every change but images, tolerations added and activeDeadlineSeconds.
+		if slices.Equal(images(b.Object), images(h.Object)) {
+			return i, false
+		}
+		i.Verdict, i.Pods, i.Detail = Restart, 1, "image: containers restart in place"
+		return i, true
+	}
+
 	if !workloads[h.Kind] {
 		return i, false
 	}
@@ -206,6 +226,9 @@ func rejected(b, h render.Doc) string {
 			fs = append(fs, "spec."+f)
 		}
 	}
+	if h.Kind == "Pod" {
+		fs = podRejected(b.Object, h.Object)
+	}
 	if h.Kind == "PersistentVolumeClaim" {
 		if !reflect.DeepEqual(get(b.Object, "spec", "resources", "limits"), get(h.Object, "spec", "resources", "limits")) {
 			fs = append(fs, "spec.resources.limits")
@@ -221,21 +244,81 @@ func rejected(b, h render.Doc) string {
 	return strings.Join(fs, ", ") + " is immutable"
 }
 
+// podRejected lists the changed spec fields of a Pod the API server rejects: all but container images,
+// activeDeadlineSeconds added or lowered, and tolerations added.
+func podRejected(b, h obj) []string {
+	var fs []string
+	for _, f := range changedSpec(b, h) {
+		bv, hv := get(b, "spec", f), get(h, "spec", f)
+		switch f {
+		case "activeDeadlineSeconds": // added or lowered only
+			b, bok := bv.(int)
+			if h, ok := hv.(int); ok && (bv == nil || bok && h <= b) {
+				continue
+			}
+		case "tolerations":
+			hl := list(hv)
+			if !slices.ContainsFunc(list(bv), func(t any) bool {
+				return !slices.ContainsFunc(hl, func(u any) bool { return reflect.DeepEqual(t, u) })
+			}) {
+				continue
+			}
+		case "containers", "initContainers":
+			if reflect.DeepEqual(withoutImages(bv), withoutImages(hv)) {
+				continue
+			}
+		}
+		fs = append(fs, "spec."+f)
+	}
+
+	return fs
+}
+
+// withoutImages is a container list with each image left out.
+func withoutImages(cs any) []obj {
+	var out []obj
+	for _, c := range list(cs) {
+		m, _ := c.(obj)
+		m = maps.Clone(m)
+		delete(m, "image")
+		out = append(out, m)
+	}
+
+	return out
+}
+
+// podSpec is the pod spec a workload, Job, CronJob or bare Pod runs, nil for any other kind.
+func podSpec(d render.Doc) any {
+	switch {
+	case workloads[d.Kind] || d.Kind == "Job":
+		return get(d.Object, "spec", "template", "spec")
+	case d.Kind == "CronJob":
+		return get(d.Object, "spec", "jobTemplate", "spec", "template", "spec")
+	case d.Kind == "Pod":
+		return get(d.Object, "spec")
+	}
+
+	return nil
+}
+
 // consumers reports how each workload using a changed ConfigMap or Secret sees the new data.
 func consumers(cm render.Doc, h map[string]render.Doc, restarted map[string]bool) []Impact {
 	var out []Impact
 	for k, w := range h {
-		if !workloads[w.Kind] || w.Namespace != cm.Namespace {
+		spec := podSpec(w)
+		if spec == nil || w.Namespace != cm.Namespace {
 			continue
 		}
 
-		env, subPath, volume := uses(get(w.Object, "spec", "template", "spec"), cm.Kind, cm.Name)
+		env, subPath, volume := uses(spec, cm.Kind, cm.Name)
 		i := Impact{Resource: name(cm) + " → " + name(w)}
 		switch {
 		case !env && !subPath && !volume:
 			continue
 		case restarted[k]:
 			i.Verdict, i.Detail = PickedUp, "pods restart"
+		case w.Kind == "CronJob":
+			i.Verdict, i.Detail = PickedUp, "the next run reads it"
 		case env:
 			i.Verdict, i.Detail = NoEffect, "env var: running pods keep the OLD value until they restart"
 		case subPath:

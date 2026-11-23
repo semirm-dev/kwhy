@@ -383,8 +383,8 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
   away. A custom profile needs `--scheduler-config`; out-of-tree scheduler plugins can't run.
 - `pod`'s preemption hint ignores PodDisruptionBudgets and nominated pods. Pods with DRA resource claims run the
   real `DynamicResources` plugin over the cluster's ResourceSlices (v0.8). What's missing across all three commands is in the [backlog](docs/plans/backlog.md).
-- `change` classifies Deployments, StatefulSets, DaemonSets, Jobs, Services, PVCs, ConfigMaps and Secrets. A changed
-  CronJob or bare Pod gets no line, and a CronJob or Job reading a changed ConfigMap isn't listed as a consumer.
+- `change` classifies Deployments, StatefulSets, DaemonSets, Jobs, CronJobs, bare Pods, Services, PVCs, ConfigMaps
+  and Secrets.
 - `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
 
 ## Development

@@ -47,8 +47,10 @@ as nothing, so a new app is `create`.
 **v0.9 (built 2026-11-20, experimental):** Kustomize overlays in `--manifests` (built with Kustomize's library), Argo CD apps
 pointing at an overlay, and Flux `Kustomization` objects in `--apps`.
 
-**Not classified yet** (no line in the report; backlog): CronJob changes (next run only), bare Pod changes (mostly
-immutable, would be `will fail`), and CronJob/Job consumers of a changed ConfigMap or Secret.
+**Built 2026-11-23 (unreleased):** CronJob `schedule` or `jobTemplate` changed: `delayed` (the next run picks it up). Bare
+Pod: an image change (with tolerations added and `activeDeadlineSeconds` added or lowered) is `restart`, in place;
+any other spec change is `will fail` (kind fixtures `pod-image`, `pod-immutable`). Jobs, CronJobs and bare Pods are
+consumers of a changed ConfigMap or Secret; a CronJob's is `picked up` by the next run.
 
 **Non-goals:** applying anything, validating against admission webhooks/policies (Kyverno etc.), cost
 estimates.
@@ -90,7 +92,7 @@ Merging this PR will:
   immutable-field failures into delete+recreate: report `recreate` instead of `will fail`.
 - Deduplicate consumers (grafana's Secret was reported twice).
 
-**Validated on kind 1.35 and 1.37 by the rules suite (`change/kind_test.go`, `testdata/change/`, 23 fixtures):**
+**Validated on kind 1.35 and 1.37 by the rules suite (`change/kind_test.go`, `testdata/change/`, 25 fixtures):**
 - Everything in the first table, plus: immutable workload `spec.selector`, Service `clusterIP`, ConfigMap with
   `immutable: true`; `OnDelete` (StatefulSet, DaemonSet); StatefulSet `partition`; DaemonSet restart one pod
   per node; `secretKeyRef` and projected-volume consumers; StatefulSet deletion with
