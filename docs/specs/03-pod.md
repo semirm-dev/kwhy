@@ -92,7 +92,8 @@ lower-priority pods). Since 2026-11-23 the hint is the scheduler's `DefaultPreem
 (`PodEligibleToPreemptOthers`, `DryRunPreemption` over every node, `SelectCandidate`): the node it picks, the
 victims and the PodDisruptionBudgets that breaks, or a tie it settles at random. Nominated pods count in every
 filter, as in `RunFilterPluginsWithNominatedPods`. JSON adds `preemptNode`, `victims`, `pdbViolations` and
-`preemptSampled`; the snapshot also lists PodDisruptionBudgets.
+`preemptSampled`; the snapshot also lists PodDisruptionBudgets. Checked on kind against the scheduler's real pick and
+evictions (`pod/kind_preempt_test.go`: it avoids the node whose victim a PodDisruptionBudget guards).
 `--scheduler-config FILE` (2026-11-20) runs a profile of the cluster's `KubeSchedulerConfiguration` (decoded with
 the scheduler's own scheme and defaults) instead of the default one. What's still missing:
 `docs/plans/backlog.md`.

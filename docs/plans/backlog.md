@@ -9,7 +9,7 @@ The open work and the decisions any future change must respect. What's built is 
 |---|---|---|---|---|---|
 | `value` | done: every spec item, all `--set*` flags, cache | n/a | experimental, cached | 10 charts nightly (precision 1.00, recall 0.98–1.00); 7 overlays, on demand | #1–3 |
 | `change` | done: every spec rule, `--context`, Action, `.kwhy.yaml`, Argo CD / Flux read at each ref, CronJob and bare Pod | done | experimental | 25 kind fixtures on 1.35/1.37, 4 real chart upgrades | |
-| `pod` | Pending (real scheduler, DRA, custom profiles) and not-running (kubelet, controllers) done; `--chart`; `rs/`, `cj/`; scheduler's own preemption dry run | n/a | `--kustomize`, experimental | kind parity suite on 1.35–1.37 | |
+| `pod` | Pending (real scheduler, DRA, custom profiles) and not-running (kubelet, controllers) done; `--chart`; `rs/`, `cj/`; scheduler's own preemption dry run | n/a | `--kustomize`, experimental | kind parity suite on 1.35–1.37, preemption included | |
 
 ## Open
 
