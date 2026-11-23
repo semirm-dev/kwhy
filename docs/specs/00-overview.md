@@ -1,7 +1,7 @@
 # kwhy: overview
 
-> Working name. `kwhy` is free on Krew and unused on GitHub (checked 2026-11-18). `kubectl-why` is taken
-> (rameshsurapathi/kubectl-why) and `blame` is taken on Krew (live-object field managers), so avoid both.
+> Working name. `kwhy` is unused on GitHub (checked 2026-11-18). `kubectl-why` is taken
+> (rameshsurapathi/kubectl-why) and so is `blame` (live-object field managers), so avoid both.
 
 ## Vision
 
@@ -33,7 +33,7 @@ Spike code and inputs are in `docs/spikes/`.
 ## Shared design decisions
 
 - **Go, single static binary `kwhy`**, standalone first. It doesn't need kubectl: `value` and `change` are offline, and `pod` reads kubeconfig via client-go (`--context`, `--namespace`).
-- **Distribution:** GitHub Releases binaries (goreleaser, from v0.2); Homebrew once a tap exists. No `go install …@version`: importing the scheduler for `pod` needs `replace` directives, which `go install` refuses (dropped 2026-11-20). Krew from v0.4 when `pod` ships: the same binary installed as `kubectl-kwhy`.
+- **Distribution:** GitHub Releases binaries (goreleaser, from v0.2). No `go install …@version`: importing the scheduler for `pod` needs `replace` directives, which `go install` refuses (dropped 2026-11-20).
 - **Use the real libraries in-process**: Helm v4 (`helm.sh/helm/v4`), Kustomize (`sigs.k8s.io/kustomize/api/krusty`),
   kube-scheduler framework. Never shell out to `helm`/`kubectl` in the product (the spikes did, for speed).
 - **Three output formats** for every command: human (default), `--output markdown` (PR comments),
@@ -60,9 +60,9 @@ it moves to its own Go module without changing the CLI.
 | Version | Ships | Gate to start the next one |
 |---|---|---|
 | v0.1 | `value` read-only, Helm only | Correct answers on the 6 spike charts plus 4 more in CI golden tests |
-| v0.2 | `value chart` subcommand; release binaries (goreleaser; Homebrew once a tap exists). Kustomize shelved (2026-11-20) until Helm is tested and polished | Helm tested and polished |
+| v0.2 | `value chart` subcommand; release binaries (goreleaser). Kustomize shelved (2026-11-20) until Helm is tested and polished | Helm tested and polished |
 | v0.3 | `change` (Helm only; built 2026-11-20): `--fail-on`, `json`, `--context`, GitHub Action. One chart per run; `.kwhy.yaml` and several charts dropped until needed | Rules suite green on kind in CI |
-| v0.4 | `pod` (built 2026-11-20); Krew manifest (`kubectl-kwhy`) attached to releases, krew-index PR manual | Parity test against the real scheduler on kind |
+| v0.4 | `pod` (built 2026-11-20) | Parity test against the real scheduler on kind |
 | v0.4.1 | `pod --chart` (built 2026-11-20): the values line that set each field a failing check reads, through `value` | |
 | v0.5 | `pod` for pods on a node: pull errors, crash loops, OOM kills, config and mount errors, probes, evictions, node conditions (built 2026-11-20) | |
 | v0.6 | `pod`: controller problems (create, rollout, job), terminating, `ds/`, autoscaler events, preemption hint (built 2026-11-20) | |
@@ -74,7 +74,7 @@ it moves to its own Go module without changing the CLI.
 
 ## Decisions (2026-11-18)
 
-1. Name: **kwhy**. Standalone binary `kwhy` first; Krew plugin `kwhy` (`kubectl-kwhy`) from v0.4.
+1. Name: **kwhy**. Standalone binary `kwhy`.
 2. License: **Apache-2.0**.
 3. Versions: **Helm v4 only**; Kubernetes **N-2** for `pod`: its parity suite runs on 1.35–1.37 in CI (settled 2026-11-20).
 4. Repo: **github.com/semirm-dev/kwhy**.

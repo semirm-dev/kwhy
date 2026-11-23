@@ -136,4 +136,4 @@ anti-affinity, spread, tolerations): 0.28s on 32 cores, 0.42s on 2. A run agains
 | Large dependency tree and binary size | Separate Go module if needed; strip symbols |
 | Clusters with custom scheduler plugins | Detect and warn; out of scope |
 | DRA becoming common (GPU clusters) | Done 2026-11-20: a `SharedDRAManager` built as `scheduler.go` does, over the snapshot's ResourceClaims, ResourceSlices and DeviceClasses; each per-plugin framework gets its own profile name, since DynamicResources indexes the shared pod informer under it |
-| Competitor already in Krew | Lead with parity + source linking, not with "explains Pending pods" |
+| Competitor already published | Lead with parity + source linking, not with "explains Pending pods" |

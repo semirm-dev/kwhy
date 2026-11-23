@@ -13,17 +13,6 @@ archives:
     files: [README.md, LICENSE]
 checksum:
   name_template: checksums.txt
-# Krew manifest (kubectl kwhy). Written to dist/krew/kwhy.yaml and attached to the release by release.yml;
-# submitting it to krew-index is a manual PR.
-krews:
-  - name: kwhy
-    homepage: https://github.com/semirm-dev/kwhy
-    short_description: Why a pod is Pending, a value is set, or a change restarts things
-    description: |
-      kwhy answers why questions about Kubernetes config with the real Helm and scheduler code.
-      kubectl kwhy pod <name> runs every kube-scheduler filter on every node and shows every failing check.
-      kubectl kwhy value and kubectl kwhy change trace Helm values and predict what a change does to running workloads.
-    skip_upload: true
 # Supply chain: an SBOM per archive (syft) and a keyless cosign signature of checksums.txt, using the workflow's
 # OIDC identity. Verify with:
 #   cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig \
@@ -36,15 +25,3 @@ signs:
     certificate: "${artifact}.pem"
     args: ["sign-blob", "--output-certificate=${certificate}", "--output-signature=${signature}", "${artifact}", "--yes"]
     artifacts: checksum
-# Homebrew (`brew install semirm-dev/tap/kwhy`): needs a semirm-dev/homebrew-tap repo and a HOMEBREW_TAP_TOKEN
-# secret that can push to it; skipped until that secret exists.
-homebrew_casks:
-  - name: kwhy
-    homepage: https://github.com/semirm-dev/kwhy
-    description: Why a pod is Pending, a value is set, or a change restarts things
-    license: Apache-2.0
-    repository:
-      owner: semirm-dev
-      name: homebrew-tap
-      token: '{{ index .Env "HOMEBREW_TAP_TOKEN" }}'
-    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
