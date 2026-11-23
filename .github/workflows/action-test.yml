@@ -1,0 +1,12 @@
+# Throwaway: exercises action.yml's PR comment step. Delete with the branch.
+name: action-test
+on: pull_request
+permissions: {contents: read, pull-requests: write, issues: write}
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
+      - uses: ./
+        with: {chart: testdata/charts/mini}
