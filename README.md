@@ -122,7 +122,7 @@ watches which output lines change. The [illustrated walkthrough](https://claude.
 shows every step. The first question about a chart traces it whole (0.02s to 21s, see
 [below](#how-we-know-its-right)); later questions about the same chart and values come from a cache.
 
-**Kustomize (experimental):** `kwhy value kustomize <overlay> <kind>/<name> [<path>|--all]` names the kustomization
+**Kustomize:** `kwhy value kustomize <overlay> <kind>/<name> [<path>|--all]` names the kustomization
 entry, and the line, that sets a field:
 
 ```console
@@ -132,8 +132,9 @@ $ kwhy value kustomize overlays/prod deploy/api '.spec.template.spec.containers[
      template  base/deployment.yaml
 ```
 
-It builds the overlay, then again with each entry removed: the entry whose removal changes a field wrote it. It
-names a line only when that line shows the value, otherwise just the entry. Remote bases, `helmCharts:` and plugins
+It builds the overlay, then again with each entry removed, and again with the values of the kustomizations and
+patches edited: the line whose edit changes a field wrote it, even when it sets the value the field already had. It
+names a line only when that holds, otherwise just the entry. Remote bases, `helmCharts:` and plugins
 stop with a message.
 
 ## `kwhy change`: what will this PR do?
@@ -233,8 +234,9 @@ Source:
 ## How we know it's right
 
 - **`value`** is checked nightly against 10 public charts (`go test -tags accuracy ./value/`): it never named a wrong
-  setting (precision 1.00) and found 98–100% of the settings that really change a field. Kustomize: 7 public
-  overlays, 39,316 fields, 0 wrong lines, 6 answered with the entry only.
+  setting (precision 1.00) and found 98–100% of the settings that really change a field. Kustomize is checked
+  the same way, by editing source lines and rebuilding, nightly on 12 public overlays: precision 1.00, recall
+  87–100% (kubebuilder's prefixed names name only the `namePrefix` line).
 - **`change`** has one fixture per rule in `testdata/change/`. CI applies base and head to kind (Kubernetes N-2..N)
   and compares the cluster with the prediction. Upgrades of ingress-nginx, argo-cd, cert-manager and grafana must
   not predict a false `will fail`.
@@ -308,7 +310,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | Flag | Meaning |
 |---|---|
 | `--chart DIR` | chart directory in the repo |
-| `--manifests DIR` | plain YAML, or a Kustomize overlay (experimental), in the repo |
+| `--manifests DIR` | plain YAML, or a Kustomize overlay, in the repo |
 | `--config FILE` | several targets: `targets: [{chart or manifests, values, set, setString, setJSON, release, namespace}]`; `.kwhy.yaml` is used when no source flag is given |
 | `--apps DIR` | Argo CD `Application`s and Flux `HelmRelease`s under DIR, read at each ref |
 | `-f`, `--set`, `--set-string`, `--set-json`, `--set-file`, `--set-literal` | as for `helm`; files in the repo are read at each ref |
@@ -340,7 +342,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error, `3` a `--fail-on` verdic
 | `--chart CHART` | chart that deploys the pod: adds the values line behind each field a failing check reads |
 | `-f`, `--set`, `--set-string`, `--set-json`, `--set-file`, `--set-literal`, `--version V` | as the release was deployed (with `--chart`) |
 | `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
-| `--kustomize DIR`, `--root DIR` | (experimental) the overlay that deploys the pod, and the directory holding its stack |
+| `--kustomize DIR`, `--root DIR` | the overlay that deploys the pod, and the directory holding its stack |
 | `--no-cache` | with `--chart` or `--kustomize`: trace again |
 | `--scheduler-config FILE` | the cluster's `KubeSchedulerConfiguration`: run the pod's profile instead of the default |
 
@@ -352,8 +354,8 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 
 ## Known limits
 
-- Kustomize support is experimental everywhere: no remote bases, `helmCharts:` or plugins, and `value kustomize`
-  names no override chain.
+- Kustomize: no remote bases, `helmCharts:` or plugins. `value kustomize` names no override chain, and a name built
+  from `namePrefix` names only the `namePrefix` line, not the resource's own `name:` line.
 - `lookup` returns empty, as with `helm template`.
 - `change --apps` skips apps from other repos, Helm repositories and Flux `valuesFrom`. Offline, DaemonSet pod
   counts are unknown.

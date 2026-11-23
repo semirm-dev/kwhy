@@ -35,7 +35,7 @@ in the override chain, applied in Helm's order. Traces and answers are cached in
 chart's files, the merged values, the options and the kwhy binary (`--no-cache` to skip): argo-cd's second
 question about the same field takes 0.2s instead of 9s.
 
-**Kustomize:** experimental since v0.9, see below.
+**Kustomize:** since v0.9 (experimental until 2026-11-23), see below.
 
 **Non-goals (v0.x):** Terraform/HCL, Jsonnet, cdk8s, live cluster objects (use `kubectl blame` for
 "who changed it in the cluster"), editing chart templates.
@@ -107,6 +107,8 @@ v0.1, 8 cores): 0.02–1.7s for most charts, argo-cd 3.8s, kube-prometheus-stack
 **Built 2026-11-20 (v0.9), experimental, redesigned**: the spike's rules 1–5,
 no override chains, and a line guard (a line is named only when it shows the value; else the entry). Public
 overlays: 39,316 fields, 0 wrong lines, 6 entry- or file-only (`value/kustomize_accuracy_test.go`).
+**2026-11-23, no longer experimental:** lines are confirmed by editing them and rebuilding (an entry that writes the
+value the field already had is found too); 12 public overlays nightly, precision 1.00, recall 0.87–1.00.
 
 History: a first implementation (shelved 2026-11-20) kept naming wrong lines through override chains,
 generator order, deleted documents and name collisions; v0.9 keeps its leave-one-out builds and drops chains. The

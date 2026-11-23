@@ -265,7 +265,7 @@ func valueKustomizeCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "kustomize <overlay dir> <kind>/<name> [<path>]",
-		Short:   "Which kustomization entry and line set a built value (experimental)",
+		Short:   "Which kustomization entry and line set a built value",
 		Example: `  kwhy value kustomize overlays/prod deploy/api '.spec.template.spec.containers[name=api].resources.requests.memory'`,
 		Args:    usageArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -487,7 +487,7 @@ func changeCmd() *cobra.Command {
 
 	f := cmd.Flags()
 	f.StringVar(&src.Chart, "chart", "", "chart directory in the repo")
-	f.StringVar(&src.Manifests, "manifests", "", "directory of plain YAML or a Kustomize overlay (experimental) in the repo, instead of --chart")
+	f.StringVar(&src.Manifests, "manifests", "", "directory of plain YAML or a Kustomize overlay in the repo, instead of --chart")
 	f.StringVar(&config, "config", "", "file listing several charts or manifests directories (default .kwhy.yaml when present)")
 	f.StringVar(&apps, "apps", "", "directory with Argo CD Applications or Flux HelmReleases: render every app they point at in this repo")
 	valuesFlags(f, &src.Values, "; files in the repo are read at each ref")
@@ -658,7 +658,7 @@ func podCmd() *cobra.Command {
 	f.StringVar(&src.version, "version", "", "chart version, for repo and OCI charts")
 	valuesFlags(f, &src.values, ", as deployed")
 	f.BoolVar(&src.noCache, "no-cache", false, "with --chart or --kustomize: trace again instead of reusing the last trace")
-	f.StringVar(&src.kustomize, "kustomize", "", "Kustomize overlay that deploys the pod: also show which entry and line set each field a failing check reads (experimental)")
+	f.StringVar(&src.kustomize, "kustomize", "", "Kustomize overlay that deploys the pod: also show which entry and line set each field a failing check reads")
 	f.StringVar(&src.root, "root", "", "with --kustomize: directory holding the whole overlay stack (default: the git repo root)")
 	f.StringVar(&src.release, "release", "", "Helm release name (default: the pod's app.kubernetes.io/instance label)")
 
