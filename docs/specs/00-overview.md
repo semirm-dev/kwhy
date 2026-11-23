@@ -73,7 +73,8 @@ it moves to its own Go module without changing the CLI.
 | v0.11 | `value chart --all` reuses cached answers; `kwhy mcp` removed; `change` rejects a path at neither ref and checks each ref out once; inline values of one app no longer overwrite each other; Kustomize builds no longer hang when a worker fails; `pod` lists the cluster in parallel (built 2026-11-23) | |
 | v0.12 | `change` refuses app paths and symlinks that leave the repo, and Kustomize remote bases and URLs before fetching; `--apps` works from a subdirectory; Ctrl-C stops Kustomize builds; `value kustomize` copies only the overlay's stack (built 2026-11-23) | |
 | v0.13 | `change --config` refuses paths that leave the repo or are URLs; `pod` rejects values flags without `--chart` (built 2026-11-23) | |
-| v0.14 | `change` refuses Kustomize bases outside the checkout (`..` or a symlink) and skips symlinked plain manifests; `--apps` warns when a file stops decoding; PR comments with only failures stay under GitHub's limit; old cache files are pruned; `value kustomize` confirms a single field's line with a rebuild; `docs/spikes/` removed (built 2026-11-23) | |
+| v0.14 | `change` refuses Kustomize bases outside the checkout (`..` or a symlink); `--apps` warns when a file stops decoding; PR comments with only failures stay under GitHub's limit; old cache files are pruned; `value kustomize` confirms a single field's line with a rebuild; `docs/spikes/` removed (built 2026-11-23) | |
+| v0.14.1 | plain manifests read a symlink to another file in the repo again (v0.14.0 skipped it; links out of the repo stay refused at checkout) (built 2026-11-23) | |
 | next | see `docs/plans/backlog.md` | |
 | later | Terraform for `value`; the rest in `docs/plans/backlog.md` | |
 
