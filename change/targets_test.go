@@ -1,6 +1,7 @@
 package change_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -250,5 +251,25 @@ spec:
 	}
 	if want := []string{"a:who: a", "b:who: b", "b:also: b"}; !slices.Equal(got, want) {
 		t.Errorf("values files = %q, want %q", got, want)
+	}
+}
+
+// A document that doesn't decode hides the apps after it: a file that began as manifests says so, a template
+// that never decoded stays quiet.
+func TestDiscoverWarnsOnUndecodable(t *testing.T) {
+	app := "apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata: {name: %s}\nspec: {source: {repoURL: x, path: k8s}}\n"
+	dir := writeTree(t, map[string]string{
+		"apps/all.yaml":      fmt.Sprintf(app, "a") + "---\nkind: ApplicationSet\nspec: {name: {{ .name }}}\n---\n" + fmt.Sprintf(app, "b"),
+		"apps/template.yaml": "x: {{ .a }}\n---\n" + fmt.Sprintf(app, "c"),
+	})
+	ts, warnings, err := change.Discover(dir, filepath.Join(dir, "apps"), "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != 1 || ts[0].Release != "a" {
+		t.Errorf("targets = %+v, want only a", ts)
+	}
+	if len(warnings) != 1 || !strings.HasPrefix(warnings[0], filepath.Join("apps", "all.yaml")+": document 2 doesn't decode") {
+		t.Errorf("warnings = %q", warnings)
 	}
 }

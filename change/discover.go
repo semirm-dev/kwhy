@@ -21,7 +21,7 @@ import (
 // can't be rendered from this repo is skipped with a warning naming the object and why, never guessed. Inline
 // values are written to temp files under tmp, which the caller removes.
 func Discover(tree, dir, remote, tmp string) (ts []Target, warnings []string, err error) {
-	objs, err := readObjects(dir)
+	objs, warnings, err := readObjects(tree, dir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("discover apps: %w", err)
 	}
@@ -93,10 +93,10 @@ func Discover(tree, dir, remote, tmp string) (ts []Target, warnings []string, er
 	return ts, warnings, nil
 }
 
-// readObjects decodes every YAML document under dir; files that aren't manifests are passed over.
-func readObjects(dir string) ([]obj, error) {
-	var objs []obj
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+// readObjects decodes every YAML document under dir; files that aren't manifests are passed over. A file that stops
+// decoding after an earlier document did gets a warning: apps after the bad document aren't seen.
+func readObjects(tree, dir string) (objs []obj, warnings []string, err error) {
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -110,12 +110,18 @@ func readObjects(dir string) ([]obj, error) {
 		}
 
 		dec := yaml.NewDecoder(bytes.NewReader(data))
-		for {
+		for n := 0; ; n++ {
 			var o obj
 			if err := dec.Decode(&o); errors.Is(err, io.EOF) {
 				return nil
 			} else if err != nil {
-				return nil // not every YAML file is a manifest; the ones that are decode
+				if n > 0 { // not every YAML file is a manifest, but this one began as one
+					if rel, err := filepath.Rel(tree, path); err == nil {
+						path = rel
+					}
+					warnings = append(warnings, fmt.Sprintf("%s: document %d doesn't decode (%v): it and the rest of the file are skipped", path, n+1, err))
+				}
+				return nil
 			}
 			if o != nil {
 				objs = append(objs, o)
@@ -123,7 +129,7 @@ func readObjects(dir string) ([]obj, error) {
 		}
 	})
 
-	return objs, err
+	return objs, warnings, err
 }
 
 // argoTarget turns one Argo CD source into a target, or a warning saying why it can't.
