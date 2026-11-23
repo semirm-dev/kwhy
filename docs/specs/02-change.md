@@ -48,7 +48,7 @@ Application's parameters or adds an app renders the base with the base's definit
 **v0.9 (built 2026-11-20, experimental):** Kustomize overlays in `--manifests` (built with Kustomize's library), Argo CD apps
 pointing at an overlay, and Flux `Kustomization` objects in `--apps`.
 
-**Built 2026-11-23 (unreleased):** CronJob `schedule` or `jobTemplate` changed: `delayed` (the next run picks it up). Bare
+**v0.10 (built 2026-11-23):** CronJob `schedule` or `jobTemplate` changed: `delayed` (the next run picks it up). Bare
 Pod: an image change (with tolerations added and `activeDeadlineSeconds` added or lowered) is `restart`, in place;
 any other spec change is `will fail` (kind fixtures `pod-image`, `pod-immutable`). Jobs, CronJobs and bare Pods are
 consumers of a changed ConfigMap or Secret; a CronJob's is `picked up` by the next run.

@@ -69,6 +69,8 @@ it moves to its own Go module without changing the CLI.
 | v0.7 | `value`/`change`: all Helm `--set*` flags, trace cache, `change --manifests`, `no endpoints`, surge vs quota, Action on all runners (built 2026-11-20) | |
 | v0.8 | `change` for several apps (`.kwhy.yaml`, Argo CD, Flux), `pod --scheduler-config`, `kwhy mcp`, signed releases with SBOMs (built 2026-11-20) | |
 | v0.9 | Kustomize, experimental: `value kustomize`, `change` on overlays, `pod --kustomize` (built 2026-11-20) | |
+| v0.10 | Kustomize no longer experimental; `change` for CronJob and bare Pod; `pod rs/`, `cj/`; scheduler's preemption dry run; cached Kustomize builds (built 2026-11-23) | |
+| v0.11 | `value chart --all` reuses cached answers; `kwhy mcp` removed (built 2026-11-23) | |
 | next | see `docs/plans/backlog.md` | |
 | later | Terraform for `value`; the rest in `docs/plans/backlog.md` | |
 
