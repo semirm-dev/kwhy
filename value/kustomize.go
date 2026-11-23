@@ -33,8 +33,11 @@ type Overlay struct {
 	// Fields are the built scalars; paths key named list items by name (`containers[name=api]`).
 	Fields map[KField]any
 	// Confirm makes Explain edit a line it is about to name and rebuild, and name it only when the field moves: a
-	// backstop for "never name a wrong line", one build per field (too slow for every field of a document).
+	// backstop for "never name a wrong line", one build per field (too slow for every field of a document). A stack
+	// with a replacements entry is always checked so: there a resource line can show a value it doesn't set.
 	Confirm bool
+
+	replaces bool // the stack has a replacements entry, which can write the value a resource line already shows
 
 	mem     filesys.FileSystem
 	orig    map[string][]byte // files as on disk, for the line guard
@@ -103,6 +106,7 @@ func LoadOverlay(ctx context.Context, root, dir, cache string) (*Overlay, error)
 	for _, kf := range stack {
 		o.entries = append(o.entries, findEntries(kf)...)
 	}
+	o.replaces = slices.ContainsFunc(stack, func(kf *kfile) bool { return kget(kf.doc.Content[0], "replacements").Node != nil })
 	o.lines = o.stackLines(stack)
 	o.affects, o.addedBy, o.writes = map[KField][]*kentry{}, map[string]*kentry{}, map[KField][]int{}
 

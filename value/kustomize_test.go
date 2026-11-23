@@ -157,7 +157,7 @@ func TestOverlayAtRoot(t *testing.T) {
 }
 
 // A replacement that writes the value the resource's own line already shows: the line shows the value but its edit
-// doesn't move the field. Confirm's rebuild catches that; the guard alone can't.
+// doesn't move the field. The rebuild catches that, also for --all, since the stack has a replacements entry.
 func TestOverlayConfirm(t *testing.T) {
 	dir := t.TempDir()
 	for name, content := range map[string]string{
@@ -184,17 +184,17 @@ func TestOverlayConfirm(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, confirm := range []bool{false, true} {
-		o.Confirm = confirm
-		a, err := o.Explain(value.KField{Doc: d.ID, Path: p})
-		if err != nil {
-			t.Fatal(err)
+	all, err := o.ExplainAll(d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range all {
+		if a.Field.Path != p {
+			continue
 		}
-		if confirm {
-			for _, l := range a.Leaves {
-				if src := l.Chain[0]; src.File == "deploy.yaml" && src.Line != 0 {
-					t.Errorf("confirm names deploy.yaml:%d, whose edit doesn't move the field", src.Line)
-				}
+		for _, l := range a.Leaves {
+			if src := l.Chain[0]; src.File == "deploy.yaml" && src.Line != 0 {
+				t.Errorf("names deploy.yaml:%d, whose edit doesn't move the field", src.Line)
 			}
 		}
 	}

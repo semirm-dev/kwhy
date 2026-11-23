@@ -282,8 +282,8 @@ How `pod` compares with other tools for Pending pods:
 
 `kwhy value kustomize <overlay dir> <kind>/<name> [<path>]` takes `--all`, `-o`, `--no-cache` and `--root DIR` (the
 directory holding the whole overlay stack, default the git root). For one field it also edits the line it is
-about to name and rebuilds, and names the line only when the field moves; `--all` skips that rebuild and keeps the
-line guard.
+about to name and rebuilds, and names the line only when the field moves; `--all` does so only when the stack has a
+`replacements:` entry (which can write the value a resource line already shows) and otherwise keeps the line guard.
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
 </details>
@@ -356,9 +356,7 @@ Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, 
 ## Known limits
 
 - Kustomize: no remote bases or URLs (refused before anything is fetched), `helmCharts:` or plugins. `value kustomize` names no override chain, and a name built
-  from `namePrefix` names only the `namePrefix` line, not the resource's own `name:` line. With `--all`, a field a
-  `replacements:` entry writes with the value the resource's own line already has can name that resource line;
-  ask for the field alone to have it confirmed by a rebuild.
+  from `namePrefix` names only the `namePrefix` line, not the resource's own `name:` line.
 - `lookup` returns empty, as with `helm template`.
 - `change --apps` skips apps from other repos, Helm repositories and Flux `valuesFrom`. Offline, DaemonSet pod
   counts are unknown.

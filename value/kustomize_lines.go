@@ -134,7 +134,7 @@ func (o *Overlay) names(file string, line int, f KField) bool {
 	if !o.lineShows(file, line, o.Fields[f]) {
 		return false
 	}
-	if !o.Confirm {
+	if !o.Confirm && !o.replaces {
 		return true
 	}
 
