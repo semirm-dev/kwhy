@@ -125,8 +125,8 @@ runs:
         marker='<!-- kwhy-change -->'
         body="$(printf '%s\n%s' "$marker" "$(cat "$RUNNER_TEMP/kwhy.md")")"
         # Only our own comment: anyone can post one starting with the marker, and editing theirs fails.
-        # The default token can't read /user; its comments are by github-actions[bot].
-        me=$(gh api user --jq .login 2>/dev/null || echo 'github-actions[bot]')
+        # The default token can't read /user (gh prints the 403 to stdout); its comments are by github-actions[bot].
+        me=$(gh api user --jq .login 2>/dev/null) || me='github-actions[bot]'
         id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
           --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id" | head -1)
         if [ -n "$id" ]; then
