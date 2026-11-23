@@ -110,7 +110,7 @@ func TestPodKustomizeSources(t *testing.T) {
 	r := pod.Result{Nodes: []pod.Node{{Name: "n1", Failed: []pod.Check{{Plugin: "NodeResourcesFit", Reasons: []string{"Insufficient memory"}}}}}}
 
 	t.Chdir("../../testdata/kustomize/fixture")
-	got, err := podKustomizeSources(t.Context(), c, p, r, ".", "overlays/prod")
+	got, err := podKustomizeSources(t.Context(), c, p, r, ".", "overlays/prod", true)
 	if err != nil {
 		t.Fatal(err)
 	}

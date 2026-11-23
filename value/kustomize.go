@@ -1,8 +1,11 @@
 package value
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -85,7 +88,8 @@ type nameSel string
 // LoadOverlay copies root (the repo, or any directory holding the whole stack) into memory, builds the overlay
 // dir in it, and builds it again once per entry of every kustomization in its stack with that entry removed.
 // Remote bases, helmCharts and plugins stop with an error naming them: kwhy stays offline and runs no code.
-func LoadOverlay(root, dir string) (*Overlay, error) {
+// cache is a directory that keeps the leave-one-out results between runs, keyed by every file copied; "" disables it.
+func LoadOverlay(root, dir, cache string) (*Overlay, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -132,6 +136,21 @@ func LoadOverlay(root, dir string) (*Overlay, error) {
 	}
 
 	o.affects, o.addedBy = map[KField][]*kentry{}, map[string]*kentry{}
+
+	// The cache holds entries by position in o.entries, which a parse of the same files gives in the same order.
+	var kc kcached
+	path := overlayCachePath(cache, o)
+	if path != "" && read(path, &kc) == nil && kc.Entries == len(o.entries) {
+		for f, is := range kc.Affects {
+			for _, i := range is {
+				o.affects[f] = append(o.affects[f], o.entries[i])
+			}
+		}
+		for id, i := range kc.AddedBy {
+			o.addedBy[id] = o.entries[i]
+		}
+		return o, nil
+	}
 
 	// Leave-one-out builds are independent. Removing an entry edits the copy, so each worker has its own copy of
 	// the files and its own parse of the stack, whose entries line up with o.entries by position.
@@ -189,6 +208,7 @@ func LoadOverlay(root, dir string) (*Overlay, error) {
 		return nil, err
 	}
 
+	kc = kcached{Entries: len(o.entries), Affects: map[KField][]int{}, AddedBy: map[string]int{}}
 	for i, r := range results {
 		if !r.ok {
 			continue
@@ -196,16 +216,46 @@ func LoadOverlay(root, dir string) (*Overlay, error) {
 		e := o.entries[i]
 		for f, v := range base {
 			if !r.ids[f.Doc] {
-				o.addedBy[f.Doc] = e // rule 3: the document came with the entry
+				o.addedBy[f.Doc], kc.AddedBy[f.Doc] = e, i // rule 3: the document came with the entry
 				continue
 			}
 			if w, ok := r.got[f]; !ok || !reflect.DeepEqual(v, w) {
-				o.affects[f] = append(o.affects[f], e)
+				o.affects[f], kc.Affects[f] = append(o.affects[f], e), append(kc.Affects[f], i)
 			}
 		}
 	}
+	if path != "" {
+		write(cache, path, kc)
+	}
 
 	return o, nil
+}
+
+// kcached is what an overlay cache file holds: which entries move each field and add each document.
+type kcached struct {
+	Entries int
+	Affects map[KField][]int
+	AddedBy map[string]int
+}
+
+// overlayCachePath is the cache file for o's files and overlay, "" when cache is "" or no key can be made.
+func overlayCachePath(cache string, o *Overlay) string {
+	if cache == "" {
+		return ""
+	}
+	exe, err := binaryID()
+	if err != nil {
+		return ""
+	}
+
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s", exe, o.target)
+	for _, p := range slices.Sorted(maps.Keys(o.orig)) {
+		fmt.Fprintf(h, "\x00%s\x00%d\x00", p, len(o.orig[p]))
+		h.Write(o.orig[p])
+	}
+
+	return filepath.Join(cache, "kustomize-"+hex.EncodeToString(h.Sum(nil))+".gob")
 }
 
 // Select picks the document sel ("deploy/api", "Deployment/prod-api", "cm/api-config") names, by kind

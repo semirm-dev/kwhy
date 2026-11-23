@@ -261,7 +261,7 @@ func valueChartCmd() *cobra.Command {
 func valueKustomizeCmd() *cobra.Command {
 	var (
 		output, root string
-		all          bool
+		all, noCache bool
 	)
 
 	cmd := &cobra.Command{
@@ -286,7 +286,7 @@ func valueKustomizeCmd() *cobra.Command {
 				}
 			}
 
-			o, err := value.LoadOverlay(root, dir)
+			o, err := value.LoadOverlay(root, dir, traceCache(noCache))
 			if err != nil {
 				return err
 			}
@@ -320,6 +320,7 @@ func valueKustomizeCmd() *cobra.Command {
 	f.StringVarP(&output, "output", "o", "human", "output format: human, markdown or json")
 	f.BoolVar(&all, "all", false, "explain every field of the resource")
 	f.StringVar(&root, "root", "", "directory holding the whole overlay stack (default: the git repo root)")
+	f.BoolVar(&noCache, "no-cache", false, "trace the overlay again instead of reusing the last trace of the same files")
 
 	return cmd
 }
@@ -588,7 +589,7 @@ func podCmd() *cobra.Command {
 
 				r := pod.Result{Problems: append(ps, ctrl...)}
 				if src.kustomize != "" && len(ps) > 0 {
-					if r.Sources, err = podKustomizeSources(ctx, c, p, r, src.root, src.kustomize); err != nil {
+					if r.Sources, err = podKustomizeSources(ctx, c, p, r, src.root, src.kustomize, src.noCache); err != nil {
 						return err
 					}
 				}
@@ -639,7 +640,7 @@ func podCmd() *cobra.Command {
 				}
 			}
 			if src.kustomize != "" {
-				if r.Sources, err = podKustomizeSources(ctx, c, p, r, src.root, src.kustomize); err != nil {
+				if r.Sources, err = podKustomizeSources(ctx, c, p, r, src.root, src.kustomize, src.noCache); err != nil {
 					return err
 				}
 			}
@@ -657,7 +658,7 @@ func podCmd() *cobra.Command {
 	f.StringVar(&src.chart, "chart", "", "chart that deploys the pod: also show which values line sets each field a failing check reads")
 	f.StringVar(&src.version, "version", "", "chart version, for repo and OCI charts")
 	valuesFlags(f, &src.values, ", as deployed")
-	f.BoolVar(&src.noCache, "no-cache", false, "with --chart: trace the chart again instead of reusing the last trace")
+	f.BoolVar(&src.noCache, "no-cache", false, "with --chart or --kustomize: trace again instead of reusing the last trace")
 	f.StringVar(&src.kustomize, "kustomize", "", "Kustomize overlay that deploys the pod: also show which entry and line set each field a failing check reads (experimental)")
 	f.StringVar(&src.root, "root", "", "with --kustomize: directory holding the whole overlay stack (default: the git repo root)")
 	f.StringVar(&src.release, "release", "", "Helm release name (default: the pod's app.kubernetes.io/instance label)")
@@ -738,13 +739,13 @@ func podSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r po
 }
 
 // podKustomizeSources is podSources for a pod deployed from a Kustomize overlay.
-func podKustomizeSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r pod.Result, root, dir string) ([]pod.Source, error) {
+func podKustomizeSources(ctx context.Context, c kubernetes.Interface, p *corev1.Pod, r pod.Result, root, dir string, noCache bool) ([]pod.Source, error) {
 	kind, name, err := pod.Owner(ctx, c, p)
 	if err != nil {
 		return nil, err
 	}
 
-	o, err := value.LoadOverlay(root, dir)
+	o, err := value.LoadOverlay(root, dir, traceCache(noCache))
 	if err != nil {
 		return nil, err
 	}

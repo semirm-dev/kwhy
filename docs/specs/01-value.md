@@ -130,7 +130,9 @@ the spike README.
 components); strategic-merge and JSON6902 patches, from files or inline; `images`, `replicas`,
 `namespace`, `namePrefix`/`nameSuffix`, `commonLabels`/`commonAnnotations`/`labels`,
 `configMapGenerator`/`secretGenerator` and their literals. Same command style and `kwhy.value/v1`
-output as Helm: `kwhy value kustomize <overlay dir> <kind>/<name> [<path>]`, `--all`.
+output as Helm: `kwhy value kustomize <overlay dir> <kind>/<name> [<path>]`, `--all`. Since 2026-11-23 the
+leave-one-out results are cached, keyed by every file in the copy, the overlay and the kwhy binary (`--no-cache`):
+argo-cd HA goes from 9.5s to 0.9s.
 
 **Not supported by the first attempt** (for the first three kwhy stops with a message naming what it found, never a partial answer):
 

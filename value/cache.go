@@ -106,6 +106,19 @@ func cacheKey(c *render.Chart, v *Values, o render.Options, chunkSize int) (stri
 		return "", err
 	}
 
+	exe, err := binaryID()
+	if err != nil {
+		return "", err
+	}
+
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s\x00%+v\x00%d\x00%s", digest, user, o, chunkSize, exe)
+
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// binaryID tells this kwhy binary from another build, so a new kwhy never reads an old one's cache.
+func binaryID() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -115,10 +128,7 @@ func cacheKey(c *render.Chart, v *Values, o render.Options, chunkSize int) (stri
 		return "", err
 	}
 
-	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00%+v\x00%d\x00%d\x00%d", digest, user, o, chunkSize, fi.Size(), fi.ModTime().UnixNano())
-
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return fmt.Sprintf("%d\x00%d", fi.Size(), fi.ModTime().UnixNano()), nil
 }
 
 func readCache(c *render.Chart, v *Values, path string) (*Index, error) {

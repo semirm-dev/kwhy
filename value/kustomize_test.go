@@ -1,7 +1,9 @@
 package value_test
 
 import (
+	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/semirm-dev/kwhy/value"
@@ -11,7 +13,7 @@ const fixture = "../testdata/kustomize/fixture"
 
 func TestOverlay(t *testing.T) {
 	t.Chdir(fixture)
-	o, err := value.LoadOverlay(".", "overlays/prod")
+	o, err := value.LoadOverlay(".", "overlays/prod", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +77,7 @@ func TestOverlay(t *testing.T) {
 // The guard: every line the overlay names shows the field's value; nothing is named on a guess.
 func TestOverlayLinesShowValues(t *testing.T) {
 	t.Chdir(fixture)
-	o, err := value.LoadOverlay(".", "overlays/prod")
+	o, err := value.LoadOverlay(".", "overlays/prod", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,5 +94,52 @@ func TestOverlayLinesShowValues(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// A cached load answers exactly like a fresh one, and any edited file is a new key.
+func TestOverlayCache(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.CopyFS(repo, os.DirFS(fixture)); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	cache := t.TempDir()
+
+	answers := func() []value.Answer {
+		t.Helper()
+		o, err := value.LoadOverlay(".", "overlays/prod", cache)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var all []value.Answer
+		for _, d := range o.Docs {
+			as, err := o.ExplainAllOverlay(d.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			all = append(all, as...)
+		}
+		return all
+	}
+
+	fresh := answers()
+	files, _ := filepath.Glob(filepath.Join(cache, "kustomize-*.gob"))
+	if len(files) != 1 {
+		t.Fatalf("cache files = %v, want one", files)
+	}
+	if cached := answers(); !reflect.DeepEqual(cached, fresh) {
+		t.Errorf("cached answers differ:\n%+v\nwant\n%+v", cached, fresh)
+	}
+
+	f, err := os.OpenFile("overlays/prod/memory.yaml", os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("# edited\n")
+	f.Close()
+	answers()
+	if files, _ = filepath.Glob(filepath.Join(cache, "kustomize-*.gob")); len(files) != 2 {
+		t.Errorf("after an edit, cache files = %v, want two", files)
 	}
 }

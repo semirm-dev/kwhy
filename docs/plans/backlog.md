@@ -3,13 +3,13 @@
 The open work and the decisions any future change must respect. What's built is in the README and
 `docs/specs/`; how it was built is in git history.
 
-## Where each command stands (2026-11-20, v0.9.0)
+## Where each command stands (2026-11-23, v0.9.0 plus unreleased work)
 
 | Command | Helm | Plain YAML | Kustomize | Checked by | Gaps |
 |---|---|---|---|---|---|
-| `value` | done: every spec item, all `--set*` flags, cache | n/a | experimental | 10 charts nightly (precision 1.00, recall 0.98–1.00); 7 overlays, on demand | #1–4 |
-| `change` | done: every spec rule, `--context`, Action, `.kwhy.yaml`, Argo CD / Flux | done | experimental | 23 kind fixtures on 1.35/1.37, 4 real chart upgrades | #6, #7 |
-| `pod` | Pending (real scheduler, DRA, custom profiles) and not-running (kubelet, controllers) done; `--chart` | n/a | `--kustomize`, experimental | kind parity suite on 1.35–1.37 | #5, #8 |
+| `value` | done: every spec item, all `--set*` flags, cache | n/a | experimental, cached | 10 charts nightly (precision 1.00, recall 0.98–1.00); 7 overlays, on demand | #1–3 |
+| `change` | done: every spec rule, `--context`, Action, `.kwhy.yaml`, Argo CD / Flux read at each ref, CronJob and bare Pod | done | experimental | 25 kind fixtures on 1.35/1.37, 4 real chart upgrades | |
+| `pod` | Pending (real scheduler, DRA, custom profiles) and not-running (kubelet, controllers) done; `--chart`; `rs/`, `cj/` | n/a | `--kustomize`, experimental | kind parity suite on 1.35–1.37 | #5 |
 
 ## Open
 
@@ -18,11 +18,7 @@ The open work and the decisions any future change must respect. What's built is 
 | 1 | **Kustomize: wider testing before dropping "experimental"**: more real overlays in `value/kustomize_accuracy_test.go`, and a nightly run like Helm's | 7 overlays so far; Helm has 10 charts nightly | M |
 | 2 | Kustomize remote bases: clone each once into a cache at its ref, map the clones into the in-memory copy; opt-in, since it breaks "offline" | stops with a message today | M |
 | 3 | Kustomize `helmCharts:` inside a kustomization | stops with a message today | M, spike first |
-| 4 | Kustomize trace cache (like Helm's), keyed by the stack's files | argo-cd HA takes ~8s per question | S |
 | 5 | `kwhy pod` preemption hint that weighs PodDisruptionBudgets and nominated pods | the hint may name a node the scheduler wouldn't preempt on | M |
-| 6 | `change --apps` reads Argo CD / Flux definitions at each ref, not only the working tree | an app whose definition changes in the PR uses the head's | S |
-| 7 | `change`: CronJob (next run picks it up) and bare Pod (mostly immutable: `will fail`) verdicts; CronJob/Job as ConfigMap and Secret consumers | these changes get no line today | S |
-| 8 | `pod cj/` and `rs/` targets | today you name one of their pods | S |
 
 ## Decisions to keep
 

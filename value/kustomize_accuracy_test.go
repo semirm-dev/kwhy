@@ -33,7 +33,7 @@ func TestOverlayAccuracy(t *testing.T) {
 			}
 			t.Chdir(root)
 
-			o, err := value.LoadOverlay(".", tc.overlay)
+			o, err := value.LoadOverlay(".", tc.overlay, "")
 			if err != nil {
 				t.Fatal(err)
 			}

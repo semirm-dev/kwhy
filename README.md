@@ -77,7 +77,8 @@ field's value; otherwise kwhy names the entry (its own line) and says the field'
 never guesses a line, and it doesn't claim an override order between patches. On 7 public overlays (podinfo,
 flux2 example, microservices-demo, argo-cd plain and HA; `go test -tags accuracy -run TestOverlayAccuracy`, after
 `scripts/fetch-overlays.sh`), 39,316 fields: 39,310 with a confirmed line, 6 with the entry or file only, 0 wrong.
-argo-cd HA (50 entries) answers in ~8s. Remote bases, `helmCharts:` and plugins stop with a message naming them.
+argo-cd HA (50 entries) answers in ~9s the first time; repeats with the same files come from the cache in under
+a second (`--no-cache` to skip). Remote bases, `helmCharts:` and plugins stop with a message naming them.
 
 ### How it works
 
@@ -358,7 +359,7 @@ Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usag
 | `-o, --output` | `human` (default), `markdown` or `json` (`"schema": "kwhy.pod/v1"`, every node with all failing checks and the scheduler's first) |
 | `--chart CHART` | chart that deploys the pod (directory, `.tgz`, `oci://` or `repo/chart`): adds the values line behind each field a failing check reads |
 | `-f`, `--set`, `--set-string`, `--set-json`, `--set-file`, `--set-literal`, `--version V` | as the release was deployed (with `--chart`) |
-| `--no-cache` | with `--chart`: trace the chart again instead of reusing the cached trace |
+| `--no-cache` | with `--chart` or `--kustomize`: trace again instead of reusing the cached trace |
 | `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
 | `--scheduler-config FILE` | the cluster's `KubeSchedulerConfiguration`: run the profile named by the pod's `schedulerName` instead of the default one (out-of-tree plugins can't run and fail by name) |
 | `--kustomize DIR`, `--root DIR` | (experimental) the overlay that deploys the pod (and the directory holding its stack, default the git root): adds the entry and line behind each field a failing check reads |
