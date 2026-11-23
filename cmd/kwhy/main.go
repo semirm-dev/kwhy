@@ -513,7 +513,7 @@ func podCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "pod <name|pod/name|deploy/name|sts/name|ds/name|rs/name|job/name|cj/name>",
-		Short: "Why a pod is not scheduled: every scheduler check on every node",
+		Short: "Why a pod is not running: every scheduler check on every node, or what kubelet and its controller report",
 		Example: `  kwhy pod api-7d9f-x2x -n shop
   kwhy pod deploy/api -n shop --context prod -o markdown
   kwhy pod deploy/api -n shop --chart ./charts/api -f values-prod.yaml   # also: which values line set it`,

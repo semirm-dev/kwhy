@@ -5,131 +5,144 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/semirm-dev/kwhy.svg)](https://pkg.go.dev/github.com/semirm-dev/kwhy)
 [![License](https://img.shields.io/github/license/semirm-dev/kwhy)](LICENSE)
 
-Answers the "why" questions about Kubernetes config, using the real Helm and scheduler code instead of guesses.
+kwhy answers three "why" questions about Kubernetes config. It doesn't guess and doesn't re-implement rules: the
+answers come from Helm, Kustomize and the kube-scheduler themselves, compiled in.
 
-| Command | Question | Works on | Status |
-|---|---|---|---|
-| `kwhy value` | Where does this rendered value come from? (Helm; Kustomize experimental) | Git repo, offline | v0.9 |
-| `kwhy change` | What will merging this change actually do to running workloads? | Git repo (+ optional cluster, read-only) | v0.9 |
-| `kwhy pod` | Why is this pod not running? | Live cluster, read-only | v0.9 |
+| Command | Question | Needs |
+|---|---|---|
+| `kwhy value` | Where does this rendered value come from? | a chart or overlay, offline |
+| `kwhy change` | What will merging this PR do to running workloads? | a git repo; a cluster optional |
+| `kwhy pod` | Why isn't this pod running? | a cluster, read-only |
 
-> **Status:** all three commands work end to end for Helm and plain YAML; Kustomize is experimental in all three.
-> `kwhy value` is checked nightly against 10 public charts.
-> `kwhy change` works for charts, plain YAML and Argo CD / Flux apps, and every rule is checked against a real cluster in CI. `kwhy pod` works on
-> live clusters: Pending pods are checked against the real scheduler, and crashes, pull errors, OOM kills, config,
-> mount and probe failures against what kubelet reports, on kind in CI (Kubernetes 1.35–1.37).
+One static binary. Offline by default, read-only when it talks to a cluster, no telemetry.
+
+## Install
+
+Download the archive for your platform (macOS, Linux or Windows; amd64 or arm64) from
+[GitHub Releases](https://github.com/semirm-dev/kwhy/releases), unpack it and put `kwhy` on your `PATH`.
+
+<details>
+<summary>Verify a release (SBOM and cosign signature, from v0.8)</summary>
+
+```sh
+cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig \
+  --certificate-identity-regexp 'https://github.com/semirm-dev/kwhy/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+```
+</details>
+
+## Try it in 5 minutes
+
+Clone this repo for its test chart. Everything below is real output.
+
+```sh
+git clone https://github.com/semirm-dev/kwhy && cd kwhy
+```
+
+**1. Where does a value come from?** The chart's default says 512Mi, two values files override it. Which one wins?
+
+```console
+$ kwhy value chart testdata/charts/mini deploy/rel-api \
+    '.spec.template.spec.containers[name=api].resources.requests.memory' \
+    -f testdata/values-prod.yaml -f testdata/values-anchors.yaml
+4Gi  testdata/values-anchors.yaml:2  resources.requests.memory
+     ├─ overrides  testdata/values-prod.yaml:4  = 2Gi
+     └─ default    mini/values.yaml:7           = 512Mi
+     template      mini/templates/deployment.yaml
+```
+
+Don't know the resource name? Guess: the error lists everything the chart renders. `--all` explains every field.
+
+**2. What will a PR do?** Put the chart in a scratch repo, change one ConfigMap value, and ask:
+
+```console
+$ mkdir /tmp/demo && cp -r testdata/charts/mini /tmp/demo/chart && cp testdata/values-prod.yaml /tmp/demo/
+$ cd /tmp/demo && git init -q && git add . && git commit -qm base
+$ perl -pi -e 's/logLevel: info/logLevel: debug/' chart/values.yaml && git commit -qam 'debug logs'
+$ kwhy change HEAD~1..HEAD --chart chart -f values-prod.yaml
+Merging this change will:
+↻ restart  Deployment default/rel-api  3 pods  pod template
+3 pods restarted
+```
+
+A log level change restarts 3 pods, because the chart hashes the ConfigMap into a pod annotation. `-o markdown`
+makes it a PR comment, `--fail-on restart` fails CI with exit code 3, and `--context prod` reads live replica
+counts and estimates the rollout time.
+
+**3. Why isn't a pod running?** On any cluster (here `kind create cluster`):
+
+```console
+$ kubectl create deployment big --image=registry.k8s.io/pause:3.10
+$ kubectl set resources deploy big --requests=cpu=64
+$ kwhy pod deploy/big
+default/big-6c4db49874-fpchk Pending 50s · 0 of 1 nodes fit · every check, every node
+
+NODE                NodeResourcesFit
+kind-control-plane  ✗ cpu 0.95/32 +64
+
+Reasons:
+  NodeResourcesFit: Insufficient cpu
+
+$ kubectl create deployment crash --image=busybox:1.37 -- sh -c 'echo connecting to db; echo fatal: password rejected; exit 1'
+$ kwhy pod deploy/crash --logs 5
+default/crash-85c79cf665-zggn2 on kind-control-plane · Running · not ready · 1 container, 1 failing
+
+CONTAINER  PROBLEM  DETAIL
+busybox    crash    exit 1, 3 restarts, last 14s ago
+
+Logs (busybox, last run):
+  connecting to db
+  fatal: password rejected
+```
 
 ## `kwhy value`: where does this value come from?
 
-A rendered field can come from chart defaults, several `-f` files, `--set` flags or template logic.
-`kwhy value` points at the exact line that wins, and at everything it overrides.
-
 <img src="docs/demo/value.svg" alt="kwhy value tracing requests.memory to values-prod.yaml:31 and what it overrides" width="100%">
+
+<sub>Illustration; the console blocks on this page are real output.</sub>
+
+A rendered field can come from chart defaults, several `-f` files, `--set` flags or template logic. kwhy names the
+line that wins and everything it overrides. It follows Helm's own merge rules: later files win, maps merge, lists
+replace whole, `null` deletes, subchart defaults mount under their name or alias, and YAML anchors point at the line
+where the value is written.
 
 When a field isn't a plain copy of one value, the answer says so instead of guessing:
 
 ```console
-$ kwhy value chart <chart> deploy/api '.spec.template.spec.containers[name=api].env[name=LEADER_ELECTION].value' ...
-
-true  derived  ← replicaCount (values-prod.yaml:1)
+$ kwhy value chart testdata/charts/mini deploy/rel-api '.spec.template.spec.containers[name=api].env[name=LEADER_ELECTION].value' -f testdata/values-prod.yaml
+true  derived  ← replicaCount (testdata/values-prod.yaml:1)
       template  mini/templates/deployment.yaml
 ```
 
-Every answer has one of these kinds, in the human output and in `-o json` (`"schema": "kwhy.value/v1"`):
+Charts can be a directory, a `.tgz`, `oci://` or `repo/chart`. `-o markdown` is for PR comments, `-o json` for
+scripts and agents.
 
-| Kind | Meaning | Example |
-|---|---|---|
-| `direct` | the field equals one values leaf | `replicas: 3` ← `replicaCount` |
-| `composed` | one or more leaves plus template text | `image: repo:tag` ← `image.repository` + `image.tag` |
-| `derived` | template logic computes it from leaves | `leader-election: "true"` ← `replicaCount` |
-| `encoded` | a leaf passed through `b64enc` | Secret data ← `auth.user` |
-| `hashed` | checksum of other content | `checksum/config` annotation |
-| `chart` | no values leaf affects it | `apiVersion`, fixed ports |
-| `structural` | a leaf decides whether the field exists | `ingress.enabled` |
-| `random` | differs between two identical renders | `randAlphaNum` passwords |
+**How it works:** kwhy doesn't read templates. It renders the chart with Helm, changes values on purpose and
+watches which output lines change. The [illustrated walkthrough](https://claude.ai/artifact/DUEg6FMnDfw65yfdUWJj4v)
+shows every step. The first question about a chart traces it whole (0.02s to 21s, see
+[below](#how-we-know-its-right)); later questions about the same chart and values come from a cache.
 
-Other forms:
+**Kustomize (experimental):** `kwhy value kustomize <overlay> <kind>/<name> [<path>|--all]` names the kustomization
+entry, and the line, that sets a field:
 
 ```console
-$ kwhy value chart <chart> deploy/api --all ...                 # every field of the resource with its source
-$ kwhy value chart <chart> deploy/api <path> ... -o markdown    # for PR comments; -o json for CI and agents
-```
-
-### Kustomize (v0.9, experimental)
-
-> **Experimental:** tested on 7 public overlays, not yet nightly like Helm's 10 charts. Answers are designed never
-> to name a wrong line, but expect gaps (no override chains, no remote bases or `helmCharts:`). Feedback welcome.
-
-`kwhy value kustomize <overlay> <kind>/<name> [<path>|--all]` names the kustomization entry, and the line, that
-sets a field of the built output. Real output on the test fixture (`testdata/kustomize/fixture`):
-
-```console
+$ cd testdata/kustomize/fixture
 $ kwhy value kustomize overlays/prod deploy/api '.spec.template.spec.containers[name=api].resources.requests.memory'
 2Gi  overlays/prod/memory.yaml:12  patches[0] path=memory.yaml
      template  base/deployment.yaml
-$ kwhy value kustomize overlays/prod cm/api-config '.data.LOG_LEVEL'
-warn  overlays/prod/kustomization.yaml:26  configMapGenerator[0].literals LOG_LEVEL=warn
 ```
 
-It builds the overlay with Kustomize's own library, then once more per entry of every kustomization in the stack
-with that entry removed: the entry whose removal changes a field wrote it. A line is named only when it shows the
-field's value; otherwise kwhy names the entry (its own line) and says the field's line couldn't be confirmed. It
-never guesses a line, and it doesn't claim an override order between patches. On 7 public overlays (podinfo,
-flux2 example, microservices-demo, argo-cd plain and HA; `go test -tags accuracy -run TestOverlayAccuracy`, after
-`scripts/fetch-overlays.sh`), 39,316 fields: 39,310 with a confirmed line, 6 with the entry or file only, 0 wrong.
-argo-cd HA (50 entries) answers in ~9s the first time; repeats with the same files come from the cache in under
-a second (`--no-cache` to skip). Remote bases, `helmCharts:` and plugins stop with a message naming them.
+It builds the overlay, then again with each entry removed: the entry whose removal changes a field wrote it. It
+names a line only when that line shows the value, otherwise just the entry. Remote bases, `helmCharts:` and plugins
+stop with a message.
 
-### How it works
+## `kwhy change`: what will this PR do?
 
-kwhy doesn't read templates. It renders the chart with Helm itself, tags or changes settings on purpose, and
-watches which lines of output change. The [illustrated walkthrough](https://claude.ai/artifact/DUEg6FMnDfw65yfdUWJj4v)
-covers every step with diagrams, explained in plain words and mapped to the code behind it.
-
-### What works today
-
-The engine underneath is in place: in-process Helm rendering (`render/`) and the override chain of every
-values leaf (`value/`). For the fixture chart in `testdata/` with
-`-f values-prod.yaml -f values-anchors.yaml --set image.tag=9.9`, it already knows:
-
-```
-replicaCount               3      values-prod.yaml:1=3        mini/values.yaml:1=1
-resources.requests.memory  4Gi    values-anchors.yaml:2=4Gi   values-prod.yaml:4=2Gi   mini/values.yaml:7=512Mi
-image.tag                  9.9    --set:0=9.9                 mini/values.yaml:4=
-sub.greeting               hi     values-prod.yaml:8=hi       mini/charts/sub/values.yaml:1=hello
-global.env                 prod   values-prod.yaml:10=prod    mini/values.yaml:17=dev
-```
-
-It follows Helm's own merge rules: later files win, maps merge, lists replace whole, `null` deletes,
-subchart defaults mount under their name or alias, and YAML anchors point at the line where the value is written.
-
-On top of that, marker tracing matches rendered fields to these leaves, every answer gets one of the eight
-kinds, and `kwhy value` prints them (`--all`, `-o human|markdown|json`) for local charts.
-
-Accuracy is checked against 10 pinned public charts (`go test -tags accuracy ./value/`, run nightly in CI).
-All 10 pass: kwhy never named a wrong setting (precision 1.00), and it found at least 98% of the settings
-that really change a field (recall 0.98–1.00, up to 50 settings checked per chart).
-
-One field, end to end, on an 8-core M1 Pro:
-
-| Chart | Values leaves | Time |
-|---|---|---|
-| podinfo, external-dns, ingress-nginx, grafana | 68–243 | 0.02–0.35s |
-| postgresql, redis, cert-manager, keycloak | 189–569 | 0.9–1.7s |
-| argo-cd | 758 | 3.8s |
-| kube-prometheus-stack | 1247 | 21s |
-
-Nearly all of it is tracing the whole chart once; later questions about the same chart and values come from
-the cache (argo-cd: 9s → 0.2s).
-
-## `kwhy change`: what will this PR do? (v0.3–v0.9)
-
-Diff tools show the full rendered diff. `kwhy change` says what the diff *does*, as one short PR comment
-(target output):
+Diff tools show the rendered diff. `kwhy change` says what the diff *does*:
 
 <img src="docs/demo/change.svg" alt="kwhy change summarising which workloads restart, roll in order, see no effect or fail" width="100%">
 
-Real output, for a chart deployed to a kind cluster:
+<sub>Illustration. Real output, for a chart deployed to kind:</sub>
 
 ```console
 $ kwhy change main~1..main --chart chart -n kwhy-demo --context kind-kwhy --fail-on fail
@@ -142,27 +155,13 @@ Merging this change will:
 kwhy: --fail-on: will fail Job kwhy-demo/migrate
 ```
 
-It renders the chart at both refs (temporary `git worktree` checkouts, removed afterwards), or reads a directory
-of plain YAML with `--manifests DIR`, or every app at once (v0.8): the targets of a `.kwhy.yaml`, or the Argo CD
-`Application`s and Flux `HelmRelease`s under `--apps DIR` that point into this repo (with their value files,
-parameters, inline values, release name and namespace; anything it can't render from the repo is skipped with a
-warning naming it). An app added or removed in the PR shows as `create` or `delete`.
-It classifies every changed object: `restart`, `ordered`, `scale`,
-`resize` (PVC growth), `recreate` (Argo `Replace`/`Force`), `runs as hook`, `no effect` / `delayed` /
-`picked up` for ConfigMap and Secret consumers, `will fail` for immutable fields, `no endpoints` for a Service
-whose selector stops matching its pods, `data` for deletes that lose stored data, and `create` / `delete`.
-Restarts that pull a mutable tag (`:latest` or untagged) say so.
+It renders both refs in temporary git worktrees. Sources: a chart (`--chart`), plain YAML or a Kustomize overlay
+(`--manifests`), several targets in a `.kwhy.yaml`, or every Argo CD `Application` and Flux `HelmRelease` under
+`--apps DIR` that points into the repo. Offline, pod counts come from `replicas`. With `--context` it reads the
+cluster (get and list only) for live replicas, HPA ranges, DaemonSet node counts, StorageClass expansion, the
+namespace's ResourceQuota and a rollout time estimate.
 
-Offline, pod counts come from the manifests' `replicas`. `--context` reads the cluster (get and list only) for
-live replica counts, HPA ranges, DaemonSet node counts, whether a claim's StorageClass can expand, and a rollout
-estimate (batches from `maxSurge`/`maxUnavailable`, each ~10s start plus readiness delay and `minReadySeconds`),
-and whether a Deployment's surge pods fit the namespace's ResourceQuota.
-
-Every rule kubectl can observe is checked in CI on kind (Kubernetes N-2..N): `testdata/change/` holds one
-base/head fixture per rule, and the suite applies both and compares the cluster with the prediction. Upgrades of
-ingress-nginx, argo-cd, cert-manager and grafana must not predict a false `will fail`.
-
-### GitHub Action
+### In a pull request
 
 ```yaml
 on: pull_request
@@ -180,72 +179,19 @@ jobs:
           fail-on: fail,data-loss
 ```
 
-It posts one comment per PR and updates it on every push, comparing the PR's base with the merge commit.
-Inputs: `chart`, `manifests`, `config` or `apps` (none: `.kwhy.yaml`), `values` and `set` (one per line), `release`, `namespace`, `kube-version`,
-`fail-on`, `base`, `head`, `version` (kwhy release, default latest), `comment`. Linux, macOS and Windows runners.
+It posts one comment per PR and updates it on every push. Other inputs: `manifests`, `config`, `apps`, `set`,
+`release`, `namespace`, `kube-version`, `base`, `head`, `version`, `comment`. Linux, macOS and Windows runners.
 
-## `kwhy pod`: why isn't it running? (v0.4–v0.9)
+## `kwhy pod`: why isn't it running?
 
-Two cases, one command. It says what's wrong; fixing it stays with you.
+It says what's wrong; fixing it stays with you. Give it a pod or a workload (`deploy/`, `sts/`, `ds/`, `rs/`, `job/`,
+`cj/`); for a workload it picks the worst pod, or says `all N pods ready`.
 
-**On a node but not running or not ready** (v0.5): kwhy reads the pod's status and events and names each failing
-container's problem as kubelet reported it: `pull`, `crash` (exit code, restarts), `oom` (the limit it hit),
-`config` (missing Secret, ConfigMap or key), `mount`, `probe`, `evicted`, `sandbox`, `node` (the node isn't Ready
-or is under pressure), or `other` with kubelet's reason. Init containers come first; a past OOM kill of a container
-that's fine now shows as `oom (earlier)`. Real output on kind:
+**Pending:** kwhy runs the real kube-scheduler filters on every node and shows *every* failing check. The scheduler's
+own event only names the first one per node, so fixing that one often just reveals the next:
 
 ```console
-$ kwhy pod deploy/api -n shop --logs 5
-shop/api-7786cbf6bb-txlt8 on kwhy-pod-worker · Running · not ready · 2 containers, 1 failing
-
-CONTAINER  PROBLEM  DETAIL
-api        oom      killed at limit 32Mi, 4 restarts, last 1m ago
-proxy      ✓
-
-Events:
-  api: Back-off restarting failed container api in pod api-7786cbf6bb-txlt8_shop(9b22ae5a-f48d-4749-a5f1-8608dac549dc)
-
-Logs (api, last run):
-  starting cache warm-up
-
-$ kwhy pod deploy/worker -n shop --logs 5
-shop/worker-6b697b77cd-dh92v on kwhy-pod-worker2 · Running · not ready · 1 container, 1 failing
-
-CONTAINER  PROBLEM  DETAIL
-worker     crash    exit 1, 3 restarts, last 20s ago
-
-Logs (worker, last run):
-  connecting to db:5432
-  fatal: password authentication failed
-```
-
-kwhy never guesses why an app exits: `exit 1` is all kubelet knows, and the logs (opt-in, `--logs N`) are the app's
-own words. With `--chart`, problems link to values like checks do (from the test suite, the test chart with
-`--set resources.limits.memory=4Gi`): `oom (api)  .spec.containers[0].resources.limits.memory = 4Gi  ← resources.limits.memory (--set resources.limits.memory=4Gi)`.
-For a workload (`deploy/`, `sts/`, `ds/`, `job/`) it explains the worst pod (unscheduled first, then the
-not-ready one with the most restarts, then one stuck terminating), or says `all N pods ready`. It also reads the
-workload's controller (v0.6): pods a ReplicaSet, StatefulSet, DaemonSet or Job can't create (`create`: quota,
-PodSecurity, webhooks), a Deployment rollout past its deadline (`rollout`), a failed Job (`job`). A pod deleted but
-still there gets `terminating` with its finalizers. Real output on kind, for a namespace with a zero-pod quota:
-
-```console
-$ kwhy pod deploy/target -n shop
-shop/deploy/target · no pod to check · 1 problem from its controller
-
-CONTAINER     PROBLEM  DETAIL
-(controller)  create   replicaset target-f5bdbb58: pods "target-f5bdbb58-v7thh" is forbidden: exceeded quota: no-pods, requested: pods=1, used: pods=0, limited: pods=0
-```
-
-**Not scheduled (Pending)** (v0.4): runs the real kube-scheduler filters on every node and shows every failing
-check, not just the first one the scheduler reports. It adds what Cluster Autoscaler or Karpenter last said about
-the pod (`autoscaler`), and, for a pod that may preempt, what the scheduler's own preemption would do as a dry run:
-the nodes it could make room on, the node it picks, the pods it evicts and the PodDisruptionBudgets that breaks.
-Pods already nominated to a node hold room there, as they do for the scheduler.
-
-Real output, for a Deployment asking for a gpu node and 40 CPUs on a 3-node kind cluster:
-
-```console
-$ kwhy pod deploy/train -n ml --context kind-kwhy-pod
+$ kwhy pod deploy/train -n ml
 ml/train-b977cbd9c-8ct8w Pending 3s · 0 of 3 nodes fit · every check, every node
 
 NODE                    TaintToleration  NodeAffinity  NodeResourcesFit
@@ -259,13 +205,18 @@ Reasons:
   NodeResourcesFit: Insufficient cpu
 ```
 
-The scheduler's own event for this pod names one reason per node (`1 Insufficient cpu, 1 node(s) didn't match Pod's
-node affinity/selector, 1 node(s) had untolerated taint(s)`), so fixing the selector would only reveal the CPU problem
-next. Columns are the checks that fail somewhere; `cpu 0.1/32 +40` is requested/allocatable on the node plus the
-pod's request. Nodes with identical results share a row (`cpu-* (9)`).
+`cpu 0.1/32 +40` is requested/allocatable on the node, plus the pod's request. It also shows what Cluster Autoscaler
+or Karpenter last said about the pod. If the pod could preempt others, it runs the scheduler's own preemption as a
+dry run: the node it would pick, the pods it would evict, and any PodDisruptionBudget that breaks.
 
-With `--chart` (v0.4.1) and the values the release was deployed with, it also names the values line behind each
-field a failing check reads. Real output, for the test chart installed with Helm on kind:
+**On a node but not running:** kwhy names each failing container's problem as kubelet reported it: `pull`, `crash`,
+`oom`, `config` (missing Secret, ConfigMap or key), `mount`, `probe`, `evicted`, `sandbox` or `node`. It also covers
+what the workload's controller reports: pods it can't create (quota, PodSecurity, webhooks), a stalled rollout, a
+failed Job, or a pod stuck terminating on a finalizer. It never guesses why an app exits. `--logs N` (opt-in, logs
+may hold secrets) shows the app's own words.
+
+**Which values line caused it:** with `--chart` and the values the release was deployed with (or `--kustomize`), the
+fields a failing check reads link back to their source:
 
 ```console
 $ kwhy pod deploy/rel-api -n demo --chart testdata/charts/mini -f testdata/values-prod.yaml --set resources.requests.cpu=40 --release rel
@@ -274,121 +225,146 @@ Source:
   NodeResourcesFit  .spec.containers[0].resources.requests.cpu = 40  ← resources.requests.cpu (--set resources.requests.cpu=40)
 ```
 
-It reads the cluster once with get and list only (nodes, pods, namespaces, volumes, claims, storage and CSI objects),
-then runs the default scheduler profile in-process: once as the scheduler would, and once per filter plugin so
-none stops the others. For a workload (`deploy/`, `sts/`, `job/`) it picks the oldest pod waiting for a node, or
-checks a new pod from the template when none is waiting.
+## For AI agents
 
-How it differs from other tools for Pending pods:
+`kwhy mcp` serves the three commands over the Model Context Protocol (stdio) as `kwhy_value`, `kwhy_change` and
+`kwhy_pod`, returning the same versioned JSON as `-o json`. For Claude Code: `claude mcp add kwhy -- kwhy mcp`.
 
-| | kwhy | Tools that re-implement the checks (e.g. kubectl-why-pending) | LLM explainers (e.g. k8sgpt) | `kubectl describe` event |
+## How we know it's right
+
+- **`value`** is checked nightly against 10 public charts (`go test -tags accuracy ./value/`): it never named a wrong
+  setting (precision 1.00) and found 98–100% of the settings that really change a field. Kustomize: 7 public
+  overlays, 39,316 fields, 0 wrong lines, 6 answered with the entry only.
+- **`change`** has one fixture per rule in `testdata/change/`. CI applies base and head to kind (Kubernetes N-2..N)
+  and compares the cluster with the prediction. Upgrades of ingress-nginx, argo-cd, cert-manager and grafana must
+  not predict a false `will fail`.
+- **`pod`** is checked on kind (Kubernetes 1.35–1.37) against the scheduler's own message, its real preemption
+  pick, and what kubelet reports for pull, crash, OOM, config, mount, probe and init failures.
+
+How long `value` takes for one field the first time (8-core M1 Pro):
+
+| Chart | Values leaves | Time |
+|---|---|---|
+| podinfo, external-dns, ingress-nginx, grafana | 68–243 | 0.02–0.35s |
+| postgresql, redis, cert-manager, keycloak | 189–569 | 0.9–1.7s |
+| argo-cd | 758 | 3.8s |
+| kube-prometheus-stack | 1247 | 21s |
+
+How `pod` compares with other tools for Pending pods:
+
+| | kwhy | Re-implemented checks (e.g. kubectl-why-pending) | LLM explainers (e.g. k8sgpt) | `kubectl describe` |
 |---|---|---|---|---|
-| Where the answer comes from | the scheduler's own code, compiled in | hand-written copy of the rules | a model's reading of events | the scheduler |
-| Matches the real scheduler | yes, checked against the scheduler's own message on kind (1.35–1.37) | until the rules drift | not guaranteed | yes |
-| Failing checks per node | all of them | depends on the tool | — | first one only, summarised |
-| New scheduler rules | come with a Kubernetes version bump | rewritten by hand | — | yes |
-| Line in your values that set the field | yes, with `--chart` (through `kwhy value`) | no | no | no |
+| Answer comes from | the scheduler's code, compiled in | a hand-written copy of the rules | a model reading events | the scheduler |
+| Failing checks per node | all | depends on the tool | — | the first, summarised |
+| Values line that set the field | yes, with `--chart` | no | no | no |
+| Suggests fixes | no, deliberately | yes | yes | no |
 
-The other tools are useful in their own ways. kubectl-why-pending, for example, suggests fixes, which kwhy
-deliberately doesn't do.
+## Reference
 
-## Install
+<details>
+<summary><code>kwhy value chart</code> and <code>kwhy value kustomize</code> flags</summary>
 
-Download the archive for your platform (macOS, Linux or Windows; amd64 or arm64) from
-[GitHub Releases](https://github.com/semirm-dev/kwhy/releases), unpack it and put `kwhy` on your `PATH`.
-
-Single static binary, offline by default, no telemetry.
-
-Releases from v0.8 carry an SBOM per archive and a keyless cosign signature of `checksums.txt`:
-
-```sh
-cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig \
-  --certificate-identity-regexp 'https://github.com/semirm-dev/kwhy/' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
-```
-
-## For AI agents: `kwhy mcp`
-
-`kwhy mcp` serves the three commands over the Model Context Protocol on stdio, as the tools `kwhy_value`,
-`kwhy_change` and `kwhy_pod`. Each call runs the same code as the CLI and returns its versioned JSON. For Claude
-Code: `claude mcp add kwhy -- kwhy mcp`.
-
-## Flags (`kwhy value chart`)
+`kwhy value chart <chart> <kind>/<name> [<path>]`
 
 | Flag | Meaning |
 |---|---|
-| `<chart>` (first argument) | chart directory, `.tgz`, `oci://` reference or `repo/chart` |
 | `--version V` | chart version, for repo and OCI charts |
 | `-f, --values FILE` | values file or URL, repeatable, later wins |
-| `--set K=V`, `--set-string`, `--set-json`, `--set-file`, `--set-literal` | as for `helm`, applied in Helm's order (json, set, string, file, literal) |
+| `--set K=V`, `--set-string`, `--set-json`, `--set-file`, `--set-literal` | as for `helm`, applied in Helm's order |
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |
 | `--kube-version V` | Kubernetes version charts see in `.Capabilities` (default `v1.37.0`) |
-| `-o, --output` | `human` (default), `markdown` or `json` |
+| `-o, --output` | `human` (default), `markdown` or `json` (`kwhy.value/v1`) |
 | `--all` | every field of the resource instead of one path |
+| `--no-cache` | trace again instead of reusing the cache (user cache dir, keyed by chart, values, options and binary) |
 | `--chunk-size N` | values leaves marked per tracing render (default 10; tuning only) |
-| `--no-cache` | trace again instead of reusing the cached trace and answers (in the user cache dir, keyed by chart, values, options and the kwhy binary) |
 | `--repository-config`, `--repository-cache`, `--registry-config`, `--content-cache` | Helm's paths, same defaults as `helm` |
 
-Exit codes: `0` ok, `1` runtime error, `2` usage error.
+`kwhy value kustomize <overlay dir> <kind>/<name> [<path>]` takes `--all`, `-o`, `--no-cache` and `--root DIR` (the
+directory holding the whole overlay stack, default the git root).
 
-## Flags (`kwhy change`)
+Exit codes: `0` ok, `1` runtime error, `2` usage error.
+</details>
+
+<details>
+<summary>Answer kinds (<code>kwhy value</code>)</summary>
+
+| Kind | Meaning | Example |
+|---|---|---|
+| `direct` | the field equals one values leaf | `replicas: 3` ← `replicaCount` |
+| `composed` | leaves plus template text | `image: repo:tag` ← `image.repository` + `image.tag` |
+| `derived` | template logic computes it from leaves | `leader-election: "true"` ← `replicaCount` |
+| `encoded` | a leaf passed through `b64enc` | Secret data ← `auth.user` |
+| `hashed` | checksum of other content | `checksum/config` annotation |
+| `chart` | no values leaf affects it | `apiVersion`, fixed ports |
+| `structural` | a leaf decides whether the field exists | `ingress.enabled` |
+| `random` | differs between two identical renders | `randAlphaNum` passwords |
+</details>
+
+<details>
+<summary><code>kwhy change</code> flags and verdicts</summary>
+
+`kwhy change <base>..<head>`, run inside the git repo.
 
 | Flag | Meaning |
 |---|---|
-| `<base>..<head>` (argument) | the two git refs to compare, e.g. `main..feature` |
-| `--chart DIR` | chart directory in the repo (this or `--manifests`) |
-| `--manifests DIR` | directory of plain YAML, or a Kustomize overlay (experimental, built with Kustomize's library), in the repo, read at each ref |
+| `--chart DIR` | chart directory in the repo |
+| `--manifests DIR` | plain YAML, or a Kustomize overlay (experimental), in the repo |
 | `--config FILE` | several targets: `targets: [{chart or manifests, values, set, setString, setJSON, release, namespace}]`; `.kwhy.yaml` is used when no source flag is given |
-| `--apps DIR` | Argo CD `Application`s and Flux `HelmRelease`s under DIR: render every app they point at in this repo |
-| `-f, --values FILE` | values file or URL, repeatable, later wins; files in the repo are read at each ref |
-| `--set K=V`, `--set-string`, `--set-json`, `--set-file`, `--set-literal` | as for `helm` (with `--chart`) |
+| `--apps DIR` | Argo CD `Application`s and Flux `HelmRelease`s under DIR, read at each ref |
+| `-f`, `--set`, `--set-string`, `--set-json`, `--set-file`, `--set-literal` | as for `helm`; files in the repo are read at each ref |
 | `--release NAME`, `-n, --namespace NS` | release name (default `rel`) and namespace (default `default`) |
 | `--kube-version V` | Kubernetes version charts see in `.Capabilities` (default `v1.37.0`) |
-| `-o, --output` | `human` (default), `markdown` (PR comment, kept under GitHub's 65,000 characters) or `json` (`"schema": "kwhy.change/v1"`) |
-| `--fail-on V,...` | exit `3` if any of these verdicts occur: `fail`, `data-loss`, or any verdict with `-` for spaces (`restart`, `no-effect`, ...) |
+| `-o, --output` | `human` (default), `markdown` (PR comment, under GitHub's 65,000 characters) or `json` (`kwhy.change/v1`) |
+| `--fail-on V,...` | exit `3` if any of these verdicts occur: `fail`, `data-loss`, or any verdict with `-` for spaces |
 | `--context NAME` | kube context to read live state from, read-only (default: offline) |
 
-Run it from inside the git repo. Exit codes: `0` ok, `1` runtime error, `2` usage error, `3` a `--fail-on` verdict occurred.
+Verdicts: `restart` (says so when it pulls a mutable tag), `ordered`, `scale`, `resize` (PVC growth), `recreate`
+(Argo `Replace`/`Force`), `runs as hook`, `no effect` / `delayed` / `picked up` for ConfigMap and Secret consumers,
+`will fail` (immutable fields), `no endpoints` (a Service selector stops matching), `data` (a delete that loses
+stored data), `create`, `delete`.
 
-## Flags (`kwhy pod`)
+Exit codes: `0` ok, `1` runtime error, `2` usage error, `3` a `--fail-on` verdict occurred.
+</details>
+
+<details>
+<summary><code>kwhy pod</code> flags</summary>
+
+`kwhy pod <name|pod/x|deploy/x|sts/x|ds/x|rs/x|job/x|cj/x>`: a CronJob is followed to its newest Job.
 
 | Flag | Meaning |
 |---|---|
-| `<name>` (argument) | a pod (`x`, `pod/x`) or a workload (`deploy/x`, `sts/x`, `ds/x`, `rs/x`, `job/x`, `cj/x`: a CronJob is followed to its newest Job) |
 | `-n, --namespace NS` | namespace (default: the kube context's) |
 | `--context NAME` | kube context to read from, read-only |
-| `-o, --output` | `human` (default), `markdown` or `json` (`"schema": "kwhy.pod/v1"`, every node with all failing checks and the scheduler's first) |
-| `--chart CHART` | chart that deploys the pod (directory, `.tgz`, `oci://` or `repo/chart`): adds the values line behind each field a failing check reads |
+| `-o, --output` | `human` (default), `markdown` or `json` (`kwhy.pod/v1`, every node with all failing checks and the scheduler's first) |
+| `--logs N` | last N log lines of a crashed or OOM-killed container's last run (default none) |
+| `--chart CHART` | chart that deploys the pod: adds the values line behind each field a failing check reads |
 | `-f`, `--set`, `--set-string`, `--set-json`, `--set-file`, `--set-literal`, `--version V` | as the release was deployed (with `--chart`) |
-| `--no-cache` | with `--chart` or `--kustomize`: trace again instead of reusing the cached trace |
 | `--release NAME` | Helm release name (default: the pod's `app.kubernetes.io/instance` label) |
-| `--scheduler-config FILE` | the cluster's `KubeSchedulerConfiguration`: run the profile named by the pod's `schedulerName` instead of the default one (out-of-tree plugins can't run and fail by name) |
-| `--kustomize DIR`, `--root DIR` | (experimental) the overlay that deploys the pod (and the directory holding its stack, default the git root): adds the entry and line behind each field a failing check reads |
-| `--logs N` | last N log lines of a crashed or OOM-killed container's last run (default 0: none; logs may contain secrets, so they're never read unless asked) |
+| `--kustomize DIR`, `--root DIR` | (experimental) the overlay that deploys the pod, and the directory holding its stack |
+| `--no-cache` | with `--chart` or `--kustomize`: trace again |
+| `--scheduler-config FILE` | the cluster's `KubeSchedulerConfiguration`: run the pod's profile instead of the default |
 
-A healthy pod gets one line (`ns/x is on node-1, Running and ready.`); JSON has `"scheduled"` and `"problems"`
-(`kind`, `container`, `reason`, `detail`, `events`, `logs`).
+It reads the cluster once, with get and list only: nodes, pods, namespaces, volumes and claims, storage, CSI and DRA
+objects, and PodDisruptionBudgets. A healthy pod gets one line (`ns/x is on node-1, Running and ready.`).
 
 Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, `2` usage error.
+</details>
 
 ## Known limits
 
-- `lookup` returns empty, as with `helm template` (offline).
-- Kustomize support is experimental: remote bases, `helmCharts:` and plugins aren't supported, and
-  `value kustomize` names no override chain.
-- `change --apps` reads Argo CD and Flux definitions at each ref (an app added in the change is all `create`), and
-  skips apps from other repos, Helm repositories and Flux `valuesFrom`. Without `--context`, DaemonSet pod counts are
-  unknown ("one pod per node").
-- The first question about a chart traces it whole (~20s on kube-prometheus-stack); repeats with the same chart
-  and values come from the cache (argo-cd: 9s → 0.2s).
-- `pod` runs the scheduler compiled into kwhy (v1.37) and warns when the cluster is more than one minor version
-  away. A custom profile needs `--scheduler-config`; out-of-tree scheduler plugins can't run.
-- `pod`'s preemption dry run checks every node; on clusters where the scheduler samples nodes (over 100
-  candidates) it says the scheduler may pick another. Pods with DRA resource claims run the
-  real `DynamicResources` plugin over the cluster's ResourceSlices (v0.8). What's missing across all three commands is in the [backlog](docs/plans/backlog.md).
+- Kustomize support is experimental everywhere: no remote bases, `helmCharts:` or plugins, and `value kustomize`
+  names no override chain.
+- `lookup` returns empty, as with `helm template`.
+- `change --apps` skips apps from other repos, Helm repositories and Flux `valuesFrom`. Offline, DaemonSet pod
+  counts are unknown.
 - `change` classifies Deployments, StatefulSets, DaemonSets, Jobs, CronJobs, bare Pods, Services, PVCs, ConfigMaps
   and Secrets.
-- `pod --chart` links only fields a values leaf sets; a field hardcoded in a chart template gets no `Source:` line.
+- `pod` runs the scheduler compiled into kwhy (v1.37) and warns when the cluster is more than one minor version
+  away. Out-of-tree scheduler plugins can't run. On clusters with over 100 preemption candidates the scheduler
+  samples nodes, so it may pick another than the one kwhy names (kwhy says so).
+- `pod --chart` links only fields a values leaf sets, not ones hardcoded in a template.
+
+What's next is in the [backlog](docs/plans/backlog.md).
 
 ## Development
 
