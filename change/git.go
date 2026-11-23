@@ -226,12 +226,17 @@ func (t *tree) render(ctx context.Context, src Source, o render.Options, helm *c
 
 	path := t.path(src)
 	if src.Manifests != "" {
-		read := render.ReadManifests
-		if isKustomize(path) {
-			read = render.Kustomize
+		var docs []render.Doc
+		var err error
+		if ns := cmp.Or(o.Namespace, "default"); isKustomize(path) {
+			root := t.dir // the ref's overlay may come from a pull request: it stays in the checkout
+			if rel, err := filepath.Rel(t.dir, path); err != nil || !filepath.IsLocal(rel) {
+				root = "" // a directory outside the repo, given by the user, is read as it is
+			}
+			docs, err = render.Kustomize(root, path, ns)
+		} else {
+			docs, err = render.ReadManifests(path, ns)
 		}
-
-		docs, err := read(path, cmp.Or(o.Namespace, "default"))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", t.ref, err)
 		}

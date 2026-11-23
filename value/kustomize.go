@@ -78,7 +78,7 @@ func LoadOverlay(ctx context.Context, root, dir, cache string) (*Overlay, error)
 		return nil, fmt.Errorf("%s has no kustomization file", dir)
 	}
 
-	if err := render.Offline(o.mem, o.target); err != nil {
+	if err := render.Offline(o.mem, "", o.target); err != nil {
 		return nil, err
 	}
 

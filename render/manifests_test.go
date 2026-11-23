@@ -63,7 +63,7 @@ func TestKustomize(t *testing.T) {
 		}
 	}
 
-	docs, err := render.Kustomize(filepath.Join(dir, "prod"), "default")
+	docs, err := render.Kustomize(dir, filepath.Join(dir, "prod"), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestKustomizeOffline(t *testing.T) {
 		write(t, dir, "overlay/base/kustomization.yaml", "resources: [cm.yaml]\n")
 		write(t, dir, "overlay/base/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: c}\n")
 		write(t, dir, "overlay/remote-base/kustomization.yaml", "resources: [https://example.com/base.yaml]\n")
-		_, err := render.Kustomize(filepath.Join(dir, "overlay"), "default")
+		_, err := render.Kustomize(dir, filepath.Join(dir, "overlay"), "default")
 		if err == nil || !strings.Contains(err.Error(), "kwhy doesn't fetch") {
 			t.Errorf("%s: err = %v, want a refusal", k, err)
 		}
@@ -99,8 +99,59 @@ func TestKustomizeOffline(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "k/kustomization.yaml", "resources: [cm.yaml]\ncommonAnnotations: {docs: 'https://example.com'}\n")
 	write(t, dir, "k/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: c}\n")
-	if _, err := render.Kustomize(filepath.Join(dir, "k"), "default"); err != nil {
+	if _, err := render.Kustomize(dir, filepath.Join(dir, "k"), "default"); err != nil {
 		t.Errorf("URL annotation: %v", err)
+	}
+}
+
+// A pull request's overlay must not reach past the checkout, by .. or by a symlink it commits.
+func TestKustomizeStaysInRepo(t *testing.T) {
+	for name, setup := range map[string]func(dir, repo string){
+		"dotdot": func(dir, repo string) {
+			write(t, repo, "overlay/kustomization.yaml", "resources: [../../outside]\n")
+		},
+		"symlinked dir": func(dir, repo string) {
+			write(t, repo, "overlay/kustomization.yaml", "resources: [base]\n")
+			symlink(t, filepath.Join(dir, "outside"), filepath.Join(repo, "overlay/base"))
+		},
+		"symlinked file": func(dir, repo string) {
+			write(t, repo, "overlay/kustomization.yaml", "resources: [cm.yaml]\n")
+			symlink(t, filepath.Join(dir, "outside/cm.yaml"), filepath.Join(repo, "overlay/cm.yaml"))
+		},
+		"symlinked overlay": func(dir, repo string) {
+			symlink(t, filepath.Join(dir, "outside"), filepath.Join(repo, "overlay"))
+		},
+	} {
+		dir := t.TempDir()
+		repo := filepath.Join(dir, "repo")
+		write(t, dir, "outside/kustomization.yaml", "resources: [cm.yaml]\n")
+		write(t, dir, "outside/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: secret}\n")
+		setup(dir, repo)
+		if docs, err := render.Kustomize(repo, filepath.Join(repo, "overlay"), "default"); err == nil || !strings.Contains(err.Error(), "outside") {
+			t.Errorf("%s: docs %v, err = %v; want a refusal", name, docs, err)
+		}
+	}
+}
+
+func TestReadManifestsSkipsSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "outside/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: secret}\n")
+	write(t, dir, "repo/app/deploy.yaml", "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\n")
+	symlink(t, filepath.Join(dir, "outside/cm.yaml"), filepath.Join(dir, "repo/app/cm.yaml"))
+
+	docs, err := render.ReadManifests(filepath.Join(dir, "repo/app"), "default")
+	if err != nil || len(docs) != 1 || docs[0].Kind != "Deployment" {
+		t.Errorf("docs %+v, err %v; want only the Deployment", docs, err)
+	}
+}
+
+func symlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -223,6 +223,48 @@ func TestRunChangeSymlinkOutside(t *testing.T) {
 	}
 }
 
+// A pull request's overlay that names a base outside the checkout would build it on the CI runner: refused.
+func TestRunChangeKustomizeOutside(t *testing.T) {
+	repo, outside := t.TempDir(), t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(dir, name, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(outside, "kustomization.yaml", "resources: [cm.yaml]\n")
+	write(outside, "cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: topsecret}\n")
+	write(repo, "overlay/kustomization.yaml", "resources: [cm.yaml]\n")
+	write(repo, "overlay/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: app}\n")
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-qm", "base")
+
+	git("checkout", "-qb", "feature")
+	// .. stops at /, so enough of them reach outside wherever the checkout is.
+	write(repo, "overlay/kustomization.yaml", "resources: [cm.yaml, "+strings.Repeat("../", 40)+strings.TrimPrefix(outside, "/")+"]\n")
+	git("commit", "-qam", "head")
+	git("checkout", "-q", "main")
+
+	t.Chdir(repo)
+	var out, errb bytes.Buffer
+	code := run([]string{"change", "main..feature", "--manifests", "overlay"}, &out, &errb)
+	if code == 0 || strings.Contains(out.String(), "topsecret") || !strings.Contains(errb.String(), "outside the repo") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+}
+
 func TestRunChangeManifests(t *testing.T) {
 	repo := t.TempDir()
 	git := func(args ...string) {

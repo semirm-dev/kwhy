@@ -17,10 +17,23 @@ var fileKeys = []string{"patches", "patchesStrategicMerge", "patchesJson6902", "
 
 // Kustomize builds the overlay in dir with Kustomize's own library, as `kubectl kustomize` does, into documents.
 // Objects without a namespace get namespace. helmCharts and plugins stay disabled (Kustomize's defaults), and a
-// stack that would fetch anything is refused (Offline).
-func Kustomize(dir, namespace string) ([]Doc, error) {
+// stack that would fetch anything, or read past root (the checkout; "" for none), is refused (Offline).
+func Kustomize(root, dir, namespace string) ([]Doc, error) {
+	var err error
+	if root != "" {
+		if root, err = filepath.EvalSymlinks(root); err != nil {
+			return nil, err
+		}
+		if root, err = filepath.Abs(root); err != nil {
+			return nil, err
+		}
+	}
+	if dir, err = filepath.Abs(dir); err != nil {
+		return nil, err
+	}
+
 	fsys := filesys.MakeFsOnDisk()
-	if err := Offline(fsys, dir); err != nil {
+	if err := Offline(fsys, root, dir); err != nil {
 		return nil, err
 	}
 
@@ -43,16 +56,22 @@ func Kustomize(dir, namespace string) ([]Doc, error) {
 
 // Offline refuses a kustomization stack in dir that would make Kustomize reach the network: a resource, base or
 // component that isn't a local file or directory (a git repo or a URL), or a URL where a file is read. Kustomize
-// would clone or download them, and the stack may come from a pull request.
-func Offline(fsys filesys.FileSystem, dir string) error {
-	return offline(fsys, dir, map[string]bool{})
+// would clone or download them, and the stack may come from a pull request. With root (an absolute path without
+// symlinks), a directory or resource outside it, through .. or a symlink, is refused too; "" skips that check, for an
+// in-memory copy that holds nothing else.
+func Offline(fsys filesys.FileSystem, root, dir string) error {
+	return offline(fsys, root, dir, map[string]bool{})
 }
 
-func offline(fsys filesys.FileSystem, dir string, seen map[string]bool) error {
+func offline(fsys filesys.FileSystem, root, dir string, seen map[string]bool) error {
 	if seen[dir] {
 		return nil
 	}
 	seen[dir] = true
+
+	if !inside(root, dir) {
+		return fmt.Errorf("%s is outside the repo (kwhy reads only the checkout)", dir)
+	}
 
 	file := ""
 	for _, n := range konfig.RecognizedKustomizationFileNames() {
@@ -80,13 +99,16 @@ func offline(fsys filesys.FileSystem, dir string, seen map[string]bool) error {
 		for _, e := range l {
 			p := filepath.Join(dir, fmt.Sprint(e))
 			if fsys.IsDir(p) {
-				if err := offline(fsys, p, seen); err != nil {
+				if err := offline(fsys, root, p, seen); err != nil {
 					return err
 				}
 				continue
 			}
 			if !fsys.Exists(p) {
 				return fmt.Errorf("%s: %v is neither a local file nor a directory (kwhy doesn't fetch remote bases or URLs)", file, e)
+			}
+			if !inside(root, p) {
+				return fmt.Errorf("%s: %v is outside the repo (kwhy reads only the checkout)", file, e)
 			}
 		}
 	}
@@ -98,6 +120,20 @@ func offline(fsys filesys.FileSystem, dir string, seen map[string]bool) error {
 	}
 
 	return nil
+}
+
+// inside reports whether p, symlinks followed, is root or under it; root "" holds everything.
+func inside(root, p string) bool {
+	if root == "" {
+		return true
+	}
+	real, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, real)
+
+	return err == nil && filepath.IsLocal(rel)
 }
 
 // remoteURL is the first http(s) URL among v's strings, as a whole or as the path of key=path, "" for none.

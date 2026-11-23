@@ -159,8 +159,9 @@ kwhy: --fail-on: will fail Job kwhy-demo/migrate
 It renders both refs in temporary git worktrees. Sources: a chart (`--chart`), plain YAML or a Kustomize overlay
 (`--manifests`), several targets in a `.kwhy.yaml`, or every Argo CD `Application` and Flux `HelmRelease` under
 `--apps DIR` that points into the repo. App paths are read as Argo CD and Flux read them, from the repo root and
-never above it, and a ref with a symlink out of the repo is refused, so a pull request can't point kwhy at the
-runner's files. Offline, pod counts come from `replicas`. With `--context` it reads the
+never above it, and a ref with a symlink out of the repo, or a Kustomize base outside the checkout (through `..` or a
+symlink), is refused, so a pull request can't point kwhy at the runner's files. A file under `--apps` that stops
+decoding after an earlier document gets a warning naming it, since apps after the bad document aren't read. Offline, pod counts come from `replicas`. With `--context` it reads the
 cluster (get and list only) for live replicas, HPA ranges, DaemonSet node counts, StorageClass expansion, the
 namespace's ResourceQuota and a rollout time estimate.
 
