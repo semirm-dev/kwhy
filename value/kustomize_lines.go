@@ -128,6 +128,30 @@ func (o *Overlay) LineShows(file string, line int, v any) bool {
 	return o.lineShows(filepath.ToSlash(rel), line, v)
 }
 
+// names says whether Explain may name line of file for field f: the line shows the value, and with Confirm, its own
+// edit moves the field. A line that can't be edited, or whose edited build gives no answer, has only the guard.
+func (o *Overlay) names(file string, line int, f KField) bool {
+	if !o.lineShows(file, line, o.Fields[f]) {
+		return false
+	}
+	if !o.Confirm {
+		return true
+	}
+
+	mp := "/" + file
+	data, ok, _ := perturbLine(o.orig[mp], line, "p9_confirm_")
+	if !ok {
+		return true
+	}
+	r, err := o.runBuild(o.Fields, nil, buildJob{entry: -1, files: map[string][]byte{mp: o.forBuild(mp, data)}})
+	if err != nil || !r.ok {
+		return true
+	}
+	_, moved := r.diff[f]
+
+	return moved
+}
+
 // lineShows is the guard: the line shows the value, or the part of it the line sets (a namePrefix, an image tag).
 func (o *Overlay) lineShows(file string, line int, v any) bool {
 	data, ok := o.orig["/"+file]

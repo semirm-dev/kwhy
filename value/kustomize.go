@@ -32,6 +32,9 @@ type Overlay struct {
 	Docs []KDoc
 	// Fields are the built scalars; paths key named list items by name (`containers[name=api]`).
 	Fields map[KField]any
+	// Confirm makes Explain edit a line it is about to name and rebuild, and name it only when the field moves: a
+	// backstop for "never name a wrong line", one build per field (too slow for every field of a document).
+	Confirm bool
 
 	mem     filesys.FileSystem
 	orig    map[string][]byte // files as on disk, for the line guard
@@ -217,7 +220,7 @@ func (o *Overlay) Explain(f KField) (Answer, error) {
 	case len(es) == 1:
 		file, line := es[0].lineFor(o, f.Path, d.Object)
 		label := es[0].label
-		if !o.lineShows(file, line, val) {
+		if !o.names(file, line, f) {
 			file, line = strings.TrimPrefix(es[0].kf.path, "/"), es[0].line
 			label += " (field's line not confirmed)"
 		}
@@ -230,7 +233,7 @@ func (o *Overlay) Explain(f KField) (Answer, error) {
 		}
 	default:
 		file, line := o.resourceLine(d, f.Path)
-		if line == 0 || !o.lineShows(file, line, val) {
+		if line == 0 || !o.names(file, line, f) {
 			a.Kind = Chart // in the resource file, line not confirmed
 			a.Leaves = []Leaf{{Entry: "resource " + o.disk(file), Value: val, Chain: []Source{{File: o.disk(file), Value: val, Default: true}}}}
 			if e := o.addedBy[f.Doc]; e != nil {

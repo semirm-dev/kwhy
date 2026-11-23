@@ -125,6 +125,7 @@ func podKustomizeSources(ctx context.Context, c kubernetes.Interface, p *corev1.
 		return nil, fmt.Errorf("--kustomize: %w", err)
 	}
 
+	o.Confirm = true // a few fields a failing check reads: worth the rebuild that confirms each line
 	var out []pod.Source
 	for _, w := range podWanted(r, kind, d.Object) {
 		kp, err := o.FieldPath(d, w.path)

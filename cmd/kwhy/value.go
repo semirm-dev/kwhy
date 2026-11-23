@@ -211,6 +211,7 @@ func valueKustomizeCmd() *cobra.Command {
 				return err
 			}
 
+			o.Confirm = true // one field: worth the rebuild that confirms its line
 			a, err := o.Explain(value.KField{Doc: d.ID, Path: p})
 			if err != nil {
 				return err

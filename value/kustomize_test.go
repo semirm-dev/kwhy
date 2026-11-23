@@ -155,3 +155,47 @@ func TestOverlayAtRoot(t *testing.T) {
 		t.Error("no documents")
 	}
 }
+
+// A replacement that writes the value the resource's own line already shows: the line shows the value but its edit
+// doesn't move the field. Confirm's rebuild catches that; the guard alone can't.
+func TestOverlayConfirm(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"kustomization.yaml": "resources: [cm.yaml, deploy.yaml]\nreplacements:\n- source: {kind: ConfigMap, name: cfg, fieldPath: data.host}\n" +
+			"  targets: [{select: {kind: Deployment}, fieldPaths: [metadata.annotations.host]}]\n",
+		"cm.yaml":     "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: cfg}\ndata:\n  host: db.prod\n",
+		"deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  annotations:\n    host: db.prod\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(dir)
+	o, err := value.LoadOverlay(t.Context(), ".", ".", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := o.Select("deploy/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := o.FieldPath(d, ".metadata.annotations.host")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, confirm := range []bool{false, true} {
+		o.Confirm = confirm
+		a, err := o.Explain(value.KField{Doc: d.ID, Path: p})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if confirm {
+			for _, l := range a.Leaves {
+				if src := l.Chain[0]; src.File == "deploy.yaml" && src.Line != 0 {
+					t.Errorf("confirm names deploy.yaml:%d, whose edit doesn't move the field", src.Line)
+				}
+			}
+		}
+	}
+}
