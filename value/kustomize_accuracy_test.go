@@ -1,28 +1,42 @@
 //go:build accuracy
 
-package value_test
+package value
 
 import (
+	"bytes"
+	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
-	"github.com/semirm-dev/kwhy/value"
+	"go.yaml.in/yaml/v3"
 )
 
-// TestOverlayAccuracy runs Kustomize attribution on the spike's public overlays (scripts/fetch-overlays.sh) and
-// checks the guarantee: every line kwhy names shows the field's value. It reports how many fields it could only
-// pin to an entry or a file.
+var publicOverlays = []struct{ repo, overlay string }{
+	{"podinfo", "kustomize"},
+	{"flux2-example", "apps/production"},
+	{"flux2-example", "infrastructure/controllers"},
+	{"microservices-demo", "kustomize/tests/memorystore-with-all-components"},
+	{"microservices-demo", "kustomize/tests/service-mesh-istio-with-all-components"},
+	{"argo-cd", "manifests/cluster-install"},
+	{"argo-cd", "manifests/ha/cluster-install"},
+	{"metrics-server", "manifests/overlays/release-ha"},
+	{"kubebuilder", "testdata/project-v4/config/default"},
+	{"cluster-api", "core/config/default"},
+	{"gatekeeper", "config/default"},
+	{"kube-prometheus", "."},
+}
+
+// TestOverlayAccuracy checks Kustomize attributions against ground truth, as TestAccuracy does for Helm: the
+// fields that change when the values on one sampled source line alone are perturbed. A field counts as predicted
+// for a line only when kwhy names that file:line; entry-only and file-only answers count as misses.
 func TestOverlayAccuracy(t *testing.T) {
-	for _, tc := range []struct{ repo, overlay string }{
-		{"podinfo", "kustomize"},
-		{"flux2-example", "apps/production"},
-		{"flux2-example", "infrastructure/controllers"},
-		{"microservices-demo", "kustomize/tests/memorystore-with-all-components"},
-		{"microservices-demo", "kustomize/tests/service-mesh-istio-with-all-components"},
-		{"argo-cd", "manifests/cluster-install"},
-		{"argo-cd", "manifests/ha/cluster-install"},
-	} {
+	for _, tc := range publicOverlays {
 		t.Run(tc.repo+"/"+tc.overlay, func(t *testing.T) {
 			root, err := filepath.Abs(filepath.Join("../testdata/kustomize/public", tc.repo))
 			if err != nil {
@@ -33,37 +47,195 @@ func TestOverlayAccuracy(t *testing.T) {
 			}
 			t.Chdir(root)
 
-			o, err := value.LoadOverlay(".", tc.overlay, "")
+			o, err := LoadOverlay(".", tc.overlay, "")
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			var fields, lines, entryOnly, fileOnly int
+			// Every named file:line, and the files the stack reads.
+			named := map[string][]KField{}
+			files := map[string]bool{}
+			var lines, entryOnly, fileOnly int
 			for _, d := range o.Docs {
 				as, err := o.ExplainAllOverlay(d.ID)
 				if err != nil {
 					t.Fatal(err)
 				}
 				for _, a := range as {
-					fields++
-					src := a.Leaves[0].Chain[0]
+					f := KField{d.ID, a.Field.Path}
+					for _, l := range a.Leaves {
+						files[l.Chain[0].File] = true
+					}
 					switch {
-					case a.Kind == value.Chart:
+					case a.Kind == Chart:
 						fileOnly++
-					case a.Kind == value.Composed || src.Line == 0:
+					case a.Leaves[0].Chain[0].Line == 0 || strings.HasSuffix(a.Leaves[0].Entry, ")") ||
+						a.Kind == Composed && len(o.writes[f]) == 0: // entries that move it together, at their own lines
 						entryOnly++
-					case len(a.Leaves) == 1 && a.Leaves[0].Entry != "" && len(a.Leaves[0].Entry) > 0 &&
-						a.Leaves[0].Entry[len(a.Leaves[0].Entry)-1] == ')':
-						entryOnly++ // "(field's line not confirmed)"
 					default:
 						lines++
-						if !o.LineShows(src.File, src.Line, a.Value) {
-							t.Errorf("%s %s = %v names %s:%d, which doesn't show it", a.Resource, a.Field.Path, a.Value, src.File, src.Line)
+						for _, l := range a.Leaves { // a composed answer names each line that writes part of it
+							named[l.Chain[0].String()] = append(named[l.Chain[0].String()], f)
 						}
 					}
 				}
 			}
-			t.Logf("%d fields: %d with a line that shows the value, %d entry only, %d file only", fields, lines, entryOnly, fileOnly)
+
+			// Candidate lines, in memory paths: every value line of the stack's kustomizations and patches, and a
+			// sample of the resource files' lines, where most answers are trivially right.
+			type cand struct {
+				mem  string
+				line int
+			}
+			var all, sample []cand
+			stack := map[string]bool{}
+			for _, l := range o.lines {
+				all = append(all, cand{l.file, l.line})
+				stack[l.file] = true
+			}
+			for file := range files {
+				if mem := "/" + o.rel(file); !stack[mem] {
+					for _, l := range scalarLines(o.orig[mem]) {
+						sample = append(sample, cand{mem, l})
+					}
+				}
+			}
+			slices.SortFunc(sample, func(a, b cand) int {
+				return strings.Compare(fmt.Sprint(a.mem, a.line), fmt.Sprint(b.mem, b.line))
+			})
+			r := rand.New(rand.NewPCG(1, 0))
+			r.Shuffle(len(sample), func(i, j int) { sample[i], sample[j] = sample[j], sample[i] })
+
+			// movedBy perturbs one line and rebuilds; ok is false when there's no ground truth.
+			movedBy := func(mem string, line int) (map[KField]bool, bool) {
+				data, ok, _ := perturbLine(o.orig[mem], line, "p9")
+				if !ok {
+					return nil, false
+				}
+				data = o.forBuild(mem, data)
+				inMem, err := o.mem.ReadFile(mem)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := o.mem.WriteFile(mem, data); err != nil {
+					t.Fatal(err)
+				}
+				got, _, err := o.build()
+				if err := o.mem.WriteFile(mem, inMem); err != nil {
+					t.Fatal(err)
+				}
+				if err != nil || !sameKeys(o.Fields, got) {
+					return nil, false
+				}
+				moved := map[KField]bool{}
+				for f, v := range o.Fields {
+					if !reflect.DeepEqual(v, got[f]) {
+						moved[f] = true
+					}
+				}
+				return moved, true
+			}
+
+			var tp, fp, fn, sampled, stackSampled int
+			var misses []string
+			checked := map[KField]bool{}
+			for i, c := range append(all, sample...) {
+				if i >= len(all) && sampled-stackSampled == 50 {
+					break
+				}
+				if i == len(all) {
+					stackSampled = sampled
+				}
+				moved, ok := movedBy(c.mem, c.line)
+				if !ok {
+					continue // not a value, the build rejects it or its shape changes; no ground truth
+				}
+				if len(moved) == 0 {
+					continue // unused
+				}
+				sampled++
+
+				at := o.disk(strings.TrimPrefix(c.mem, "/")) + ":" + strconv.Itoa(c.line)
+				predicted := map[KField]bool{}
+				for _, f := range named[at] {
+					predicted[f] = true
+				}
+				for f := range predicted {
+					if moved[f] {
+						tp++
+					} else {
+						fp++
+						misses = append(misses, fmt.Sprintf("false: %s -> %s %s", at, f.Doc, f.Path))
+					}
+				}
+				for f := range moved {
+					if !predicted[f] {
+						fn++
+						a, _ := o.ExplainOverlay(f)
+						src := a.Leaves[0].Chain[0]
+						misses = append(misses, fmt.Sprintf("missed: %s -> %s %s (kwhy: %s %s)", at, f.Doc, f.Path, src, a.Leaves[0].Entry))
+
+						// The line kwhy names instead must move the field too, or kwhy named a wrong line.
+						if src.Line == 0 || a.Kind != Direct || strings.HasSuffix(a.Leaves[0].Entry, ")") || checked[f] {
+							continue
+						}
+						checked[f] = true
+						if m, ok := movedBy("/"+o.rel(src.File), src.Line); ok && !m[f] {
+							fp++
+							misses = append(misses, fmt.Sprintf("false: %s -> %s %s", src, f.Doc, f.Path))
+						}
+					}
+				}
+			}
+
+			precision, recall := ratio(tp, tp+fp), ratio(tp, tp+fn)
+			t.Logf("fields %d (%d line, %d entry only, %d file only), lines %d (%d of kustomizations and patches), tp %d, precision %.2f, recall %.2f",
+				len(o.Fields), lines, entryOnly, fileOnly, sampled, stackSampled, tp, precision, recall)
+			if precision < 1 || recall < 0.95 {
+				slices.Sort(misses)
+				t.Errorf("precision %.2f, recall %.2f:\n%s", precision, recall, strings.Join(misses, "\n"))
+			}
 		})
 	}
+}
+
+// rel turns a path relative to the working directory into one relative to o.root.
+func (o *Overlay) rel(file string) string {
+	abs, _ := filepath.Abs(file)
+	rel, _ := filepath.Rel(o.root, abs)
+	return filepath.ToSlash(rel)
+}
+
+// scalarLines are the lines where a one-line scalar value starts. A value folded over several lines (a long
+// description, a JSON block) is named at its first line, so its other lines would test nothing kwhy claims.
+func scalarLines(data []byte) []int {
+	var ls []int
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	for {
+		var n yaml.Node
+		if dec.Decode(&n) != nil {
+			break
+		}
+		var walk func(*yaml.Node)
+		walk = func(n *yaml.Node) {
+			switch n.Kind {
+			case yaml.DocumentNode, yaml.SequenceNode:
+				for _, c := range n.Content {
+					walk(c)
+				}
+			case yaml.MappingNode:
+				for i := 1; i < len(n.Content); i += 2 {
+					walk(n.Content[i])
+				}
+			case yaml.ScalarNode:
+				if n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) == 0 && !strings.Contains(n.Value, "\n") &&
+					!strings.Contains(n.Value, " ") || n.Tag != "!!str" {
+					ls = append(ls, n.Line)
+				}
+			}
+		}
+		walk(&n)
+	}
+	slices.Sort(ls)
+	return slices.Compact(ls)
 }

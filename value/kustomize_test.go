@@ -143,3 +143,15 @@ func TestOverlayCache(t *testing.T) {
 		t.Errorf("after an edit, cache files = %v, want two", files)
 	}
 }
+
+// An overlay at the root itself ("kwhy value kustomize .") loads.
+func TestOverlayAtRoot(t *testing.T) {
+	t.Chdir(filepath.Join(fixture, "base"))
+	o, err := value.LoadOverlay(".", ".", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(o.Docs) == 0 {
+		t.Error("no documents")
+	}
+}

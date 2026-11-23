@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -50,6 +51,17 @@ type Overlay struct {
 	affects map[KField][]*kentry
 	addedBy map[string]*kentry
 	parsed  map[string][]*yaml.Node
+	top     string           // the overlay's kustomization, in memory
+	lines   []kline          // value lines of the stack's kustomizations and patches
+	writes  map[KField][]int // lines whose own edit moves the field, by index in lines
+}
+
+// kline is one line that sets a value in a kustomization or patch; entry is its index in entries, -1 for none.
+type kline struct {
+	file  string
+	line  int
+	entry int
+	str   bool
 }
 
 // KField is one built scalar: the document id (kind, origin, ordinal) and its path.
@@ -103,7 +115,7 @@ func LoadOverlay(root, dir, cache string) (*Overlay, error) {
 		return nil, fmt.Errorf("overlay %s is outside %s", dir, root)
 	}
 
-	o := &Overlay{mem: filesys.MakeFsInMemory(), orig: map[string][]byte{}, root: absRoot, target: "/" + filepath.ToSlash(rel),
+	o := &Overlay{mem: filesys.MakeFsInMemory(), orig: map[string][]byte{}, root: absRoot, target: path.Join("/", filepath.ToSlash(rel)),
 		parsed: map[string][]*yaml.Node{}}
 	if err := o.copyTree(); err != nil {
 		return nil, err
@@ -124,6 +136,7 @@ func LoadOverlay(root, dir, cache string) (*Overlay, error) {
 	if err := o.write(stack[0]); err != nil {
 		return nil, err
 	}
+	o.top = stack[0].path
 
 	base, docs, err := o.build()
 	if err != nil {
@@ -135,12 +148,14 @@ func LoadOverlay(root, dir, cache string) (*Overlay, error) {
 		o.entries = append(o.entries, findEntries(kf)...)
 	}
 
-	o.affects, o.addedBy = map[KField][]*kentry{}, map[string]*kentry{}
+	o.lines = o.stackLines(stack)
+	o.affects, o.addedBy, o.writes = map[KField][]*kentry{}, map[string]*kentry{}, map[KField][]int{}
 
 	// The cache holds entries by position in o.entries, which a parse of the same files gives in the same order.
 	var kc kcached
 	path := overlayCachePath(cache, o)
-	if path != "" && read(path, &kc) == nil && kc.Entries == len(o.entries) {
+	if path != "" && read(path, &kc) == nil && kc.Entries == len(o.entries) && kc.Lines == len(o.lines) {
+		o.writes = kc.Writes
 		for f, is := range kc.Affects {
 			for _, i := range is {
 				o.affects[f] = append(o.affects[f], o.entries[i])
@@ -152,77 +167,212 @@ func LoadOverlay(root, dir, cache string) (*Overlay, error) {
 		return o, nil
 	}
 
-	// Leave-one-out builds are independent. Removing an entry edits the copy, so each worker has its own copy of
-	// the files and its own parse of the stack, whose entries line up with o.entries by position.
+	// Leave-one-out builds are independent, and so are the builds with stack lines edited, which find writers that
+	// leave-one-out can't see: an entry that sets the value the field already had. Each worker has its own copy of
+	// the files and its own parse of the stack, whose entries line up with o.entries by position. A result keeps only
+	// the fields that differ from base (nil when gone): full maps of every build overwhelm the GC on large CRDs.
+	type job struct {
+		entry int               // remove this entry, or
+		files map[string][]byte // build with these files edited
+	}
 	type result struct {
-		got map[KField]any
-		ids map[string]bool
-		ok  bool
+		diff map[KField]any
+		ids  map[string]bool
+		ok   bool
 	}
-	results := make([]result, len(o.entries))
-	next := make(chan int)
-	g := new(errgroup.Group)
-	for range min(runtime.GOMAXPROCS(0), len(o.entries)) {
-		g.Go(func() error {
-			w := &Overlay{mem: filesys.MakeFsInMemory(), target: o.target}
-			if err := copyMem(o.mem, w.mem); err != nil {
-				return err
-			}
-			stack, err := w.loadStack(w.target)
-			if err != nil {
-				return err
-			}
-			var entries []*kentry
-			for _, kf := range stack {
-				entries = append(entries, findEntries(kf)...)
-			}
-
-			for i := range next {
-				e := entries[i]
-				removed := cut(e)
-				if err := w.write(e.kf); err != nil {
+	run := func(jobs []job) ([]result, error) {
+		results := make([]result, len(jobs))
+		next := make(chan int)
+		g := new(errgroup.Group)
+		for range min(runtime.GOMAXPROCS(0), len(jobs)) {
+			g.Go(func() error {
+				w := &Overlay{mem: filesys.MakeFsInMemory(), target: o.target}
+				if err := copyMem(o.mem, w.mem); err != nil {
 					return err
 				}
-				got, gotDocs, err := w.build()
-				restore(e, removed)
-				if err := w.write(e.kf); err != nil {
-					return err
-				}
+				stack, err := w.loadStack(w.target)
 				if err != nil {
-					continue // removing it breaks the build (a merge generator whose base is gone): no attribution from it
+					return err
 				}
-				ids := map[string]bool{}
-				for _, d := range gotDocs {
-					ids[d.ID] = true
+				var entries []*kentry
+				for _, kf := range stack {
+					entries = append(entries, findEntries(kf)...)
 				}
-				results[i] = result{got, ids, true}
+
+				for i := range next {
+					var got map[KField]any
+					var docs []KDoc
+					var berr error
+					if j := jobs[i]; j.files != nil {
+						saved := map[string][]byte{}
+						for f, data := range j.files {
+							if saved[f], err = w.mem.ReadFile(f); err != nil {
+								return err
+							}
+							if err := w.mem.WriteFile(f, data); err != nil {
+								return err
+							}
+						}
+						got, docs, berr = w.build()
+						for f, data := range saved {
+							if err := w.mem.WriteFile(f, data); err != nil {
+								return err
+							}
+						}
+						if berr == nil && !sameKeys(base, got) {
+							continue // the edit changes the shape: no answer
+						}
+					} else {
+						e := entries[j.entry]
+						removed := cut(e)
+						if err := w.write(e.kf); err != nil {
+							return err
+						}
+						got, docs, berr = w.build()
+						restore(e, removed)
+						if err := w.write(e.kf); err != nil {
+							return err
+						}
+					}
+					if berr != nil {
+						continue // the build fails (a merge generator whose base is gone): no answer from this job
+					}
+					r := result{diff: map[KField]any{}, ids: map[string]bool{}, ok: true}
+					for _, d := range docs {
+						r.ids[d.ID] = true
+					}
+					for f, v := range base {
+						if w, ok := got[f]; !ok || !reflect.DeepEqual(v, w) {
+							r.diff[f] = w
+						}
+					}
+					results[i] = r
+				}
+				return nil
+			})
+		}
+		for i := range jobs {
+			next <- i
+		}
+		close(next)
+		return results, g.Wait()
+	}
+
+	// String lines are edited together, each with its own mark, so the mark in a field names its line. A set whose
+	// build fails or changes shape is split: by file, then line by line. Numbers and booleans get a build each.
+	edit := func(set []int) job {
+		files := map[string][]byte{}
+		for _, j := range set {
+			l := o.lines[j]
+			if _, ok := files[l.file]; !ok {
+				files[l.file] = o.orig[l.file]
 			}
-			return nil
-		})
+			files[l.file], _, _ = perturbLine(files[l.file], l.line, lineMark(j))
+		}
+		for f, data := range files {
+			files[f] = o.forBuild(f, data)
+		}
+		return job{entry: -1, files: files}
 	}
+	var jobs []job
 	for i := range o.entries {
-		next <- i
+		jobs = append(jobs, job{entry: i})
 	}
-	close(next)
-	if err := g.Wait(); err != nil {
+	var strs, others []int
+	for j, l := range o.lines {
+		if l.str {
+			strs = append(strs, j)
+		} else {
+			others = append(others, j)
+			jobs = append(jobs, edit([]int{j}))
+		}
+	}
+	var pending [][]int
+	if len(strs) > 0 {
+		pending = [][]int{strs}
+		jobs = append(jobs, edit(strs))
+	}
+	results, err := run(jobs)
+	if err != nil {
 		return nil, err
 	}
 
-	kc = kcached{Entries: len(o.entries), Affects: map[KField][]int{}, AddedBy: map[string]int{}}
-	for i, r := range results {
+	kc = kcached{Entries: len(o.entries), Affects: map[KField][]int{}, AddedBy: map[string]int{},
+		Lines: len(o.lines), Writes: o.writes}
+	for i, r := range results[:len(o.entries)] {
 		if !r.ok {
 			continue
 		}
 		e := o.entries[i]
-		for f, v := range base {
+		for f := range base {
 			if !r.ids[f.Doc] {
 				o.addedBy[f.Doc], kc.AddedBy[f.Doc] = e, i // rule 3: the document came with the entry
 				continue
 			}
-			if w, ok := r.got[f]; !ok || !reflect.DeepEqual(v, w) {
+			if _, ok := r.diff[f]; ok {
 				o.affects[f], kc.Affects[f] = append(o.affects[f], e), append(kc.Affects[f], i)
 			}
 		}
+	}
+	for k, j := range others {
+		r := results[len(o.entries)+k]
+		if !r.ok {
+			continue
+		}
+		// A field that ends up as it is without the line's whole entry moved because the entry stopped applying
+		// (its target's name was edited), not because the line sets it.
+		var without map[KField]any
+		if e := o.lines[j].entry; e >= 0 && results[e].ok {
+			without = results[e].diff
+		}
+		for f, w := range r.diff {
+			if wo, ok := without[f]; !ok || !reflect.DeepEqual(w, wo) {
+				o.writes[f] = append(o.writes[f], j)
+			}
+		}
+	}
+
+	results = results[len(o.entries)+len(others):]
+	for len(pending) > 0 {
+		var next [][]int
+		for k, set := range pending {
+			if r := results[k]; r.ok {
+				for f, w := range r.diff {
+					for _, j := range set {
+						if s, ok := w.(string); ok && strings.Contains(s, lineMark(j)) {
+							o.writes[f] = append(o.writes[f], j)
+						}
+					}
+				}
+				continue
+			}
+			byFile := map[string][]int{}
+			for _, j := range set {
+				byFile[o.lines[j].file] = append(byFile[o.lines[j].file], j)
+			}
+			for _, f := range slices.Sorted(maps.Keys(byFile)) {
+				if len(byFile) > 1 {
+					next = append(next, byFile[f])
+					continue
+				}
+				for _, j := range byFile[f] {
+					if len(set) > 1 {
+						next = append(next, []int{j})
+					}
+				}
+			}
+		}
+		pending = next
+		jobs = nil
+		for _, set := range pending {
+			jobs = append(jobs, edit(set))
+		}
+		if results, err = run(jobs); err != nil {
+			return nil, err
+		}
+	}
+	for _, ws := range o.writes {
+		slices.Sort(ws)
 	}
 	if path != "" {
 		write(cache, path, kc)
@@ -231,11 +381,126 @@ func LoadOverlay(root, dir, cache string) (*Overlay, error) {
 	return o, nil
 }
 
+// stackLines lists the value lines of every kustomization in stack and every patch file its entries name.
+func (o *Overlay) stackLines(stack []*kfile) []kline {
+	files := map[string]int{} // file -> entry of a patch file, -1 for a kustomization
+	paths := map[string]map[int]bool{}
+	for _, kf := range stack {
+		files[kf.path] = -1
+		paths[kf.path] = map[int]bool{}
+		for _, key := range []string{"resources", "bases", "components", "crds", "configurations", "patchesStrategicMerge"} {
+			for _, it := range kget(kf.doc.Content[0], key).contentOrNil() {
+				paths[kf.path][it.Line] = true
+			}
+		}
+	}
+	for i, e := range o.entries {
+		if _, ok := files[e.patch]; e.patch != "" && !ok {
+			files[e.patch] = i
+		}
+	}
+
+	var out []kline
+	for _, file := range slices.Sorted(maps.Keys(files)) {
+		lines := strings.Split(string(o.orig[file]), "\n")
+		for _, n := range valueLines(o.orig[file]) {
+			// shortcut: file paths and these keys pick a target or a list item and never wrote a value on the public
+			// overlays, so they cost a build for nothing; a patch that sets a `name:` field falls back to leave-one-out.
+			if m := lineValue.FindStringSubmatch(lines[n-1]); paths[file][n] || slices.Contains(selectorKeys,
+				strings.Trim(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(m[1]), "-")), `:"'`)) {
+				continue
+			}
+			entry := files[file]
+			if entry < 0 { // the last entry of this kustomization starting at or before the line
+				for i, e := range o.entries {
+					if e.kf.path == file && e.line <= n && (entry < 0 || e.line >= o.entries[entry].line) {
+						entry = i
+					}
+				}
+			}
+			_, _, str := perturbLine(o.orig[file], n, "")
+			out = append(out, kline{file, n, entry, str})
+		}
+	}
+
+	return out
+}
+
+// forBuild adds to the overlay's own kustomization the buildMetadata LoadOverlay gives it.
+func (o *Overlay) forBuild(file string, data []byte) []byte {
+	if file == o.top {
+		return append(data, "\nbuildMetadata: [originAnnotations]\n"...)
+	}
+	return data
+}
+
+// lineMark is the suffix line j's string gets in the shared build; "_" ends it, so line 1's isn't part of 12's.
+func lineMark(j int) string { return "p9_" + strconv.Itoa(j) + "_" }
+
+func sameKeys(a, b map[KField]any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for f := range a {
+		if _, ok := b[f]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+var selectorKeys = []string{"apiVersion", "kind", "name", "op", "path", "group", "version", "$patch"}
+
+// lineValue matches a line that sets one scalar: "key: value" or "- value", with an optional trailing comment.
+var lineValue = regexp.MustCompile(`^(\s*(?:-\s+)?(?:["']?[\w./$-]+["']?:\s+)?)(\S.*?)\s*(#.*)?$`)
+
+// valueLines are the 1-based lines perturbLine can change.
+func valueLines(data []byte) []int {
+	var ls []int
+	for i := range strings.Count(string(data), "\n") + 1 {
+		if _, ok, _ := perturbLine(data, i+1, "p9"); ok {
+			ls = append(ls, i+1)
+		}
+	}
+	return ls
+}
+
+// perturbLine changes the scalar value line sets, as perturb does for Helm values: a string gets a suffix, an
+// integer goes up by one, a boolean flips. Inline patches and block scalars are text, so their lines count too.
+// A string gets mark as its suffix; str reports a string.
+func perturbLine(data []byte, line int, mark string) (out []byte, ok, str bool) {
+	lines := strings.Split(string(data), "\n")
+	m := lineValue.FindStringSubmatch(lines[line-1])
+	if m == nil || strings.TrimSpace(m[1]) == "" {
+		return nil, false, false
+	}
+	v := m[2]
+	str = true
+	switch {
+	case strings.ContainsAny(v[:1], "|>{[&*!") || strings.HasSuffix(v, ":"):
+		return nil, false, false
+	case len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0]:
+		v = v[:len(v)-1] + mark + v[len(v)-1:]
+	case v == "true" || v == "false":
+		v, str = strconv.FormatBool(v == "false"), false
+	default:
+		if n, err := strconv.Atoi(v); err == nil {
+			v, str = strconv.Itoa(n+1), false
+		} else {
+			v += mark
+		}
+	}
+	lines[line-1] = m[1] + v
+	return []byte(strings.Join(lines, "\n")), true, str
+}
+
 // kcached is what an overlay cache file holds: which entries move each field and add each document.
 type kcached struct {
 	Entries int
 	Affects map[KField][]int
 	AddedBy map[string]int
+	Lines   int
+	Writes  map[KField][]int
 }
 
 // overlayCachePath is the cache file for o's files and overlay, "" when cache is "" or no key can be made.
@@ -391,6 +656,42 @@ func (o *Overlay) ExplainOverlay(f KField) (Answer, error) {
 			break
 		}
 		a.Leaves = []Leaf{{Entry: "resource", Value: val, Chain: []Source{{File: o.disk(file), Line: line, Value: val, Default: true}}}}
+	}
+
+	// Lines whose own edit moves the field are ground truth: keep the answer only when it names some and only those.
+	ws := o.writes[f]
+	if len(ws) == 0 {
+		return a, nil
+	}
+	named := 0
+	for _, l := range a.Leaves {
+		src := l.Chain[0]
+		if src.Line == 0 || strings.HasSuffix(l.Entry, ")") {
+			continue
+		}
+		if !slices.ContainsFunc(ws, func(j int) bool {
+			return o.disk(strings.TrimPrefix(o.lines[j].file, "/")) == src.File && o.lines[j].line == src.Line
+		}) {
+			named = 0
+			break
+		}
+		named++
+	}
+	if named > 0 {
+		return a, nil
+	}
+	a.Kind, a.Leaves = Direct, nil
+	if len(ws) > 1 {
+		a.Kind = Composed
+	}
+	for _, j := range ws {
+		l := o.lines[j]
+		file := strings.TrimPrefix(l.file, "/")
+		label := file
+		if l.entry >= 0 {
+			label = o.entries[l.entry].label
+		}
+		a.Leaves = append(a.Leaves, Leaf{Entry: label, Value: val, Chain: []Source{{File: o.disk(file), Line: l.line, Value: val}}})
 	}
 
 	return a, nil
