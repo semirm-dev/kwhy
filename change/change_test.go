@@ -445,6 +445,31 @@ func TestWriteMarkdownLimit(t *testing.T) {
 	}
 }
 
+// Failures alone past the limit are cut too: GitHub refuses a longer comment.
+func TestWriteMarkdownLimitKeptRows(t *testing.T) {
+	var is []change.Impact
+	for n := range 3000 {
+		is = append(is, change.Impact{Verdict: change.WillFail, Resource: fmt.Sprintf("Job prod/migrate-%04d", n), Detail: "spec.template is immutable"})
+	}
+	is = append(is, change.Impact{Verdict: change.Restart, Resource: "Deployment prod/api", Pods: 1, Detail: "image"})
+
+	var b bytes.Buffer
+	if err := change.WriteMarkdown(&b, is); err != nil {
+		t.Fatal(err)
+	}
+
+	out := b.String()
+	if n := utf8.RuneCountInString(out); n > 65000 {
+		t.Errorf("%d characters, over the comment limit", n)
+	}
+	for _, want := range []string{"`Job prod/migrate-0000`", "3000 apply errors", "more, run `kwhy change` locally",
+		"<details><summary>1 more change</summary>", "</details>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
 func TestDiffServiceSelector(t *testing.T) {
 	const app = `
 kind: Deployment

@@ -75,33 +75,40 @@ func WriteMarkdown(w io.Writer, is []Impact) error {
 
 		b.Reset()
 		b.WriteString(head)
+		details := fmt.Sprintf("\n<details><summary>%s</summary>\n\n%s", plural(len(rest), "more change"), tableHead)
+		const end = "</details>\n"
 		if len(top) > 0 {
 			b.WriteString(tableHead)
-			for _, i := range top {
-				b.WriteString(row(i))
+			// Leave room for this list's own "…and N more", the summary, and the collapsed list's head and end.
+			if n := len(top) - fit(&b, top, 2*len(fmt.Sprintf(more, len(is)))+len(foot)+len(details)+len(end)); n > 0 {
+				fmt.Fprintf(&b, more, n)
 			}
 		}
 		b.WriteString(foot)
-		fmt.Fprintf(&b, "\n<details><summary>%s</summary>\n\n%s", plural(len(rest), "more change"), tableHead)
-
-		const tail = "\n…and 1000000 more, run `kwhy change` locally for the full list.\n</details>\n"
-		shown := 0
-		for _, i := range rest {
-			r := row(i)
-			if b.Len()+len(r)+len(tail) > maxComment {
-				break
-			}
-			b.WriteString(r)
-			shown++
+		b.WriteString(details)
+		if n := len(rest) - fit(&b, rest, len(fmt.Sprintf(more, len(is)))+len(end)); n > 0 {
+			fmt.Fprintf(&b, more, n)
 		}
-		if n := len(rest) - shown; n > 0 {
-			fmt.Fprintf(&b, "\n…and %d more, run `kwhy change` locally for the full list.\n", n)
-		}
-		b.WriteString("</details>\n")
+		b.WriteString(end)
 	}
 
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+const more = "\n…and %d more, run `kwhy change` locally for the full list.\n"
+
+// fit writes the rows of is to b while b stays reserve bytes under the comment limit, and says how many it wrote.
+func fit(b *strings.Builder, is []Impact, reserve int) int {
+	for n, i := range is {
+		r := row(i)
+		if b.Len()+len(r)+reserve > maxComment {
+			return n
+		}
+		b.WriteString(r)
+	}
+
+	return len(is)
 }
 
 // WriteJSON writes impacts as kwhy.change/v1 JSON.
