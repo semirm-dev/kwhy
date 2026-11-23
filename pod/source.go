@@ -12,19 +12,30 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// reads are the pod spec fields each filter plugin checks, as path prefixes. NodeResourcesFit and NodePorts
-// are matched in Reads, since their fields sit inside container lists.
-var reads = map[string][]string{
-	"NodeName":           {".spec.nodeName"},
-	"TaintToleration":    {".spec.tolerations"},
-	"NodeAffinity":       {".spec.nodeSelector", ".spec.affinity.nodeAffinity"},
-	"InterPodAffinity":   {".spec.affinity.podAffinity", ".spec.affinity.podAntiAffinity"},
-	"PodTopologySpread":  {".spec.topologySpreadConstraints"},
-	"VolumeBinding":      {".spec.volumes"},
-	"VolumeZone":         {".spec.volumes"},
-	"VolumeRestrictions": {".spec.volumes"},
-	"NodeVolumeLimits":   {".spec.volumes"},
-}
+var (
+	// reads are the pod spec fields each filter plugin checks, as path prefixes. NodeResourcesFit and NodePorts
+	// are matched in Reads, since their fields sit inside container lists.
+	reads = map[string][]string{
+		"NodeName":           {".spec.nodeName"},
+		"TaintToleration":    {".spec.tolerations"},
+		"NodeAffinity":       {".spec.nodeSelector", ".spec.affinity.nodeAffinity"},
+		"InterPodAffinity":   {".spec.affinity.podAffinity", ".spec.affinity.podAntiAffinity"},
+		"PodTopologySpread":  {".spec.topologySpreadConstraints"},
+		"VolumeBinding":      {".spec.volumes"},
+		"VolumeZone":         {".spec.volumes"},
+		"VolumeRestrictions": {".spec.volumes"},
+		"NodeVolumeLimits":   {".spec.volumes"},
+	}
+
+	// problemReads are the container fields each problem kind involves.
+	problemReads = map[string][]string{
+		Pull:   {"image"},
+		Crash:  {"command", "args", "image"},
+		OOM:    {"resources.limits.memory"},
+		Config: {"env", "envFrom"},
+		Probe:  {"readinessProbe", "livenessProbe", "startupProbe"},
+	}
+)
 
 // Source is where a field a failing check reads is set, found by kwhy value.
 type Source struct {
@@ -64,15 +75,6 @@ func Reads(c Check, path string) bool {
 	return slices.ContainsFunc(reads[c.Plugin], func(prefix string) bool { return under(path, prefix) })
 }
 
-// problemReads are the container fields each problem kind involves.
-var problemReads = map[string][]string{
-	Pull:   {"image"},
-	Crash:  {"command", "args", "image"},
-	OOM:    {"resources.limits.memory"},
-	Config: {"env", "envFrom"},
-	Probe:  {"readinessProbe", "livenessProbe", "startupProbe"},
-}
-
 // ReadsProblem says whether problem pr involves the pod spec field at path. i is the position of pr's container
 // in the spec's containers (or initContainers) list, -1 if unknown.
 func ReadsProblem(pr Problem, path string, i int) bool {
@@ -95,11 +97,6 @@ func ReadsProblem(pr Problem, path string, i int) bool {
 	prefix := fmt.Sprintf(".spec.%s[%d].", list, i)
 
 	return slices.ContainsFunc(problemReads[pr.Kind], func(f string) bool { return under(path, prefix+f) })
-}
-
-// under says whether path is prefix or a field inside it.
-func under(path, prefix string) bool {
-	return path == prefix || strings.HasPrefix(path, prefix+".") || strings.HasPrefix(path, prefix+"[")
 }
 
 // Owner is the workload that creates p, as kind and name ("Deployment", "api"); a ReplicaSet is followed to its
@@ -133,4 +130,9 @@ func Owner(ctx context.Context, c kubernetes.Interface, p *v1.Pod) (kind, name s
 	}
 
 	return "ReplicaSet", rs.Name, nil
+}
+
+// under says whether path is prefix or a field inside it.
+func under(path, prefix string) bool {
+	return path == prefix || strings.HasPrefix(path, prefix+".") || strings.HasPrefix(path, prefix+"[")
 }

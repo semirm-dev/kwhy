@@ -212,6 +212,21 @@ type Doc struct {
 	Object                map[string]any
 }
 
+// newDoc wraps a decoded object; namespace is used when the object has none.
+func newDoc(src string, obj map[string]any, namespace string) Doc {
+	d := Doc{Source: src, Object: obj, Namespace: namespace}
+	d.Kind, _ = obj["kind"].(string)
+
+	if md, ok := obj["metadata"].(map[string]any); ok {
+		d.Name, _ = md["name"].(string)
+		if ns, ok := md["namespace"].(string); ok && ns != "" {
+			d.Namespace = ns
+		}
+	}
+
+	return d
+}
+
 // ValuesFile is the default values.yaml of the chart or one of its enabled subcharts.
 type ValuesFile struct {
 	Mount []string // where its values sit in the coalesced values: nil for the root chart, {"sub"} for a subchart
@@ -247,21 +262,6 @@ func appendDoc(docs *[]Doc, src, manifest, namespace string) error {
 	*docs = append(*docs, newDoc(src, obj, namespace))
 
 	return nil
-}
-
-// newDoc wraps a decoded object; namespace is used when the object has none.
-func newDoc(src string, obj map[string]any, namespace string) Doc {
-	d := Doc{Source: src, Object: obj, Namespace: namespace}
-	d.Kind, _ = obj["kind"].(string)
-
-	if md, ok := obj["metadata"].(map[string]any); ok {
-		d.Name, _ = md["name"].(string)
-		if ns, ok := md["namespace"].(string); ok && ns != "" {
-			d.Namespace = ns
-		}
-	}
-
-	return d
 }
 
 func source(manifest string) string {

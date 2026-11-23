@@ -16,19 +16,21 @@ import (
 	"github.com/semirm-dev/kwhy/render"
 )
 
-var changeWriters = map[string]func(io.Writer, []change.Impact) error{
-	"human": change.WriteHuman, "markdown": change.WriteMarkdown, "json": change.WriteJSON,
-}
-
-// failVerdicts maps --fail-on names to verdicts: each verdict with - for spaces, plus fail and data-loss.
-var failVerdicts = func() map[string]change.Verdict {
-	m := map[string]change.Verdict{"fail": change.WillFail, "data-loss": change.Data}
-	for _, v := range change.Verdicts {
-		m[strings.ReplaceAll(string(v), " ", "-")] = v
+var (
+	changeWriters = map[string]func(io.Writer, []change.Impact) error{
+		"human": change.WriteHuman, "markdown": change.WriteMarkdown, "json": change.WriteJSON,
 	}
 
-	return m
-}()
+	// failVerdicts maps --fail-on names to verdicts: each verdict with - for spaces, plus fail and data-loss.
+	failVerdicts = func() map[string]change.Verdict {
+		m := map[string]change.Verdict{"fail": change.WillFail, "data-loss": change.Data}
+		for _, v := range change.Verdicts {
+			m[strings.ReplaceAll(string(v), " ", "-")] = v
+		}
+
+		return m
+	}()
+)
 
 func changeCmd() *cobra.Command {
 	var (

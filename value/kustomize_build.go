@@ -25,60 +25,6 @@ var (
 	kScalarKeys = []string{"namespace", "namePrefix", "nameSuffix"}
 )
 
-// copyMem copies every file of one in-memory filesystem into another.
-func copyMem(from, to filesys.FileSystem) error {
-	return from.Walk("/", func(p string, info fs.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return err
-		}
-		data, err := from.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		return to.WriteFile(p, data)
-	})
-}
-
-// copyDir copies the file or directory p, an in-memory path, from disk into memory, each file once. A path that isn't
-// on disk copies nothing: render.Offline or Kustomize reports it.
-func (o *Overlay) copyDir(p string) error {
-	return filepath.WalkDir(filepath.Join(o.root, filepath.FromSlash(p)), func(dp string, d fs.DirEntry, err error) error {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if d.IsDir() && d.Name() == ".git" {
-			return filepath.SkipDir
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-
-		rel, err := filepath.Rel(o.root, dp)
-		if err != nil {
-			return err
-		}
-
-		mp := "/" + filepath.ToSlash(rel)
-		if _, ok := o.orig[mp]; ok {
-			return nil
-		}
-
-		data, err := os.ReadFile(dp)
-		if err != nil {
-			return err
-		}
-		if o.mem.WriteFile(mp, data) != nil {
-			return nil // a name the in-memory filesystem refuses ("..file.txt"); Kustomize couldn't read it either
-		}
-		o.orig[mp] = data
-
-		return nil
-	})
-}
-
 // loadStack returns the kustomization in dir and every local one it pulls in, dir first. Loading the overlay (root
 // set), it copies each directory of the stack, and each file it names, from disk as it finds them: Kustomize reads no
 // file outside a kustomization's own directory, so the rest of the repo stays on disk. A worker's copy (root unset)
@@ -149,7 +95,87 @@ func (o *Overlay) loadStack(dir string) ([]*kfile, error) {
 	return out, visit(dir)
 }
 
+// copyDir copies the file or directory p, an in-memory path, from disk into memory, each file once. A path that isn't
+// on disk copies nothing: render.Offline or Kustomize reports it.
+func (o *Overlay) copyDir(p string) error {
+	return filepath.WalkDir(filepath.Join(o.root, filepath.FromSlash(p)), func(dp string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(o.root, dp)
+		if err != nil {
+			return err
+		}
+
+		mp := "/" + filepath.ToSlash(rel)
+		if _, ok := o.orig[mp]; ok {
+			return nil
+		}
+
+		data, err := os.ReadFile(dp)
+		if err != nil {
+			return err
+		}
+		if o.mem.WriteFile(mp, data) != nil {
+			return nil // a name the in-memory filesystem refuses ("..file.txt"); Kustomize couldn't read it either
+		}
+		o.orig[mp] = data
+
+		return nil
+	})
+}
+
+func (o *Overlay) write(kf *kfile) error {
+	data, err := yaml.Marshal(kf.doc)
+	if err != nil {
+		return err
+	}
+
+	return o.mem.WriteFile(kf.path, data)
+}
+
+func (o *Overlay) build() (map[KField]any, []KDoc, error) {
+	rm, err := krusty.MakeKustomizer(krusty.MakeDefaultOptions()).Run(o.mem, o.target)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return flattenAll(rm)
+}
+
 type ynode struct{ *yaml.Node }
+
+func (n ynode) contentOrNil() []*yaml.Node {
+	if n.Node == nil {
+		return nil
+	}
+
+	return n.Content
+}
+
+// copyMem copies every file of one in-memory filesystem into another.
+func copyMem(from, to filesys.FileSystem) error {
+	return from.Walk("/", func(p string, info fs.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		data, err := from.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return to.WriteFile(p, data)
+	})
+}
 
 func kget(m *yaml.Node, key string) ynode {
 	if m == nil || m.Kind != yaml.MappingNode {
@@ -162,14 +188,6 @@ func kget(m *yaml.Node, key string) ynode {
 	}
 
 	return ynode{}
-}
-
-func (n ynode) contentOrNil() []*yaml.Node {
-	if n.Node == nil {
-		return nil
-	}
-
-	return n.Content
 }
 
 func findEntries(kf *kfile) []*kentry {
@@ -225,24 +243,6 @@ func cut(e *kentry) []*yaml.Node {
 
 func restore(e *kentry, removed []*yaml.Node) {
 	e.parent.Content = slices.Insert(e.parent.Content, e.index, removed...)
-}
-
-func (o *Overlay) write(kf *kfile) error {
-	data, err := yaml.Marshal(kf.doc)
-	if err != nil {
-		return err
-	}
-
-	return o.mem.WriteFile(kf.path, data)
-}
-
-func (o *Overlay) build() (map[KField]any, []KDoc, error) {
-	rm, err := krusty.MakeKustomizer(krusty.MakeDefaultOptions()).Run(o.mem, o.target)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return flattenAll(rm)
 }
 
 // flattenAll keys documents by kind + origin + position among those (rule 1) and lists by name (rule 2).

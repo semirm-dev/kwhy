@@ -13,6 +13,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
+type group struct {
+	label string
+	cells []string
+}
+
 // WriteHuman writes, for a terminal, the node × check matrix of an unscheduled pod, or the problems of a pod on
 // a node.
 func WriteHuman(w io.Writer, p *v1.Pod, r Result) error {
@@ -137,6 +142,28 @@ func WriteJSON(w io.Writer, p *v1.Pod, r Result) error {
 		r.PreemptNode, r.Victims, r.PDBViolations, r.PreemptSampled, r.Problems, r.Sources})
 }
 
+// WriteHealthy writes the answer for a workload whose pods are all ready, in output (human, markdown or json).
+func WriteHealthy(w io.Writer, output, namespace, workload string, h Healthy) error {
+	line := fmt.Sprintf("%s/%s: %s.", namespace, workload, h)
+
+	switch output {
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(struct {
+			Schema    string `json:"schema"`
+			Namespace string `json:"namespace"`
+			Workload  string `json:"workload"`
+			Ready     int    `json:"ready"`
+		}{"kwhy.pod/v1", namespace, workload, h.Pods})
+	case "markdown":
+		line = "**" + line + "**"
+	}
+
+	_, err := fmt.Fprintln(w, line)
+	return err
+}
+
 func preempt(r Result) string {
 	s := fmt.Sprintf("Preempting lower-priority pods would make room on %s (%s).", plural(len(r.Preempt), "node"), strings.Join(r.Preempt, ", "))
 	if r.PreemptNode == "" {
@@ -257,11 +284,6 @@ func plural(n int, s string) string {
 	return fmt.Sprintf("%d %ss", n, s)
 }
 
-type group struct {
-	label string
-	cells []string
-}
-
 func title(p *v1.Pod, r Result) string {
 	fit := 0
 	for _, n := range r.Nodes {
@@ -374,26 +396,4 @@ func age(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
-}
-
-// WriteHealthy writes the answer for a workload whose pods are all ready, in output (human, markdown or json).
-func WriteHealthy(w io.Writer, output, namespace, workload string, h Healthy) error {
-	line := fmt.Sprintf("%s/%s: %s.", namespace, workload, h)
-
-	switch output {
-	case "json":
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(struct {
-			Schema    string `json:"schema"`
-			Namespace string `json:"namespace"`
-			Workload  string `json:"workload"`
-			Ready     int    `json:"ready"`
-		}{"kwhy.pod/v1", namespace, workload, h.Pods})
-	case "markdown":
-		line = "**" + line + "**"
-	}
-
-	_, err := fmt.Fprintln(w, line)
-	return err
 }

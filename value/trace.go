@@ -40,62 +40,6 @@ type Index struct {
 	cacheDir, cacheKey string // cacheKey "" when not cached
 }
 
-// trace renders with the values replaced by unique markers, chunk by chunk, and records which
-// leaves show up in which fields. Non-empty strings and non-zero numbers are marked; bools, zeros
-// and empty strings steer control flow (each `if` they flip would need its own render) and are
-// left to Explain. chunkSize is how many leaves one render marks (ChunkSize unless tuning).
-func trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunkSize int) (*Index, error) {
-	docs, err := c.Render(ctx, v.User, o)
-	if err != nil {
-		return nil, err
-	}
-
-	again, err := c.Render(ctx, v.User, o)
-	if err != nil {
-		return nil, err
-	}
-
-	coalesced, err := c.Coalesce(v.User)
-	if err != nil {
-		return nil, err
-	}
-
-	idx := &Index{Docs: docs, Fields: Flatten(docs), Hits: map[Field][]Hit{}, Random: map[Field]bool{}, Unmarkable: map[int]string{}, coalesced: coalesced}
-	second := Flatten(again)
-	for f, val := range idx.Fields {
-		if other, ok := second[f]; !ok || other != val {
-			idx.Random[f] = true
-		}
-	}
-
-	base := markerBase(v.Leaves)
-	var marked []Leaf
-	for _, l := range v.Leaves {
-		if s, ok := l.Value.(string); ok && s != "" {
-			marked = append(marked, l)
-		} else if n, ok := whole(l.Value); ok && n != 0 && base+len(v.Leaves) < 1e6 {
-			marked = append(marked, l)
-		}
-	}
-
-	t := &tracer{c: c, o: o, user: v.User, idx: idx, base: base}
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(runtime.GOMAXPROCS(0))
-	for chunk := range slices.Chunk(marked, chunkSize) {
-		g.Go(func() error { return t.mark(gctx, chunk) })
-	}
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	// Chunks finish in any order; sort so answers list leaves the same way every run.
-	for _, hits := range idx.Hits {
-		slices.SortStableFunc(hits, func(a, b Hit) int { return a.Leaf - b.Leaf })
-	}
-
-	return idx, nil
-}
-
 // Hit says a leaf's marker shows up in a rendered field.
 type Hit struct {
 	Leaf    int  // Leaf.ID
@@ -181,6 +125,62 @@ func (t *tracer) mark(ctx context.Context, chunk []Leaf) error {
 	}
 
 	return nil
+}
+
+// trace renders with the values replaced by unique markers, chunk by chunk, and records which
+// leaves show up in which fields. Non-empty strings and non-zero numbers are marked; bools, zeros
+// and empty strings steer control flow (each `if` they flip would need its own render) and are
+// left to Explain. chunkSize is how many leaves one render marks (ChunkSize unless tuning).
+func trace(ctx context.Context, c *render.Chart, v *Values, o render.Options, chunkSize int) (*Index, error) {
+	docs, err := c.Render(ctx, v.User, o)
+	if err != nil {
+		return nil, err
+	}
+
+	again, err := c.Render(ctx, v.User, o)
+	if err != nil {
+		return nil, err
+	}
+
+	coalesced, err := c.Coalesce(v.User)
+	if err != nil {
+		return nil, err
+	}
+
+	idx := &Index{Docs: docs, Fields: Flatten(docs), Hits: map[Field][]Hit{}, Random: map[Field]bool{}, Unmarkable: map[int]string{}, coalesced: coalesced}
+	second := Flatten(again)
+	for f, val := range idx.Fields {
+		if other, ok := second[f]; !ok || other != val {
+			idx.Random[f] = true
+		}
+	}
+
+	base := markerBase(v.Leaves)
+	var marked []Leaf
+	for _, l := range v.Leaves {
+		if s, ok := l.Value.(string); ok && s != "" {
+			marked = append(marked, l)
+		} else if n, ok := whole(l.Value); ok && n != 0 && base+len(v.Leaves) < 1e6 {
+			marked = append(marked, l)
+		}
+	}
+
+	t := &tracer{c: c, o: o, user: v.User, idx: idx, base: base}
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(runtime.GOMAXPROCS(0))
+	for chunk := range slices.Chunk(marked, chunkSize) {
+		g.Go(func() error { return t.mark(gctx, chunk) })
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Chunks finish in any order; sort so answers list leaves the same way every run.
+	for _, hits := range idx.Hits {
+		slices.SortStableFunc(hits, func(a, b Hit) int { return a.Leaf - b.Leaf })
+	}
+
+	return idx, nil
 }
 
 // markerBase is the first numeric marker. Markers must stay below 1e6, where Helm starts printing

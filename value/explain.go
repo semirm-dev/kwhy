@@ -20,6 +20,156 @@ const (
 	Random     Kind = "random"     // differs between two identical renders
 )
 
+// ExplainAll explains every field of document doc, sorted by path.
+func (idx *Index) ExplainAll(ctx context.Context, doc int) ([]Answer, error) {
+	var fields []Field
+	for f := range idx.Fields {
+		if f.Doc == doc {
+			fields = append(fields, f)
+		}
+	}
+
+	var out []Answer
+	slices.SortFunc(fields, func(a, b Field) int { return strings.Compare(a.Path, b.Path) })
+	for _, f := range fields {
+		a, err := idx.Explain(ctx, f)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+
+	return out, nil
+}
+
+// explain says which values leaves produce field f and how. Marker hits answer most fields; the
+// rest are found by perturbing leaves in groups and watching f.
+func (idx *Index) explain(ctx context.Context, f Field) (Answer, error) {
+	c, v, o := idx.c, idx.v, idx.o
+	val, ok := idx.Fields[f]
+	if !ok {
+		return Answer{}, fmt.Errorf("unknown field %s", f.Path)
+	}
+
+	d := idx.Docs[f.Doc]
+	a := Answer{Resource: d.Kind + "/" + d.Name, Field: f, Value: val, Template: d.Source}
+	if idx.Random[f] {
+		a.Kind = Random
+		return a, nil
+	}
+
+	if strings.HasPrefix(f.Path[strings.LastIndexAny(f.Path, ".[")+1:], "checksum/") {
+		a.Kind = Hashed
+		return a, nil
+	}
+
+	if hits := idx.Hits[f]; len(hits) > 0 {
+		a.Kind = Composed
+		if len(hits) == 1 && hits[0].Exact && !hits[0].Encoded {
+			a.Kind = Direct
+			if v.Leaves[hits[0].Leaf].Value == "" { // the field shows the template's fallback, not the leaf
+				a.Kind = Derived
+			}
+		}
+
+		for _, h := range hits {
+			if h.Encoded {
+				a.Kind = Encoded
+			}
+			a.Leaves = append(a.Leaves, v.Leaves[h.Leaf])
+		}
+
+		moved, err := idx.emptyLeaves(ctx, f)
+		if err != nil {
+			return Answer{}, err
+		}
+
+		for _, r := range moved {
+			if !slices.ContainsFunc(hits, func(h Hit) bool { return h.Leaf == r.leaf.ID }) {
+				a.Leaves = append(a.Leaves, r.leaf)
+				if a.Kind == Direct { // the empty leaf's fallback picks the field
+					a.Kind = Derived
+				}
+			}
+		}
+
+		return a, nil
+	}
+
+	var candidates, bools []Leaf
+	for _, l := range v.Leaves {
+		if _, ok := l.Value.(bool); ok {
+			bools = append(bools, l)
+		} else {
+			candidates = append(candidates, l) // empty ones too: `default x .Values.y` reads y even when ""
+		}
+	}
+
+	p := perturber{c: c, o: o, idx: idx, user: v.User, field: f}
+	all := append(candidates, bools...)
+	if idx.breakers[0] == nil {
+		var breakers [2]map[int]bool
+		for _, zero := range []bool{false, true} {
+			breakers[mode(zero)] = map[int]bool{}
+			if err := p.breakers(ctx, all, zero, breakers[mode(zero)]); err != nil {
+				return Answer{}, err
+			}
+		}
+		idx.breakers = breakers
+	}
+
+	moved, _, err := p.find(ctx, all, false)
+	if err != nil {
+		return Answer{}, err
+	}
+
+	a.Kind = Chart
+	if len(moved) > 0 {
+		a.Kind = Structural
+	}
+
+	for _, r := range moved {
+		if _, ok := r.leaf.Value.(bool); !ok || !r.removed {
+			a.Kind = Derived
+		}
+		a.Leaves = append(a.Leaves, r.leaf)
+	}
+
+	return a, nil
+}
+
+// emptyLeaves finds the empty-string leaves that move f, which Trace doesn't mark. One render nudging
+// them all is shared by every field, so a field they don't move costs no render of its own.
+func (idx *Index) emptyLeaves(ctx context.Context, f Field) ([]match, error) {
+	v := idx.v
+
+	// Tracing leaves empty strings and zeros unmarked; both are falsy, so `default` and `or` read past them.
+	// Booleans stay out: flipping one switches template blocks, which would credit structure, not the value.
+	var empty []Leaf
+	for _, l := range v.Leaves {
+		if n, ok := whole(l.Value); l.Value == "" || ok && n == 0 {
+			empty = append(empty, l)
+		}
+	}
+
+	p := perturber{c: idx.c, o: idx.o, idx: idx, user: v.User, field: f}
+	if idx.nudged == nil && !idx.nudgeFail {
+		docs, err := p.render(ctx, empty, false)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		idx.nudged, idx.nudgeFail = docs, err != nil
+	}
+
+	val, ok := p.lookup(idx.nudged)
+	if !idx.nudgeFail && ok && val == idx.Fields[f] {
+		return nil, nil
+	}
+
+	moved, _, err := p.find(ctx, empty, !idx.nudgeFail)
+	return moved, err
+}
+
 // Answer explains one rendered field.
 type Answer struct {
 	Resource string `json:"resource"` // "Deployment/rel-api"
@@ -167,156 +317,6 @@ func (p *perturber) breakers(ctx context.Context, set []Leaf, zero bool, out map
 type match struct {
 	leaf    Leaf
 	removed bool // perturbing the leaf removes the field
-}
-
-// explain says which values leaves produce field f and how. Marker hits answer most fields; the
-// rest are found by perturbing leaves in groups and watching f.
-func (idx *Index) explain(ctx context.Context, f Field) (Answer, error) {
-	c, v, o := idx.c, idx.v, idx.o
-	val, ok := idx.Fields[f]
-	if !ok {
-		return Answer{}, fmt.Errorf("unknown field %s", f.Path)
-	}
-
-	d := idx.Docs[f.Doc]
-	a := Answer{Resource: d.Kind + "/" + d.Name, Field: f, Value: val, Template: d.Source}
-	if idx.Random[f] {
-		a.Kind = Random
-		return a, nil
-	}
-
-	if strings.HasPrefix(f.Path[strings.LastIndexAny(f.Path, ".[")+1:], "checksum/") {
-		a.Kind = Hashed
-		return a, nil
-	}
-
-	if hits := idx.Hits[f]; len(hits) > 0 {
-		a.Kind = Composed
-		if len(hits) == 1 && hits[0].Exact && !hits[0].Encoded {
-			a.Kind = Direct
-			if v.Leaves[hits[0].Leaf].Value == "" { // the field shows the template's fallback, not the leaf
-				a.Kind = Derived
-			}
-		}
-
-		for _, h := range hits {
-			if h.Encoded {
-				a.Kind = Encoded
-			}
-			a.Leaves = append(a.Leaves, v.Leaves[h.Leaf])
-		}
-
-		moved, err := idx.emptyLeaves(ctx, f)
-		if err != nil {
-			return Answer{}, err
-		}
-
-		for _, r := range moved {
-			if !slices.ContainsFunc(hits, func(h Hit) bool { return h.Leaf == r.leaf.ID }) {
-				a.Leaves = append(a.Leaves, r.leaf)
-				if a.Kind == Direct { // the empty leaf's fallback picks the field
-					a.Kind = Derived
-				}
-			}
-		}
-
-		return a, nil
-	}
-
-	var candidates, bools []Leaf
-	for _, l := range v.Leaves {
-		if _, ok := l.Value.(bool); ok {
-			bools = append(bools, l)
-		} else {
-			candidates = append(candidates, l) // empty ones too: `default x .Values.y` reads y even when ""
-		}
-	}
-
-	p := perturber{c: c, o: o, idx: idx, user: v.User, field: f}
-	all := append(candidates, bools...)
-	if idx.breakers[0] == nil {
-		var breakers [2]map[int]bool
-		for _, zero := range []bool{false, true} {
-			breakers[mode(zero)] = map[int]bool{}
-			if err := p.breakers(ctx, all, zero, breakers[mode(zero)]); err != nil {
-				return Answer{}, err
-			}
-		}
-		idx.breakers = breakers
-	}
-
-	moved, _, err := p.find(ctx, all, false)
-	if err != nil {
-		return Answer{}, err
-	}
-
-	a.Kind = Chart
-	if len(moved) > 0 {
-		a.Kind = Structural
-	}
-
-	for _, r := range moved {
-		if _, ok := r.leaf.Value.(bool); !ok || !r.removed {
-			a.Kind = Derived
-		}
-		a.Leaves = append(a.Leaves, r.leaf)
-	}
-
-	return a, nil
-}
-
-// ExplainAll explains every field of document doc, sorted by path.
-func (idx *Index) ExplainAll(ctx context.Context, doc int) ([]Answer, error) {
-	var fields []Field
-	for f := range idx.Fields {
-		if f.Doc == doc {
-			fields = append(fields, f)
-		}
-	}
-
-	var out []Answer
-	slices.SortFunc(fields, func(a, b Field) int { return strings.Compare(a.Path, b.Path) })
-	for _, f := range fields {
-		a, err := idx.Explain(ctx, f)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-
-	return out, nil
-}
-
-// emptyLeaves finds the empty-string leaves that move f, which Trace doesn't mark. One render nudging
-// them all is shared by every field, so a field they don't move costs no render of its own.
-func (idx *Index) emptyLeaves(ctx context.Context, f Field) ([]match, error) {
-	v := idx.v
-
-	// Tracing leaves empty strings and zeros unmarked; both are falsy, so `default` and `or` read past them.
-	// Booleans stay out: flipping one switches template blocks, which would credit structure, not the value.
-	var empty []Leaf
-	for _, l := range v.Leaves {
-		if n, ok := whole(l.Value); l.Value == "" || ok && n == 0 {
-			empty = append(empty, l)
-		}
-	}
-
-	p := perturber{c: idx.c, o: idx.o, idx: idx, user: v.User, field: f}
-	if idx.nudged == nil && !idx.nudgeFail {
-		docs, err := p.render(ctx, empty, false)
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		idx.nudged, idx.nudgeFail = docs, err != nil
-	}
-
-	val, ok := p.lookup(idx.nudged)
-	if !idx.nudgeFail && ok && val == idx.Fields[f] {
-		return nil, nil
-	}
-
-	moved, _, err := p.find(ctx, empty, !idx.nudgeFail)
-	return moved, err
 }
 
 // setSparse writes val at path into sparse. Lists on the way are copied whole from coalesced,
