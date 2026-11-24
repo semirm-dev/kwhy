@@ -66,7 +66,8 @@ func Live(ctx context.Context, c kubernetes.Interface, is []Impact) error {
 				*i = o
 			}
 		case workloads[i.doc.Kind] && (i.Verdict == Restart || i.Verdict == Ordered || i.Verdict == Recreate):
-			if _, err := hpasIn(ns); err != nil {
+			hs, err := hpasIn(ns)
+			if err != nil {
 				return err
 			}
 			if _, ok := quotas[ns]; !ok {
@@ -76,7 +77,7 @@ func Live(ctx context.Context, c kubernetes.Interface, is []Impact) error {
 				}
 				quotas[ns] = l.Items
 			}
-			if err := rollout(ctx, c, i, hpas[ns]); err != nil {
+			if err := rollout(ctx, c, i, hs); err != nil {
 				return err
 			}
 			surgeQuota(i, quotas[ns])

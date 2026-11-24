@@ -57,13 +57,6 @@ type Problem struct {
 // Diagnose says why p, which is on a node, isn't running or ready, from its status and recent events. Events
 // expire (an hour by default), so every problem the status shows is found without them.
 func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem, error) {
-	list, err := c.CoreV1().Events(p.Namespace).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.uid=" + string(p.UID)})
-	if err != nil {
-		return nil, fmt.Errorf("list events: %w", err)
-	}
-
-	evs := about(list.Items, p.UID)
-
 	if Terminating(p) {
 		ps := []Problem{{Kind: Stuck, Reason: "Terminating", Detail: terminating(p)}}
 		if pr, ok := nodeProblem(ctx, c, p.Spec.NodeName); ok {
@@ -75,6 +68,13 @@ func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem
 	if p.Status.Phase == v1.PodSucceeded {
 		return nil, nil // ran to completion: no container is ready, and none needs to be
 	}
+
+	list, err := c.CoreV1().Events(p.Namespace).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.uid=" + string(p.UID)})
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+
+	evs := about(list.Items, p.UID)
 
 	if p.Status.Phase == v1.PodFailed && p.Status.Reason == "Evicted" {
 		return []Problem{{Kind: Evicted, Reason: p.Status.Reason, Detail: p.Status.Message}}, nil
