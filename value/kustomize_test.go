@@ -199,3 +199,38 @@ func TestOverlayConfirm(t *testing.T) {
 		}
 	}
 }
+
+// An inline strategic-merge patch names its own line inside the kustomization, past the patch: key.
+func TestOverlayInlineStrategicPatch(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"kustomization.yaml": "resources: [deploy.yaml]\npatches:\n- patch: |-\n    apiVersion: apps/v1\n    kind: Deployment\n" +
+			"    metadata: {name: api}\n    spec:\n      replicas: 4\n",
+		"deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\nspec:\n  replicas: 1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(dir)
+	o, err := value.LoadOverlay(t.Context(), ".", ".", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := o.Select("deploy/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := o.FieldPath(d, ".spec.replicas")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := o.Explain(value.KField{Doc: d.ID, Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Leaves) != 1 || a.Leaves[0].Chain[0].File != "kustomization.yaml" || a.Leaves[0].Chain[0].Line != 8 {
+		t.Fatalf("got %s %+v, want kustomization.yaml:8", a.Kind, a.Leaves)
+	}
+}
