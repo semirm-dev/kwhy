@@ -140,3 +140,76 @@ func TestDrift(t *testing.T) {
 		t.Errorf("drift = %+v", drift)
 	}
 }
+
+// Rollout time follows the strategy: Recreate is one batch, maxSurge and maxUnavailable size the batches.
+func TestLiveEstimate(t *testing.T) {
+	const (
+		deploy = "kind: Deployment\nmetadata: {name: api}\nspec: {replicas: 4, strategy: %s, template: {spec: {containers: [{name: c, image: app:%s}]}}}\n"
+		ds     = "kind: DaemonSet\nmetadata: {name: agent}\nspec: {updateStrategy: {rollingUpdate: {maxUnavailable: 2}}, template: {spec: {containers: [{name: c, image: a:%s}]}}}\n"
+		sts    = "kind: StatefulSet\nmetadata: {name: db}\nspec: {replicas: 3, updateStrategy: {rollingUpdate: {partition: 1}}, template: {spec: {containers: [{name: c, image: pg:%s}]}}}\n"
+	)
+	c := fake.NewClientset(
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "default"}, Status: appsv1.DaemonSetStatus{DesiredNumberScheduled: 4}},
+		// An HPA runs 5: the partition of 1 leaves ordinals 1 to 4 to update.
+		&autoscalingv2.HorizontalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "default"},
+			Spec:   autoscalingv2.HorizontalPodAutoscalerSpec{ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{Kind: "StatefulSet", Name: "db"}, MaxReplicas: 5},
+			Status: autoscalingv2.HorizontalPodAutoscalerStatus{CurrentReplicas: 5}},
+	)
+
+	for _, tc := range []struct {
+		name, base, head string
+		pods, seconds    int
+	}{
+		// Each batch is 10s of pod start.
+		{"recreate is one batch", fmt.Sprintf(deploy, "{type: Recreate}", "1"), fmt.Sprintf(deploy, "{type: Recreate}", "2"), 4, 10},
+		{"one at a time", fmt.Sprintf(deploy, "{rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}", "1"),
+			fmt.Sprintf(deploy, "{rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}", "2"), 4, 40},
+		{"full surge", fmt.Sprintf(deploy, "{rollingUpdate: {maxSurge: '100%'}}", "1"), fmt.Sprintf(deploy, "{rollingUpdate: {maxSurge: '100%'}}", "2"), 4, 10},
+		{"daemonset maxUnavailable", fmt.Sprintf(ds, "1"), fmt.Sprintf(ds, "2"), 4, 20},
+		{"HPA replicas above the partition", fmt.Sprintf(sts, "16"), fmt.Sprintf(sts, "17"), 4, 40},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			is := change.Diff(docs(t, tc.base), docs(t, tc.head))
+			if err := change.Live(t.Context(), c, is); err != nil {
+				t.Fatal(err)
+			}
+			if len(is) != 1 || is[0].Pods != tc.pods || is[0].Seconds != tc.seconds {
+				t.Errorf("got %+v, want %d pods in %ds", is, tc.pods, tc.seconds)
+			}
+		})
+	}
+}
+
+// A partition at or above the manifest's replicas updates no pod, unless an HPA runs more of them or the manifest
+// leaves the count to the cluster. With replicas set and no HPA, apply resets the count: still no pod.
+func TestLivePartitionAboveManifestReplicas(t *testing.T) {
+	const sts = "kind: StatefulSet\nmetadata: {name: %s}\nspec: {%supdateStrategy: {rollingUpdate: {partition: 3}}, template: {spec: {containers: [{name: c, image: pg:%s}]}}}\n"
+	live := func(name string) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}, Spec: appsv1.StatefulSetSpec{Replicas: new(int32(5))}}
+	}
+	c := fake.NewClientset(live("scaled"), live("unset"), live("fixed"),
+		&autoscalingv2.HorizontalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Name: "scaled", Namespace: "default"},
+			Spec:   autoscalingv2.HorizontalPodAutoscalerSpec{ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{Kind: "StatefulSet", Name: "scaled"}, MaxReplicas: 5},
+			Status: autoscalingv2.HorizontalPodAutoscalerStatus{CurrentReplicas: 5}})
+	side := func(v string) string {
+		return fmt.Sprintf(sts, "scaled", "replicas: 3, ", v) + "---" + fmt.Sprintf(sts, "unset", "", v) + "---" + fmt.Sprintf(sts, "fixed", "replicas: 3, ", v)
+	}
+
+	is := change.Diff(docs(t, side("16")), docs(t, side("17")))
+	if err := change.Live(t.Context(), c, is); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, i := range is {
+		got = append(got, fmt.Sprintf("%s|%s|%d|%s", i.Verdict, i.Resource, i.Pods, i.Detail))
+	}
+	want := []string{
+		"ordered|StatefulSet default/scaled|2|one at a time, ordinals 3 and up, HPA 0–5, ~20s",
+		"ordered|StatefulSet default/unset|2|one at a time, ordinals 3 and up, ~20s",
+		"no effect|StatefulSet default/fixed|0|partition 3: no pod is updated",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

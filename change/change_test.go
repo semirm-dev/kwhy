@@ -363,6 +363,23 @@ func TestWriteSummary(t *testing.T) {
 	}
 }
 
+// The summary adds the slowest rollout and the data warnings.
+func TestWriteSummaryEstimateAndData(t *testing.T) {
+	is := []change.Impact{
+		{Verdict: change.Restart, Resource: "Deployment prod/api", Pods: 4, Detail: "image", Seconds: 40},
+		{Verdict: change.Ordered, Resource: "StatefulSet prod/db", Pods: 3, Detail: "one at a time", Seconds: 150},
+		{Verdict: change.Data, Resource: "PersistentVolumeClaim prod/data", Detail: "deleted"},
+	}
+
+	var b bytes.Buffer
+	if err := change.WriteHuman(&b, is); err != nil {
+		t.Fatal(err)
+	}
+	if want := "7 pods restarted · est. 3m · 1 data warning"; !strings.Contains(b.String(), want) {
+		t.Errorf("missing %q in\n%s", want, b.String())
+	}
+}
+
 func TestWriteNothing(t *testing.T) {
 	var b bytes.Buffer
 	if err := change.WriteHuman(&b, nil); err != nil {
@@ -480,6 +497,10 @@ kind: Service
 metadata: {name: api}
 spec: {selector: {app: %s}, ports: [{port: 80}]}
 `
+	const (
+		pod = "kind: Pod\nmetadata: {name: debug, labels: {app: api}}\nspec: {containers: [{name: c, image: t:1}]}\n"
+		svc = "---\nkind: Service\nmetadata: {name: api}\nspec: {selector: {app: %s}, ports: [{port: 80}]}\n"
+	)
 	for _, tc := range []struct {
 		name       string
 		base, head string
@@ -491,6 +512,11 @@ spec: {selector: {app: %s}, ports: [{port: 80}]}
 			[]string{"restart Deployment default/api", "no endpoints Service default/api selector app=api matches no pods"}},
 		{"pods from outside the render", fmt.Sprintf(app, "x", "other"), fmt.Sprintf(app, "x", "other2"), nil},
 		{"still selected", fmt.Sprintf(app, "api", "api"), fmt.Sprintf(app, "api", "api") + "\n---\nkind: ConfigMap\nmetadata: {name: c}\n", []string{"create ConfigMap default/c"}},
+		{"bare pod renamed away", pod + fmt.Sprintf(svc, "api"), pod + fmt.Sprintf(svc, "api-v2"),
+			[]string{"no endpoints Service default/api selector app=api-v2 matches no pods"}},
+		{"pods in another namespace", strings.Replace(pod, "{name: debug,", "{name: debug, namespace: other,", 1) + fmt.Sprintf(svc, "api"),
+			strings.Replace(pod, "{name: debug,", "{name: debug, namespace: other,", 1) + fmt.Sprintf(svc, "api-v2"), nil},
+		{"selector added", pod + "---\nkind: Service\nmetadata: {name: api}\nspec: {ports: [{port: 80}]}\n", pod + fmt.Sprintf(svc, "nope"), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got []string

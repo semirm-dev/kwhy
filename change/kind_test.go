@@ -146,6 +146,22 @@ func (k kind) run(dir string) []change.Verdict {
 		}
 	}
 
+	// The loop above checks only what was predicted: a workload whose pods went with no prediction is a miss.
+	replaced := map[string]bool{}
+	for _, i := range is {
+		switch i.Verdict {
+		case change.Restart, change.Ordered, change.Recreate, change.PickedUp, change.Delete, change.Data:
+			w := i.Resource[strings.LastIndex(i.Resource, " ")+1:]
+			replaced[w[strings.LastIndex(w, "/")+1:]] = true
+		}
+	}
+	for app, pods := range before {
+		after := k.pods(app)
+		if n := len(slices.DeleteFunc(slices.Clone(pods), func(p string) bool { return slices.Contains(after, p) })); n > 0 && !replaced[app] {
+			t.Errorf("%s: %d pods restarted, kwhy predicted none", app, n)
+		}
+	}
+
 	return checked
 }
 

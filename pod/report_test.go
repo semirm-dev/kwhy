@@ -141,6 +141,20 @@ func TestWriteScheduled(t *testing.T) {
 	}
 }
 
+// A pod that ran to completion isn't "ready": it's done.
+func TestWriteCompleted(t *testing.T) {
+	p := newPod("migrate-1", "n1", "1", "1Gi")
+	p.Status.Phase = v1.PodSucceeded
+
+	var b bytes.Buffer
+	if err := pod.WriteHuman(&b, p, pod.Result{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.String(); got != p.Namespace+"/migrate-1 ran on n1 and completed.\n" {
+		t.Errorf("human = %q", got)
+	}
+}
+
 func TestWriteHealthy(t *testing.T) {
 	var human, js bytes.Buffer
 	if err := errors.Join(pod.WriteHealthy(&human, "human", "ml", "deploy/web", pod.Healthy{Pods: 3}),

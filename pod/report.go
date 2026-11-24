@@ -201,6 +201,9 @@ func onNode(p *v1.Pod, r Result) string {
 			failing[pr.Container] = true
 		}
 	}
+	if len(failing) == 0 && p.Status.Phase == v1.PodSucceeded {
+		return fmt.Sprintf("%s/%s ran on %s and completed.", p.Namespace, p.Name, p.Spec.NodeName)
+	}
 	if len(failing) == 0 {
 		return fmt.Sprintf("%s/%s is on %s, %s and ready.", p.Namespace, p.Name, p.Spec.NodeName, p.Status.Phase)
 	}

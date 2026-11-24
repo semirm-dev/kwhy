@@ -836,6 +836,55 @@ func TestCacheTrace(t *testing.T) {
 	}
 }
 
+// An edited template, or other render options, trace again: a cached index would answer for the old render.
+func TestCacheTraceChartAndOptions(t *testing.T) {
+	chart, dir := filepath.Join(t.TempDir(), "mini"), t.TempDir()
+	if err := os.CopyFS(chart, os.DirFS(mini)); err != nil {
+		t.Fatal(err)
+	}
+
+	trace := func(o render.Options) *value.Index {
+		t.Helper()
+		c, err := render.LoadChart(chart, "", cli.New())
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := value.LoadValues(c, values.Options{ValueFiles: []string{prod}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		idx, err := value.Trace(t.Context(), c, v, o, value.ChunkSize, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return idx
+	}
+	files := func() int {
+		fs, _ := filepath.Glob(filepath.Join(dir, "*.gob"))
+		return len(fs)
+	}
+
+	trace(render.Options{})
+	trace(render.Options{Namespace: "shop"})
+	trace(render.Options{KubeVersion: "1.30.0"})
+	if n := files(); n != 3 {
+		t.Errorf("namespace and kube version: cache files = %d, want 3", n)
+	}
+
+	cm := filepath.Join(chart, "templates", "configmap.yaml")
+	data, err := os.ReadFile(cm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cm, append(data, "\n# edited\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trace(render.Options{})
+	if n := files(); n != 4 {
+		t.Errorf("edited template: cache files = %d, want 4", n)
+	}
+}
+
 // A cached answer equals a fresh one.
 func TestCacheExplain(t *testing.T) {
 	c, err := render.LoadChart(mini, "", cli.New())

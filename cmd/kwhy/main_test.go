@@ -60,6 +60,11 @@ func TestRunExitCodes(t *testing.T) {
 		{"pod negative logs", []string{"pod", "x", "--logs", "-1"}, 2},
 		{"pod values without chart", []string{"pod", "x", "-f", "a.yaml"}, 2},
 		{"change bad fail-on", []string{"change", "main..feature", "--chart", "c", "--fail-on", "fail,nope"}, 2},
+		{"pod chart and kustomize", []string{"pod", "x", "--chart", "c", "--kustomize", "k"}, 2},
+		{"value kustomize missing resource", []string{"value", "kustomize", "o"}, 2},
+		{"value kustomize missing path", []string{"value", "kustomize", "o", "deploy/api"}, 2},
+		{"value kustomize path and all", []string{"value", "kustomize", "o", "deploy/api", ".spec.replicas", "--all"}, 2},
+		{"value kustomize bad output", []string{"value", "kustomize", "o", "deploy/api", "--all", "-o", "yaml"}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -113,6 +118,16 @@ func TestRunBaselineRenderFails(t *testing.T) {
 	}
 }
 
+func TestRunValueKustomize(t *testing.T) {
+	const fixture = "../../testdata/kustomize/fixture"
+	var out, errb bytes.Buffer
+	code := run([]string{"value", "kustomize", fixture + "/overlays/prod", "deploy/api", ".spec.replicas", "--root", fixture, "--no-cache"}, &out, &errb)
+
+	if code != 0 || !strings.HasPrefix(out.String(), "3  "+fixture+"/overlays/prod/kustomization.yaml:12  replicas[0] name=api") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+}
+
 func TestRunUnknownPath(t *testing.T) {
 	var errb bytes.Buffer
 	code := run([]string{"value", "chart", mini, "deploy/api", ".spec.replica"}, io.Discard, &errb)
@@ -128,14 +143,7 @@ func TestRunChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Dir = repo
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
+	git := gitIn(t, repo)
 	write := func(name, content string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644); err != nil {
@@ -186,14 +194,7 @@ func TestRunChangeSymlinkOutside(t *testing.T) {
 	if err := os.CopyFS(filepath.Join(repo, "chart"), os.DirFS(mini)); err != nil {
 		t.Fatal(err)
 	}
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Dir = repo
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
+	git := gitIn(t, repo)
 	git("init", "-q", "-b", "main")
 	git("add", ".")
 	git("commit", "-qm", "base")
@@ -226,14 +227,7 @@ func TestRunChangeSymlinkOutside(t *testing.T) {
 // A pull request's overlay that names a base outside the checkout would build it on the CI runner: refused.
 func TestRunChangeKustomizeOutside(t *testing.T) {
 	repo, outside := t.TempDir(), t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Dir = repo
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
+	git := gitIn(t, repo)
 	write := func(dir, name, content string) {
 		t.Helper()
 		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(name)), 0o755); err != nil {
@@ -267,14 +261,7 @@ func TestRunChangeKustomizeOutside(t *testing.T) {
 
 func TestRunChangeManifests(t *testing.T) {
 	repo := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Dir = repo
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
+	git := gitIn(t, repo)
 	deploy := func(image string) {
 		t.Helper()
 		if err := os.MkdirAll(filepath.Join(repo, "k8s"), 0o755); err != nil {
@@ -309,14 +296,7 @@ func TestRunChangeTargets(t *testing.T) {
 	if err := os.CopyFS(filepath.Join(repo, "chart"), os.DirFS(mini)); err != nil {
 		t.Fatal(err)
 	}
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Dir = repo
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
+	git := gitIn(t, repo)
 	write := func(name, content string) {
 		t.Helper()
 		p := filepath.Join(repo, name)
@@ -400,14 +380,7 @@ func TestRunChangeTargets(t *testing.T) {
 
 func TestRunChangeKustomize(t *testing.T) {
 	repo := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Dir = repo
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
+	git := gitIn(t, repo)
 	write := func(name, content string) {
 		t.Helper()
 		p := filepath.Join(repo, name)
@@ -436,5 +409,17 @@ func TestRunChangeKustomize(t *testing.T) {
 	if code := run([]string{"change", "main..feature", "--manifests", "prod"}, &out, &errb); code != 0 ||
 		!strings.Contains(out.String(), "Deployment shop/api") || !strings.Contains(out.String(), "2 → 5") {
 		t.Fatalf("code %d, stdout %q, stderr %q", code, out.String(), errb.String())
+	}
+}
+
+// gitIn runs git commands in repo, failing the test on an error.
+func gitIn(t *testing.T, repo string) func(args ...string) {
+	return func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
 	}
 }

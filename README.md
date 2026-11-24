@@ -348,7 +348,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error, `3` a `--fail-on` verdic
 | `--scheduler-config FILE` | the cluster's `KubeSchedulerConfiguration`: run the pod's profile instead of the default |
 
 It reads the cluster once, with get and list only: nodes, pods, namespaces, volumes and claims, storage, CSI and DRA
-objects, and PodDisruptionBudgets. A healthy pod gets one line (`ns/x is on node-1, Running and ready.`).
+objects, and PodDisruptionBudgets. A healthy pod gets one line (`ns/x is on node-1, Running and ready.`), a finished one too (`ns/x ran on node-1 and completed.`).
 
 Exit codes: `0` ok (a diagnosis is an answer, not an error), `1` runtime error, `2` usage error.
 </details>

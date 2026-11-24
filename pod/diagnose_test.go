@@ -146,6 +146,33 @@ func TestDiagnoseOrderAndHealthy(t *testing.T) {
 		t.Errorf("earlier oom: %+v, want one problem marked earlier", ps)
 	}
 
+	// A container that has stopped (a Job's, or restartPolicy Never) is fine at exit 0, a problem otherwise.
+	done := func(code int32, reason string) v1.ContainerStatus {
+		return v1.ContainerStatus{Name: "app", State: v1.ContainerState{Terminated: &v1.ContainerStateTerminated{ExitCode: code, Reason: reason}}}
+	}
+	// A pod that ran to completion has no problem, though no container is ready.
+	finished := running(done(0, "Completed"))
+	finished.Status.Phase = v1.PodSucceeded
+	if ps := diagnose(t, finished); len(ps) != 0 {
+		t.Errorf("succeeded pod: %+v", ps)
+	}
+
+	initDone := running(ok("app"), ok("sidecar"))
+	initDone.Spec.InitContainers = []v1.Container{{Name: "migrate"}}
+	initDone.Status.InitContainerStatuses = []v1.ContainerStatus{done(0, "Completed")}
+	initDone.Status.InitContainerStatuses[0].Name = "migrate"
+	if ps := diagnose(t, initDone); len(ps) != 0 {
+		t.Errorf("init exit 0: %+v", ps)
+	}
+	if ps := diagnose(t, running(done(3, "Error"), ok("sidecar"))); len(ps) != 1 || ps[0].Kind != pod.Crash || ps[0].Reason != "Error" ||
+		!strings.HasPrefix(ps[0].Detail, "exit 3, 0 restarts") {
+		t.Errorf("exit 3: %+v", ps)
+	}
+	if ps := diagnose(t, running(done(137, "OOMKilled"), ok("sidecar"))); len(ps) != 1 || ps[0].Kind != pod.OOM ||
+		!strings.HasPrefix(ps[0].Detail, "killed at limit 512Mi") || ps[0].Earlier {
+		t.Errorf("oom, stopped: %+v", ps)
+	}
+
 	if ps := diagnose(t, running(waiting("app", "ImagePullBackOff", ""), waiting("sidecar", "ImagePullBackOff", ""))); !slices.EqualFunc(ps,
 		[]string{"app", "sidecar"}, func(p pod.Problem, n string) bool { return p.Container == n }) {
 		t.Errorf("two failing containers: %+v", ps)

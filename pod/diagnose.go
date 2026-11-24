@@ -72,6 +72,10 @@ func Diagnose(ctx context.Context, c kubernetes.Interface, p *v1.Pod) ([]Problem
 		return ps, nil
 	}
 
+	if p.Status.Phase == v1.PodSucceeded {
+		return nil, nil // ran to completion: no container is ready, and none needs to be
+	}
+
 	if p.Status.Phase == v1.PodFailed && p.Status.Reason == "Evicted" {
 		return []Problem{{Kind: Evicted, Reason: p.Status.Reason, Detail: p.Status.Message}}, nil
 	}

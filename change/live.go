@@ -3,6 +3,7 @@ package change
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -23,6 +24,16 @@ const podStart = 10 * time.Second
 // counts, StorageClass expansion and rollout estimates. It only reads.
 func Live(ctx context.Context, c kubernetes.Interface, is []Impact) error {
 	hpas := map[string][]autoscalingv2.HorizontalPodAutoscaler{}
+	hpasIn := func(ns string) ([]autoscalingv2.HorizontalPodAutoscaler, error) {
+		if _, ok := hpas[ns]; !ok {
+			l, err := c.AutoscalingV2().HorizontalPodAutoscalers(ns).List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("list HPAs in %s: %w", ns, err)
+			}
+			hpas[ns] = l.Items
+		}
+		return hpas[ns], nil
+	}
 	quotas := map[string][]corev1.ResourceQuota{}
 	for n := range is {
 		i := &is[n]
@@ -32,13 +43,31 @@ func Live(ctx context.Context, c kubernetes.Interface, is []Impact) error {
 			if err := resize(ctx, c, i); err != nil {
 				return err
 			}
+		case i.Verdict == NoEffect && i.doc.Kind == "StatefulSet" && str(i.doc.Object, "spec", "updateStrategy", "type") != "OnDelete":
+			// The partition is at or above the manifest's replicas. An HPA, or the live count when the manifest
+			// leaves replicas unset, can run pods above it; with replicas set and no HPA, apply resets the count.
+			hs, err := hpasIn(ns)
+			if err != nil {
+				return err
+			}
+			scaled := slices.ContainsFunc(hs, func(h autoscalingv2.HorizontalPodAutoscaler) bool {
+				return h.Spec.ScaleTargetRef.Kind == i.doc.Kind && h.Spec.ScaleTargetRef.Name == i.doc.Name
+			})
+			if !scaled && get(i.doc.Object, "spec", "replicas") != nil {
+				continue
+			}
+			partition, _ := get(i.doc.Object, "spec", "updateStrategy", "rollingUpdate", "partition").(int)
+			o := *i
+			o.Verdict, o.Detail = Ordered, fmt.Sprintf("one at a time, ordinals %d and up", partition)
+			if err := rollout(ctx, c, &o, hs); err != nil {
+				return err
+			}
+			if o.Pods > 0 {
+				*i = o
+			}
 		case workloads[i.doc.Kind] && (i.Verdict == Restart || i.Verdict == Ordered || i.Verdict == Recreate):
-			if _, ok := hpas[ns]; !ok {
-				l, err := c.AutoscalingV2().HorizontalPodAutoscalers(ns).List(ctx, metav1.ListOptions{})
-				if err != nil {
-					return fmt.Errorf("list HPAs in %s: %w", ns, err)
-				}
-				hpas[ns] = l.Items
+			if _, err := hpasIn(ns); err != nil {
+				return err
 			}
 			if _, ok := quotas[ns]; !ok {
 				l, err := c.CoreV1().ResourceQuotas(ns).List(ctx, metav1.ListOptions{})

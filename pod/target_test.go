@@ -158,4 +158,18 @@ func TestTargetWorstPod(t *testing.T) {
 	if !errors.As(err, &h) || h.Pods != 2 || err.Error() != "all 2 pods ready" {
 		t.Errorf("all ready: err = %v", err)
 	}
+
+	// A pod stuck deleting is the workload's state when the others are fine; it no longer counts as live.
+	stuck := onNode("web-stuck", true, 0)
+	stuck.DeletionTimestamp = &metav1.Time{Time: time.Now().Add(-10 * time.Minute)}
+	stuck.Finalizers = []string{"example.com/backup"}
+	c = fake.NewClientset(deploy, onNode("web-a", true, 0), stuck)
+	if p, err := pod.Target(t.Context(), c, "default", "deploy/web"); err != nil || p.Name != "web-stuck" {
+		t.Errorf("stuck pod: got %v, %v; want web-stuck", p, err)
+	}
+
+	c = fake.NewClientset(deploy, onNode("web-a", true, 0))
+	if _, err := pod.Target(t.Context(), c, "default", "deploy/web"); err == nil || err.Error() != "its pod is ready" {
+		t.Errorf("one ready pod: err = %v", err)
+	}
 }
